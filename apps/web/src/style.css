@@ -1,0 +1,278 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ---------- App shell ---------- */
+
+.app__game {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+@media (min-width: 900px) {
+  .app__game {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
+  }
+}
+
+/* ---------- New game form ---------- */
+
+.new-game-form {
+  max-width: 360px;
+  margin: 3rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.new-game-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.new-game-form__warning {
+  color: #a35b00;
+  font-size: 0.9rem;
+}
+
+/* ---------- Round view ---------- */
+
+.round-view__header {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.round-view__abandon {
+  margin-left: auto;
+}
+
+.round-view__primary {
+  font-size: 1.1rem;
+  padding: 0.6rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.round-view__phase--market {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 700px) {
+  .round-view__phase--market {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---------- Grid ---------- */
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: fit-content;
+}
+
+.grid__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: 0.4rem;
+}
+
+.grid__row--extra {
+  opacity: 0.95;
+}
+
+.slot--empty {
+  border: 1px dashed #8883;
+  border-radius: 6px;
+  min-height: 90px;
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.slot__immune-note {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* ---------- Card ---------- */
+
+.card {
+  border: 1px solid #8886;
+  border-radius: 6px;
+  padding: 0.4rem;
+  min-height: 90px;
+  width: 100%;
+  text-align: left;
+  background: canvas;
+  color: canvastext;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card--clickable {
+  cursor: pointer;
+}
+
+.card--clickable:hover {
+  border-color: #4a90d9;
+}
+
+.card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.card--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: #8888;
+}
+
+.card--facedown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3335;
+}
+
+.card__facedown-mark {
+  font-size: 1.5rem;
+  opacity: 0.6;
+}
+
+.card__top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.card__name {
+  font-weight: 600;
+}
+
+.card__fame,
+.card__dismiss-cost {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.card__text {
+  font-size: 0.72rem;
+  opacity: 0.8;
+  white-space: normal;
+}
+
+.card__warning {
+  font-size: 0.75rem;
+  color: #a35b00;
+  white-space: normal;
+}
+
+.card--unencodable {
+  border-color: #a35b00;
+}
+
+/* ---------- Market ---------- */
+
+.market {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.5rem;
+}
+
+/* ---------- Fame breakdown ---------- */
+
+.fame-breakdown {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 1rem 0;
+}
+
+.fame-breakdown td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid #8883;
+}
+
+.fame-breakdown__row--needs-ruling {
+  color: #a35b00;
+}
+
+.fame-breakdown__total {
+  font-weight: 700;
+}
+
+.fame-breakdown__note {
+  opacity: 0.7;
+}
+
+/* ---------- Choice prompt ---------- */
+
+.choice-prompt {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.choice-prompt__end {
+  padding: 0.5rem 1.2rem;
+}
+
+/* ---------- Resolve log ---------- */
+
+.resolve-log {
+  border: 1px solid #8883;
+  border-radius: 6px;
+  padding: 0.5rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+
+.resolve-log__entry {
+  white-space: pre-wrap;
+  margin: 0 0 0.5rem 0;
+  font-family: ui-monospace, monospace;
+}
+
+.resolve-log__round {
+  opacity: 0.6;
+}

@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
-// The interactive terminal front-end for FlipToons' solo mode (Season 1
-// only this pass — Season 2's solo starting deck is flagged UNCONFIRMED in
-// setup.ts and out of scope here). Zero dependencies: Node's built-in
-// `node:readline/promises`, nothing else — plan §2's dependency-free-engine
-// constraint extends to this terminal layer too.
+// The interactive terminal front-end for FlipToons' solo mode. Defaults to
+// Season 1 (confirmed against the rulebook quote, §3.7); Season 2 is
+// reachable via --season=2 but is a pattern-matched inference, not a
+// confirmed rule — see setup.ts's buildSeason2SoloStartingDeck comment.
+// Selecting it prints a banner before play starts rather than presenting it
+// as settled; playing it is how that inference gets confirmed or corrected,
+// the same oracle spirit as Phase 0's CLI applied to setup instead of
+// scoring. Zero dependencies: Node's built-in `node:readline/promises`,
+// nothing else — plan §2's dependency-free-engine constraint extends to
+// this terminal layer too.
 //
 // Loop shape, one iteration per phase transition (flip-toonz-structure-plan.md
 // §3.2), driving the SAME phase functions phases.ts already tests:
@@ -362,11 +367,13 @@ export function parseScript(raw: string): string[] {
 // ---------------------------------------------------------------------------
 // Setup / CLI entry point.
 // ---------------------------------------------------------------------------
-export function buildInitialState(seed: number, difficulty: SoloDifficulty = 'normal', startingDeckOverride?: CardId[]): GameState {
-  // Season 1 only this pass — Season 2's solo starting deck is flagged
-  // UNCONFIRMED in setup.ts's buildSeason2SoloStartingDeck comment; the TUI
-  // deliberately never reaches for it.
-  const setup = buildSoloSetup(seed, 1, difficulty)
+export function buildInitialState(
+  seed: number,
+  difficulty: SoloDifficulty = 'normal',
+  startingDeckOverride?: CardId[],
+  season: 1 | 2 = 1,
+): GameState {
+  const setup = buildSoloSetup(seed, season, difficulty)
   return createSoloGameState({
     seed: setup.seed,
     startingDeck: startingDeckOverride ?? setup.startingDeck,
@@ -381,11 +388,13 @@ function parseArgs(argv: string[]): {
   difficulty: SoloDifficulty
   scriptTokens: string[] | null
   deckOverride: CardId[] | null
+  season: 1 | 2
 } {
   let seed = Date.now() >>> 0
   let difficulty: SoloDifficulty = 'normal'
   let scriptTokens: string[] | null = null
   let deckOverride: CardId[] | null = null
+  let season: 1 | 2 = 1
 
   for (const arg of argv) {
     if (arg.startsWith('--seed=')) {
@@ -396,6 +405,12 @@ function parseArgs(argv: string[]): {
         throw new Error(`tui.ts: invalid --difficulty=${v} (expected easy|normal|hard)`)
       }
       difficulty = v
+    } else if (arg.startsWith('--season=')) {
+      const v = arg.slice('--season='.length)
+      if (v !== '1' && v !== '2') {
+        throw new Error(`tui.ts: invalid --season=${v} (expected 1|2)`)
+      }
+      season = v === '2' ? 2 : 1
     } else if (arg.startsWith('--script=')) {
       scriptTokens = parseScript(arg.slice('--script='.length))
     } else if (arg.startsWith('--script-file=')) {
@@ -418,15 +433,23 @@ function parseArgs(argv: string[]): {
     }
   }
   if (!Number.isFinite(seed)) throw new Error('tui.ts: --seed must be a finite number')
-  return { seed, difficulty, scriptTokens, deckOverride }
+  return { seed, difficulty, scriptTokens, deckOverride, season }
 }
+
+// Season 2's solo variant is a pattern-matched inference, not a confirmed
+// rule (see buildInitialState's header comment and setup.ts's
+// buildSeason2SoloStartingDeck). Printed once, before the first phase, so it
+// can never be mistaken for a settled rule mid-game.
+const SEASON_2_UNCONFIRMED_BANNER =
+  'Season 2 solo variant is an UNCONFIRMED best-available inference (see setup.ts) — playing this is how we find out if it\'s right.'
 
 // Only run when invoked directly, not when imported by tests — same
 // convention cli.ts already uses.
 if (import.meta.main) {
-  const { seed, difficulty, scriptTokens, deckOverride } = parseArgs(process.argv.slice(2))
-  const state = buildInitialState(seed, difficulty, deckOverride ?? undefined)
+  const { seed, difficulty, scriptTokens, deckOverride, season } = parseArgs(process.argv.slice(2))
+  const state = buildInitialState(seed, difficulty, deckOverride ?? undefined, season)
   const out: Out = (line) => console.log(line)
+  if (season === 2) out(SEASON_2_UNCONFIRMED_BANNER)
 
   if (scriptTokens) {
     runSoloGame({ state, ask: makeScriptedAsk(scriptTokens), out })

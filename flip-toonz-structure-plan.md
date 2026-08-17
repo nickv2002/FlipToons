@@ -753,3 +753,17 @@ Net result: test suite grew from 138 to **189 passing tests** (`bun test`), type
 - **`snake`** — the main dismiss/stack line and its grid-placement fallbacks are fully encoded. The one remaining piece is the FAQ's nested case: if the card Snake stacks from the toon deck happens to be a Peacock/Rabbit/Turkey, that card's own When-Hired ability is supposed to resolve "after the Flip phase is complete" — a deferred-post-Flip onHire trigger this engine has no mechanism for (onHire currently only fires from inside `hire()`, i.e. a real Market purchase). Same underlying gap affects the dismissed card's own onDismiss in Mongoose's FAQ note, though Mongoose's flag was dropped since that's a general limitation, not Mongoose-specific — documented once in a shared code comment rather than repeated per card.
 
 Full implementation plan for this pass (superseded now that it's done, kept for the reasoning trail) is at `/Users/nick/.claude-profiles/personal/plans/lucky-wishing-tiger.md`.
+
+## 12. Solo-scope pass on build-order step 6 (2026-08-16)
+
+By this point §8's build-order steps 1–2 and step 4 were done for a **solo** engine only (§11): `state.ts`'s `GameState` has no per-player fame, turn order, Critic's Choice, or Final Flip — §8's claim that combined-season/5–8 player setup is "just `Setup` values by this point" was true of the config shape but not of the engine underneath it, since `assignStartingDecks(players, seasons, rng)` (§3.0) has nowhere to plug into a single-player state. Building that for real means building multiplayer state first, which is a new subsystem, not a config tweak — deliberately **out of scope for this pass**.
+
+What this pass did instead, staying inside the existing solo engine:
+
+- **Committed the project to git.** `boardgame-testing/` had been sitting untracked inside the `nick-scripts` repo — no commit history behind the 189 passing tests or either plan doc. Baseline commit `eb16988` fixes that; this pass's changes are a separate commit on top of it.
+- **`packages/engine/setup.test.ts`** — new file, the first dedicated coverage of §3.7/§4.6's setup arithmetic (previously only card *effects* were tested, never `buildSoloSetup`/`createSoloGameState` themselves): starting-deck composition, toon-deck exclusion, difficulty trim counts (17/20/23), determinism from seed, and the pre-filled-market/`toonDeckDepleted` wiring in `createSoloGameState`.
+- **Season 2's solo variant is now reachable**, via `tui.ts`'s new `--season=1|2` flag (default 1, so existing invocations are unaffected). Selecting `--season=2` prints an explicit banner — `buildSeason2SoloStartingDeck` is a pattern-matched inference, not a confirmed rule (§11's own framing) — before the first phase, so playing it is how that inference eventually gets confirmed or corrected, rather than silently presenting a guess as settled.
+
+Net result: test suite grew from 189 to **204 passing tests** (`bun test`), typecheck clean (`bunx tsc --noEmit -p .`).
+
+Combined-season and 5–8 player setup remain **not done** — they need multiplayer `GameState` (per-player fame, turn order, Critic's Choice, Final Flip) to exist first, per the correction above. Full implementation plan for this pass is at `/Users/nick/.claude-profiles/personal/plans/work-your-way-through-radiant-hellman.md`.

@@ -3,6 +3,9 @@ import type { SoloDifficulty } from '../../../../packages/engine/setup'
 
 export type NewGameFormProps = {
   onStart: (seed: number, difficulty: SoloDifficulty, season: 1 | 2) => void
+  onHostOnline: (seed: number, difficulty: SoloDifficulty, season: 1 | 2) => void
+  onRejoin: (roomCode: string) => void
+  remoteError: string | null
 }
 
 // Same framing tui.ts prints before play starts when --season=2 is passed —
@@ -12,10 +15,12 @@ export type NewGameFormProps = {
 const SEASON_2_UNCONFIRMED_BANNER =
   "Season 2 solo variant is an UNCONFIRMED best-available inference (see setup.ts) — playing this is how we find out if it's right."
 
-export function NewGameForm({ onStart }: NewGameFormProps) {
+export function NewGameForm({ onStart, onHostOnline, onRejoin, remoteError }: NewGameFormProps) {
   const [seed, setSeed] = useState(() => String(Date.now() >>> 0))
   const [difficulty, setDifficulty] = useState<SoloDifficulty>('normal')
   const [season, setSeason] = useState<1 | 2>(1)
+  const [hostOnline, setHostOnline] = useState(false)
+  const [rejoinCode, setRejoinCode] = useState('')
 
   return (
     <form
@@ -23,7 +28,9 @@ export function NewGameForm({ onStart }: NewGameFormProps) {
       onSubmit={(e) => {
         e.preventDefault()
         const parsedSeed = Number(seed)
-        onStart(Number.isFinite(parsedSeed) ? parsedSeed : Date.now() >>> 0, difficulty, season)
+        const resolvedSeed = Number.isFinite(parsedSeed) ? parsedSeed : Date.now() >>> 0
+        if (hostOnline) onHostOnline(resolvedSeed, difficulty, season)
+        else onStart(resolvedSeed, difficulty, season)
       }}
     >
       <h1>FlipToons — Solo</h1>
@@ -52,7 +59,24 @@ export function NewGameForm({ onStart }: NewGameFormProps) {
 
       {season === 2 && <p className="new-game-form__warning">{SEASON_2_UNCONFIRMED_BANNER}</p>}
 
-      <button type="submit">Start game</button>
+      <label className="new-game-form__host-online">
+        <input type="checkbox" checked={hostOnline} onChange={(e) => setHostOnline(e.target.checked)} />
+        Host online (server-hosted, survives a reload — connects to ws://localhost:8787)
+      </label>
+
+      <button type="submit">{hostOnline ? 'Host game' : 'Start game'}</button>
+
+      <div className="new-game-form__rejoin">
+        <label>
+          Rejoin room code
+          <input type="text" value={rejoinCode} onChange={(e) => setRejoinCode(e.target.value.toUpperCase())} placeholder="ABCDE" />
+        </label>
+        <button type="button" disabled={!rejoinCode} onClick={() => onRejoin(rejoinCode)}>
+          Rejoin
+        </button>
+      </div>
+
+      {remoteError && <p className="new-game-form__warning">{remoteError}</p>}
     </form>
   )
 }

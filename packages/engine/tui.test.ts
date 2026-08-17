@@ -11,6 +11,8 @@ import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
 import { makeScriptedAsk, parseScript, runSoloGame } from './tui'
 
+const TUI_PATH = new URL('./tui.ts', import.meta.url).pathname
+
 const cards = cardsById()
 
 // Same 32-fame, order-independent deck phases.test.ts uses for its win test:
@@ -229,5 +231,65 @@ describe('replay substitute: same seed + same script -> identical final state', 
 
     expect(runA).toEqual(runB)
     expect(runA.result === 'win' || runA.result === 'loss').toBe(true)
+  })
+})
+
+// --ai mode (Task 1) — end-to-end through the real CLI entry point (the
+// import.meta.main block), not just the exported functions it calls,
+// because the thing under test here is specifically the CLI's log
+// printing/exit-code wiring, not ai.ts's own decision quality (ai.test.ts's
+// job). Spawns `bun run tui.ts --ai ...` as a real subprocess so the actual
+// process.exit(...) convention is observed, exactly as a caller scripting
+// this mode would see it. Both fixed seeds below are pinned to a known
+// result (seed=1 -> win, seed=42 -> loss) so this also proves the exit-code
+// convention (0 on win, 1 on loss) holds for both outcomes, not just one.
+describe('tui.ts --ai autoplay mode (CLI entry point)', () => {
+  test('reaches a deterministic WIN with exit code 0 for a fixed seed, identically across two runs', async () => {
+    const runOnce = () =>
+      Bun.spawnSync(['bun', 'run', TUI_PATH, '--ai', '--seed=1', '--difficulty=easy'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+
+    const runA = runOnce()
+    const runB = runOnce()
+
+    const outA = runA.stdout.toString()
+    const outB = runB.stdout.toString()
+
+    expect(runA.exitCode).toBe(0)
+    expect(runB.exitCode).toBe(0)
+    expect(outA).toBe(outB)
+    expect(outA).toContain('=== Game Over ===')
+    expect(outA).toContain('YOU WIN')
+  })
+
+  test('reaches a deterministic LOSS with exit code 1 for a fixed seed, identically across two runs', async () => {
+    const runOnce = () =>
+      Bun.spawnSync(['bun', 'run', TUI_PATH, '--ai', '--seed=42', '--difficulty=easy'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+
+    const runA = runOnce()
+    const runB = runOnce()
+
+    const outA = runA.stdout.toString()
+    const outB = runB.stdout.toString()
+
+    expect(runA.exitCode).toBe(1)
+    expect(runB.exitCode).toBe(1)
+    expect(outA).toBe(outB)
+    expect(outA).toContain('=== Game Over ===')
+    expect(outA).toContain('YOU LOSE')
+  })
+
+  test('--ai combined with --script= is rejected as mutually exclusive', () => {
+    const run = Bun.spawnSync(['bun', 'run', TUI_PATH, '--ai', '--seed=1', '--script=end'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    expect(run.exitCode).not.toBe(0)
+    expect(run.stderr.toString()).toContain('mutually exclusive')
   })
 })

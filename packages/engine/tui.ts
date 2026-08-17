@@ -24,6 +24,11 @@
 //     list instead of a human at the keyboard — this is how tui.test.ts
 //     proves a full game reaches a deterministic win/loss without a human,
 //     and how this pass's own verification run was produced.
+//   bun run packages/engine/tui.ts --ai [--seed=N] [--difficulty=easy|normal|hard]
+//     Autoplay: drives an entire solo game to completion via ai.ts's
+//     playAutomatically (no human, no script) — reuses --seed for the AI's
+//     own decision rng too, so `--ai --seed=N` reproduces identically
+//     run-to-run. Mutually exclusive with --script=/--script-file=.
 //
 // ARCHITECTURE NOTE: there is exactly ONE loop (`runSoloGame`), with the
 // input source injected as an `Ask` function. Interactive supplies a
@@ -35,12 +40,13 @@
 import { readFileSync } from 'node:fs'
 import * as readline from 'node:readline/promises'
 
+import { playAutomatically } from './ai'
 import { renderGridBoxes } from './cli'
 import type { Card, CardId } from './cards/types'
 import { occupiedSlots } from './grid'
 import { hireCost } from './market'
 import { dismiss, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks } from './phases'
-import { shuffleWithState } from './rng'
+import { makeRng, shuffleWithState } from './rng'
 import { formatBreakdown } from './score'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import type { SoloDifficulty } from './setup'
@@ -389,15 +395,19 @@ function parseArgs(argv: string[]): {
   scriptTokens: string[] | null
   deckOverride: CardId[] | null
   season: 1 | 2
+  ai: boolean
 } {
   let seed = Date.now() >>> 0
   let difficulty: SoloDifficulty = 'normal'
   let scriptTokens: string[] | null = null
   let deckOverride: CardId[] | null = null
   let season: 1 | 2 = 1
+  let ai = false
 
   for (const arg of argv) {
-    if (arg.startsWith('--seed=')) {
+    if (arg === '--ai') {
+      ai = true
+    } else if (arg.startsWith('--seed=')) {
       seed = Number(arg.slice('--seed='.length))
     } else if (arg.startsWith('--difficulty=')) {
       const v = arg.slice('--difficulty='.length)
@@ -433,7 +443,8 @@ function parseArgs(argv: string[]): {
     }
   }
   if (!Number.isFinite(seed)) throw new Error('tui.ts: --seed must be a finite number')
-  return { seed, difficulty, scriptTokens, deckOverride, season }
+  if (ai && scriptTokens) throw new Error('tui.ts: --ai is mutually exclusive with --script=/--script-file=')
+  return { seed, difficulty, scriptTokens, deckOverride, season, ai }
 }
 
 // Season 2's solo variant is a pattern-matched inference, not a confirmed
@@ -446,12 +457,26 @@ const SEASON_2_UNCONFIRMED_BANNER =
 // Only run when invoked directly, not when imported by tests — same
 // convention cli.ts already uses.
 if (import.meta.main) {
-  const { seed, difficulty, scriptTokens, deckOverride, season } = parseArgs(process.argv.slice(2))
+  const { seed, difficulty, scriptTokens, deckOverride, season, ai } = parseArgs(process.argv.slice(2))
   const state = buildInitialState(seed, difficulty, deckOverride ?? undefined, season)
   const out: Out = (line) => console.log(line)
   if (season === 2) out(SEASON_2_UNCONFIRMED_BANNER)
 
-  if (scriptTokens) {
+  if (ai) {
+    // Same --seed also drives the AI's own decision rng (deliberately
+    // separate from the game's own state.rng — see ai.ts's AiOptions
+    // comment), so `--ai --seed=N` is fully reproducible run-to-run.
+    const result = playAutomatically(state, { rng: makeRng(seed) })
+    for (const line of result.logLines) out(line)
+    out('')
+    out('=== Game Over ===')
+    if (result.state.result === 'win') {
+      out(`YOU WIN — reached ${result.state.fameGeneratedThisRound}/${result.state.fameToTriggerEndgame} fame in round ${result.state.round}.`)
+    } else {
+      out(`YOU LOSE — the toon deck depleted and the market could not refill (round ${result.state.round}).`)
+    }
+    process.exit(result.state.result === 'loss' ? 1 : 0)
+  } else if (scriptTokens) {
     runSoloGame({ state, ask: makeScriptedAsk(scriptTokens), out })
       .then((final) => {
         process.exit(final.result === 'loss' ? 1 : 0)

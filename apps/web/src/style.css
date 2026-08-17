@@ -211,9 +211,32 @@ button {
 /* ---------- Market ---------- */
 
 .market {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.market__slots {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 0.5rem;
+}
+
+.market__suggest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.market__suggest-button {
+  padding: 0.4rem 1rem;
+}
+
+.market__suggestion {
+  font-style: italic;
+  opacity: 0.85;
+  margin: 0;
 }
 
 /* ---------- Fame breakdown ---------- */

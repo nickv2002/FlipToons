@@ -91,7 +91,13 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           </div>
           <div className="round-view__market-pane">
             <h2>Market</h2>
-            <Market market={state.market} cards={cards} fame={state.fame} onHire={(slotIndex) => dispatch({ kind: 'hire', slotIndex })} />
+            <Market
+              market={state.market}
+              cards={cards}
+              fame={state.fame}
+              state={state}
+              onHire={(slotIndex) => dispatch({ kind: 'hire', slotIndex })}
+            />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} />
           </div>
         </div>

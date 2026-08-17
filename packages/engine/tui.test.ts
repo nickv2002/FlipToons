@@ -1,0 +1,200 @@
+// End-to-end proof that the TUI's game loop (tui.ts's runSoloGame) actually
+// drives a real solo game to completion via the scripted/non-interactive
+// path — task item 3's "non-interactive test mode is required, not
+// optional." Both tests reuse the same hand-constructed decks
+// phases.test.ts already proves reach a deterministic win/loss, so a
+// failure here isolates a bug in the TUI's phase-driving loop, not in the
+// underlying engine (which phases.test.ts already covers independently).
+
+import { describe, expect, test } from 'bun:test'
+import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
+import { createSoloGameState } from './state'
+import { makeScriptedAsk, parseScript, runSoloGame } from './tui'
+
+const cards = cardsById()
+
+// Same 32-fame, order-independent deck phases.test.ts uses for its win test:
+// alligator 6 + axolotl 7 + peacock 5 + horse 4 + bull 3 + bear (1+6) 7 = 32.
+const HIGH_FAME_DECK = buildExplicitDeck(['alligator', 'axolotl', 'peacock', 'horse', 'bull', 'bear'], cards)
+
+function collectOutput() {
+  const lines: string[] = []
+  return { lines, out: (line: string) => lines.push(line) }
+}
+
+describe('tui.ts scripted mode drives a real game end-to-end', () => {
+  test('a high-fame deck reaches a WIN, with a hire and a dismiss exercised along the way', async () => {
+    const setup = buildSoloSetup(101, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: HIGH_FAME_DECK,
+      toonDeck: setup.toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+
+    // Script: dismiss the first dismissable card (frees fame back, exercises
+    // dismiss), hire market slot 0 (cheapest, exercises hire), then end the
+    // Market phase. Scripted mode falls back to implicit `end` after the
+    // script is exhausted, so subsequent rounds (there won't be any — this
+    // deck wins round 1) need nothing further.
+    const ask = makeScriptedAsk(parseScript('dismiss:0,hire:0,end'))
+    const final = await runSoloGame({ state, ask, out })
+
+    expect(final.phase).toBe('ended')
+    expect(final.result).toBe('win')
+    expect(lines.some((l) => l.includes('YOU WIN'))).toBe(true)
+    expect(lines.some((l) => l.startsWith('Dismissed '))).toBe(true)
+    expect(lines.some((l) => l.startsWith('Hired '))).toBe(true)
+  })
+
+  test("a Dog in the grid resolves to ONE fame value (no dual-branch) via runCheckFame's own market-derived dogElsewhere — the actual before/after the Dog fix", async () => {
+    // Deliberately puts a Dog in the STARTING deck (so it's face-up and
+    // scored at Check Fame) and NO Dog anywhere in the toon deck (so the
+    // market can never contain one either) — this exercises the false
+    // branch through the real TUI display path, not just phases.ts
+    // directly (phases.test.ts already covers both branches at the
+    // engine level; this proves the TUI's printed breakdown reflects it).
+    const setup = buildSoloSetup(104, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['dog', 'bee', 'snail', 'bee', 'snail', 'bee'], cards),
+      toonDeck: buildExplicitDeck(['ostrich', 'eagle', 'goat', 'sheep', 'rabbit'], cards),
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+    const ask = makeScriptedAsk([]) // never spend — just observe the Check Fame print
+    await runSoloGame({ state, ask, out })
+
+    // BEFORE this pass's fix, a Dog with no externalState.dogElsewhere
+    // given would print as a dual-branch line ("if no Dog elsewhere" / "if
+    // a Dog is present elsewhere") — see score.ts's formatBreakdown. AFTER
+    // the fix, runCheckFame always supplies dogElsewhere derived from
+    // state.market, so a solo player should NEVER see that dual-branch
+    // text, and the Dog's line should be a single resolved number.
+    expect(lines.some((l) => l.includes('if no Dog elsewhere') || l.includes('if a Dog is present elsewhere'))).toBe(false)
+    // Resolved to a single line ending "= 0" (no Dog elsewhere -> the +5
+    // bonus doesn't apply), not a dual-branch "X (label) | Y (label)" line.
+    const dogLine = lines.find((l) => l.includes('Dog') && l.includes('no Dog in the market'))
+    expect(dogLine).toBeDefined()
+    expect(dogLine).toMatch(/Dog\s+0 \+ 0 \(no Dog in the market or another player's grid\) = 0/)
+  })
+
+  test('Cat (formerly fameUnencodable) now scores normally off GameState.dismissed, not a NEEDS RULING blank', async () => {
+    // Cat's dismissedStartingCard bonus is now fully encoded (Group 4 of
+    // this pass — see score.ts's externalState.dismissed). A fresh game has
+    // nothing dismissed yet, so Cat should score its plain base fame (1)
+    // with a "0 dismissed starting card(s)" bonus line, not a NEEDS RULING
+    // blank the way it did before this pass.
+    const setup = buildSoloSetup(105, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['cat', 'bee', 'snail', 'bee', 'snail', 'bee'], cards),
+      toonDeck: buildExplicitDeck(['ostrich', 'eagle', 'goat', 'sheep', 'rabbit'], cards),
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+    const ask = makeScriptedAsk([])
+    await runSoloGame({ state, ask, out })
+
+    expect(lines.some((l) => l.includes('Cat NEEDS RULING'))).toBe(false)
+    const catLine = lines.find((l) => l.includes('Cat') && l.includes('dismissed starting card'))
+    expect(catLine).toBeDefined()
+    expect(catLine).toMatch(/Cat\s+1 \+ 0 \(0 dismissed starting card\(s\)\) = 1/)
+  })
+
+  test('a still-unencodable card (Axolotl — Big Button, out of scope this pass) hired from the market prints the manual-resolution notice, not silence', async () => {
+    const setup = buildSoloSetup(102, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      // axolotl(7) + peacock(5) + horse(4) + alligator(6) + bear(1+6) +
+      // bee(1) = 32 fame round 1 (same deterministic high-fame deck used in
+      // phases.test.ts's HIGH_FAME_DECK) — comfortably affords Axolotl's
+      // top-tier market price (15).
+      startingDeck: buildExplicitDeck(['axolotl', 'peacock', 'horse', 'alligator', 'bear', 'bee'], cards),
+      toonDeck: buildExplicitDeck(['axolotl', 'ostrich', 'goat', 'sheep', 'horse'], cards),
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+
+    // Find an AFFORDABLE Axolotl slot at runtime rather than hardcoding
+    // an index (exact sort position could shift with a different fixture).
+    // Only ever attempts one hire (`asked` guard) — retrying after a
+    // successful hire would just spend down further, and this test only
+    // needs to prove the notice fires once.
+    let asked = false
+    const ask: (p: string) => Promise<string> = async (_p) => {
+      if (asked) return 'end'
+      asked = true
+      const fameLine = lines.slice().reverse().find((l) => l.startsWith('Fame available to spend:'))
+      const fame = fameLine ? Number(fameLine.split(':')[1]) : 0
+      const marketLines = lines.slice().reverse().filter((l) => /^\s*\[\d+\] Axolotl/.test(l))
+      for (const l of marketLines) {
+        const m = l.match(/^\s*\[(\d+)\] Axolotl.*?—\s*(\d+)\s*fame/)
+        if (m && Number(m[2]) <= fame) return `hire:${m[1]}`
+      }
+      return 'end'
+    }
+    await runSoloGame({ state, ask, out })
+
+    expect(lines.some((l) => l.includes('Hired Axolotl'))).toBe(true)
+    expect(lines.some((l) => l.includes('effect NOT implemented by the engine'))).toBe(true)
+    expect(lines.some((l) => l.includes('WHEN HIRED, FLIP YOUR BIG BUTTON CARD FACE UP'))).toBe(true)
+    expect(lines.some((l) => l.includes("resolve it manually per the text above"))).toBe(true)
+  })
+
+  test('Butterfly (newly encoded this pass) hires cleanly with no manual-resolution notice — its optional onHire effect silently declines when the TUI supplies no choice', async () => {
+    const setup = buildSoloSetup(102, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['bee', 'snail', 'bee', 'snail', 'bee', 'snail'], cards),
+      toonDeck: buildExplicitDeck(['butterfly', 'ostrich', 'goat', 'sheep', 'horse'], cards),
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+
+    let asked = false
+    const ask: (p: string) => Promise<string> = async (_p) => {
+      if (asked) return 'end'
+      asked = true
+      const fameLine = lines.slice().reverse().find((l) => l.startsWith('Fame available to spend:'))
+      const fame = fameLine ? Number(fameLine.split(':')[1]) : 0
+      const marketLines = lines.slice().reverse().filter((l) => /^\s*\[\d+\] Butterfly/.test(l))
+      for (const l of marketLines) {
+        const m = l.match(/^\s*\[(\d+)\] Butterfly.*?—\s*(\d+)\s*fame/)
+        if (m && Number(m[2]) <= fame) return `hire:${m[1]}`
+      }
+      return 'end'
+    }
+    await runSoloGame({ state, ask, out })
+
+    expect(lines.some((l) => l.includes('Hired Butterfly'))).toBe(true)
+    expect(lines.some((l) => l.includes('effect NOT implemented by the engine'))).toBe(false)
+  })
+
+  test('a tiny toon deck loses to depletion, driven entirely by an empty script (implicit end every round)', async () => {
+    const setup = buildSoloSetup(103, 1, 'normal')
+    const state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: setup.startingDeck,
+      // Same tiny toon deck phases.test.ts uses for its depletion test.
+      toonDeck: buildExplicitDeck(['ostrich', 'eagle', 'donkey', 'butterfly', 'dog', 'goat'], cards),
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    const { lines, out } = collectOutput()
+
+    const ask = makeScriptedAsk([]) // no actions at all — every Market decision is an implicit `end`
+    const final = await runSoloGame({ state, ask, out })
+
+    expect(final.phase).toBe('ended')
+    expect(final.result).toBe('loss')
+    expect(final.toonDeckDepleted).toBe(true)
+    expect(lines.some((l) => l.includes('YOU LOSE'))).toBe(true)
+  })
+})

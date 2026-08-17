@@ -1,0 +1,14 @@
+{
+  "name": "flip-toonz",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "flip": "bun run packages/engine/cli.ts",
+    "solo": "bun run packages/engine/tui.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
+  }
+}

@@ -51,6 +51,7 @@ export function runFlip(state: GameState): GameState {
     deck: flipResult.remainingDeck,
     toonDeck: flipResult.toonDeck,
     dismissed: flipResult.dismissed,
+    pendingOnHireCardIds: [...state.pendingOnHireCardIds, ...flipResult.pendingOnHireCardIds],
     // A Flip-phase toon-deck draw (Snake/Mongoose) counts toward the
     // depletion endgame trigger exactly like a Market-phase refill does
     // (§3.2.2) — OR'd, never cleared, same convention as
@@ -146,7 +147,19 @@ export function runPostFameHooks(state: GameState): GameState {
     })
   }
 
-  return { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market' }
+  let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [] }
+
+  // Snake's deferred "if the stacked card has a When-Hired ability,
+  // resolve it after the Flip phase is complete" (FAQ) — see flip.ts's
+  // dismissOwnDeckTopAndStackFromToonDeck case. Applied AFTER the Market-
+  // phase actionsRemaining reset above, so Peacock's bonus action is
+  // additive on top of the normal 2, not a wash (same ordering concern as
+  // hire()'s own onHire-firing comment).
+  for (const cardId of state.pendingOnHireCardIds) {
+    next = applyEffects(next, cards[cardId], cards[cardId].onHire)
+  }
+
+  return next
 }
 
 // ---------------------------------------------------------------------------

@@ -152,16 +152,18 @@ export const season1Cards: Card[] = [
     fame: { base: 1 },
     rawBodyText: 'Dismiss the top card of your deck and stack the top card from the toon deck on this card',
     onPlace: [{ kind: 'dismissOwnDeckTopAndStackFromToonDeck' }],
-    // PARTIALLY encoded this pass (Group 3): the own-deck-top dismissal
-    // (with its immune-target fallback) and the unconditional toon-deck
-    // draw stacked onto Snake's own slot are both implemented — see
-    // flip.ts's 'dismissOwnDeckTopAndStackFromToonDeck' case. Still flagged
-    // `unencodable` below for the ONE remaining gap: the FAQ's nested "if
-    // the stacked card has a When-Hired ability (Peacock/Rabbit/Turkey),
-    // resolve it after the Flip phase" chain — no deferred-post-Flip onHire
-    // mechanism exists in this engine.
-    unencodable: true,
-    unencodableReason: "the FAQ's nested \"if the stacked card is a peacock/rabbit/turkey, resolve its When-Hired ability after the Flip phase\" chain has no deferred-post-Flip onHire mechanism in this engine — everything else in Snake's text (the deck-top dismissal/fallback and the toon-deck stacking) IS implemented (see flip.ts)",
+    // Fully encoded: the own-deck-top dismissal (with its immune-target
+    // fallback), the unconditional toon-deck draw stacked face-up onto
+    // Snake's own slot, and the FAQ's nested "if the stacked card has a
+    // When-Hired ability (Peacock/Rabbit/Turkey), resolve it after the Flip
+    // phase" chain. Rabbit/Turkey need no special handling — the FAQ's
+    // "stack it on the snake" for them just confirms they do nothing extra
+    // beyond the normal face-up placement above. Peacock's onHire (+2 fame,
+    // +1 Market action) is deferred via GameState.pendingOnHireCardIds and
+    // resolved in phases.ts's runPostFameHooks, since it must fire after
+    // Check Fame or that phase's snapshot would clobber it — see
+    // flip.ts's 'dismissOwnDeckTopAndStackFromToonDeck' case for the full
+    // reasoning.
     faqNote: "FAQ: \"If the card on top of the player's deck cannot be dismissed, place it to the right of the snake instead, or return it to the player's deck if the snake is in the final space of the player's grid.\" (cont'd) \"If the player places a card with a 'When Hired' ability due to the snake's ability, resolve it after the Flip phase is complete. If the stacked card is a peacock, add the fame to the player's total and take an additional action in the Market phase. If it is a rabbit or turkey, stack it on the snake. If a player's deck is depleted before revealing the snake, you still stack a card from the deck on the snake, even though no card is dismissed.\"",
   },
   {

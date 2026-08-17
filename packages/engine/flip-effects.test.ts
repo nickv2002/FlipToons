@@ -247,7 +247,7 @@ describe('getSlot sanity (used throughout above)', () => {
   })
 })
 
-describe('Snake — dismissOwnDeckTopAndStackFromToonDeck (Group 3 — partially encoded, see season1.ts)', () => {
+describe('Snake — dismissOwnDeckTopAndStackFromToonDeck (fully encoded, see season1.ts)', () => {
   test('main line: dismisses the top of its own deck, and stacks the toon deck top onto its own slot', () => {
     const deck = buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'skunk', 'caterpillar'], cards)
     const toonDeck = buildExplicitDeck(['ostrich'], cards)
@@ -257,6 +257,26 @@ describe('Snake — dismissOwnDeckTopAndStackFromToonDeck (Group 3 — partially
     expect(result.grid.base[0][0]!.faceUp).toEqual([true, true])
     expect(result.toonDeck).toEqual([])
     expect(result.toonDeckEmptiedDuringFlip).toBe(true)
+    expect(result.pendingOnHireCardIds).toEqual([]) // ostrich has no onHire effects
+  })
+
+  test('a Peacock drawn from the toon deck is queued in pendingOnHireCardIds (its onHire bonus resolves later, in postFameHooks)', () => {
+    const deck = buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'skunk', 'caterpillar'], cards)
+    const toonDeck = buildExplicitDeck(['peacock'], cards)
+    const result = flipDeck(deck, cards, { toonDeck, dismissed: [] })
+    expect(result.grid.base[0][0]!.cards).toEqual(['snake', 'peacock']) // still placed face-up in the grid normally
+    expect(result.grid.base[0][0]!.faceUp).toEqual([true, true])
+    expect(result.pendingOnHireCardIds).toEqual(['peacock'])
+  })
+
+  test('Rabbit and Turkey drawn from the toon deck are NOT queued — the FAQ\'s "stack it on the snake" for them is just confirming the normal placement above, no extra onHire effect', () => {
+    const deckR = buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'skunk', 'caterpillar'], cards)
+    const resultR = flipDeck(deckR, cards, { toonDeck: buildExplicitDeck(['rabbit'], cards), dismissed: [] })
+    expect(resultR.pendingOnHireCardIds).toEqual([])
+
+    const deckT = buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'skunk', 'caterpillar'], cards)
+    const resultT = flipDeck(deckT, cards, { toonDeck: buildExplicitDeck(['turkey'], cards), dismissed: [] })
+    expect(resultT.pendingOnHireCardIds).toEqual([])
   })
 
   test('immune-card fallback: an immune top-of-deck card is placed to the right of Snake instead of dismissed', () => {

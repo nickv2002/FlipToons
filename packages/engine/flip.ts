@@ -51,6 +51,17 @@ export type FlipResult = {
   // GameState.toonDeckDepleted exactly like a Market-phase refill does
   // (§3.2.2), since a Flip-phase draw is just as real a depletion trigger.
   toonDeckEmptiedDuringFlip: boolean
+  // Cards drawn face-up onto the grid via Snake's toon-deck stack (below)
+  // that themselves carry onHire effects — Peacock, currently the only
+  // card in the table that qualifies. The card is already scored normally
+  // through the ordinary face-up-in-grid path; this is ONLY the queue for
+  // its separate onHire-shaped bonus effects (Peacock's +2 fame / extra
+  // Market action), which the FAQ says resolve "after the Flip phase is
+  // complete" — i.e. too late to fire here, during Flip itself. Consumed
+  // by phases.ts's runPostFameHooks, which is the next phase-machine step
+  // after Flip that can safely add to `fame`/`actionsRemaining` without
+  // Check Fame's snapshot immediately overwriting it.
+  pendingOnHireCardIds: CardId[]
 }
 
 type CardPointer = { cardId: CardId; pos: GridPos; index: number }
@@ -277,10 +288,11 @@ function applyOnPlaceEffects(
   dismissed: CardId[],
   cardsById: Record<CardId, Card>,
   ctx: { pos: GridPos; index: number; previousPlaced: CardPointer | null; selfPointer: CardPointer },
-): { pending: Pending; lastPlaced: CardPointer | null; toonDeckEmptied: boolean } {
+): { pending: Pending; lastPlaced: CardPointer | null; toonDeckEmptied: boolean; onHireDeferredCardId: CardId | null } {
   let pending: Pending = null
   let lastPlaced: CardPointer | null = ctx.selfPointer
   let toonDeckEmptied = false
+  let onHireDeferredCardId: CardId | null = null
 
   for (const effect of card.onPlace ?? []) {
     switch (effect.kind) {
@@ -397,18 +409,24 @@ function applyOnPlaceEffects(
         break
       }
       case 'dismissOwnDeckTopAndStackFromToonDeck': {
-        // Snake (Season 1, rank 11) — partially encoded. Two halves ARE
-        // implemented here: (1) the player's own deck-top dismissal, with
-        // its immune-target fallback (place to the right of Snake, or back
-        // to the deck bottom if there's no slot to the right in Snake's
-        // row — see the header comment on 'right' below), and (2) the
-        // unconditional toon-deck-top draw stacked onto Snake's own slot
-        // (fires even when the player's deck was empty, per the FAQ). NOT
-        // implemented, kept OUT OF SCOPE (see season1.ts's snake entry,
-        // still `unencodable`, narrowed reason): the FAQ's nested "if the
+        // Snake (Season 1, rank 11) — fully encoded. (1) the player's own
+        // deck-top dismissal, with its immune-target fallback (place to the
+        // right of Snake, or back to the deck bottom if there's no slot to
+        // the right in Snake's row — see the header comment on 'right'
+        // below); (2) the unconditional toon-deck-top draw stacked onto
+        // Snake's own slot (fires even when the player's deck was empty,
+        // per the FAQ), which places the drawn card FACE UP — so it's
+        // already scored normally by the ordinary face-up-in-grid path,
+        // same as any other grid card; and (3) the FAQ's nested "if the
         // stacked card has a When-Hired ability (Peacock/Rabbit/Turkey),
-        // resolve it after the Flip phase" chain — no deferred-post-Flip
-        // onHire mechanism exists in this engine.
+        // resolve it after the Flip phase" chain — Rabbit/Turkey have no
+        // onHire effect (the FAQ's "stack it on the snake" for them is just
+        // confirming they DON'T do anything extra, which (2) already
+        // achieves), and Peacock's onHire (+2 fame, +1 Market action) is
+        // deferred via onHireDeferredCardId below rather than fired here,
+        // since it must resolve AFTER Check Fame (see FlipResult's
+        // pendingOnHireCardIds comment) or Check Fame's snapshot would
+        // clobber it.
         if (remainingDeck.length > 0) {
           const topId = remainingDeck[0]
           const topCard = cardsById[topId]
@@ -444,6 +462,8 @@ function applyOnPlaceEffects(
           const drawn = toonDeck.shift()!
           placeCardFaceUp(grid, ctx.pos, drawn)
           if (toonDeck.length === 0) toonDeckEmptied = true
+          const drawnCard = cardsById[drawn]
+          if (drawnCard?.onHire?.length) onHireDeferredCardId = drawn
         }
         break
       }
@@ -484,7 +504,7 @@ function applyOnPlaceEffects(
     }
   }
 
-  return { pending, lastPlaced, toonDeckEmptied }
+  return { pending, lastPlaced, toonDeckEmptied, onHireDeferredCardId }
 }
 
 // Draw until every base slot is occupied (isFull), or the deck runs out
@@ -516,6 +536,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   const toonDeck = flipContext.toonDeck.slice()
   const dismissed = flipContext.dismissed.slice()
   let toonDeckEmptiedDuringFlip = false
+  const pendingOnHireCardIds: CardId[] = []
 
   let pending: Pending = null
   let lastPlaced: CardPointer | null = null
@@ -634,10 +655,11 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       pending = result.pending
       lastPlaced = result.lastPlaced
       if (result.toonDeckEmptied) toonDeckEmptiedDuringFlip = true
+      if (result.onHireDeferredCardId) pendingOnHireCardIds.push(result.onHireDeferredCardId)
     }
   }
 
-  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip }
+  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds }
 }
 
 // Target-determination for a card's OWN placement — i.e. deciding which

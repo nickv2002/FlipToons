@@ -48,6 +48,12 @@ export type GameState = {
 
   actionsRemaining: number // Market-phase actions left this round (0 outside Market)
 
+  // Cards Snake's toon-deck stack drew that have their own onHire effects
+  // (Peacock, currently the only one) — set during Flip, resolved and
+  // cleared during postFameHooks (see flip.ts's FlipResult comment for why
+  // it can't just fire immediately during Flip).
+  pendingOnHireCardIds: CardId[]
+
   toonDeck: CardId[] // shared draw pile
   // Set true the moment ANY refill (hire/dismiss/decay/Cleanup's own) finds
   // the toon deck fully empty, and never cleared. Per §3.2.2's explicit
@@ -111,6 +117,7 @@ export function createSoloGameState(params: {
     fameGeneratedThisRound: 0,
     lastCheckFame: null,
     actionsRemaining: 0,
+    pendingOnHireCardIds: [],
     toonDeck: initialRefill.toonDeck,
     toonDeckDepleted: initialRefill.toonDeckEmpty,
     market: initialRefill.market,

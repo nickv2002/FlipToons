@@ -885,3 +885,39 @@ describe('Group 6 — adjacency/stack-aware dismiss cost (ladybug, rat)', () => 
     expect(state.fame).toBe(before - 5)
   })
 })
+
+describe("Snake's deferred Peacock onHire (see flip.ts's dismissOwnDeckTopAndStackFromToonDeck case)", () => {
+  test('a Peacock drawn via Snake applies its +2 fame / +1 Market action bonus in postFameHooks, after Check Fame, on top of the normal reset', () => {
+    const setup = buildSoloSetup(1, 1, 'normal')
+    // 5 filler cards (all rank 0) consumed by createSoloGameState's initial
+    // market prefill (5 slots for a 1-4 player market) — leaves 'peacock'
+    // as the very next toonDeck.shift(), which is what Snake's Flip-time
+    // draw pulls.
+    const marketFiller = buildExplicitDeck(['dragonfly', 'bee', 'snail', 'caterpillar', 'caterpillar'], cards)
+    const toonDeck = [...marketFiller, ...buildExplicitDeck(['peacock'], cards)]
+
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'caterpillar', 'caterpillar'], cards),
+      toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    expect(state.market.slots.every((s) => s !== null)).toBe(true) // sanity: prefill consumed the 5 filler cards
+    expect(state.toonDeck).toEqual(['peacock'])
+
+    state = runFlip(state)
+    expect(state.pendingOnHireCardIds).toEqual(['peacock'])
+
+    state = runCheckFame(state)
+    expect(state.pendingOnHireCardIds).toEqual(['peacock']) // still queued — Check Fame doesn't resolve it
+    const fameSnapshot = state.fame // breakdown.total, BEFORE the deferred bonus
+    const fameGenerated = state.fameGeneratedThisRound
+
+    state = runPostFameHooks(state)
+    expect(state.pendingOnHireCardIds).toEqual([]) // resolved and cleared
+    expect(state.fame).toBe(fameSnapshot + 2) // Peacock's onHire gainFame, additive on the Check-Fame total
+    expect(state.actionsRemaining).toBe(3) // MARKET_ACTIONS_PER_ROUND (2) + Peacock's bonusMarketAction (1), not a wash
+    expect(state.fameGeneratedThisRound).toBe(fameGenerated) // the frozen win-trigger snapshot is untouched by the bonus
+  })
+})

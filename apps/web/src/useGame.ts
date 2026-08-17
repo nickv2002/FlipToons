@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GameState } from '../../../packages/engine/state'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
-import type { Action } from './engine-actions'
-import { applyAction, buildNewGameState } from './engine-actions'
+import type { Action } from '../../../packages/engine/actions'
+import { applyAction, buildNewGameState } from '../../../packages/engine/actions'
 
 const STORAGE_KEY = 'fliptoons-solo-save-v1'
 

@@ -1,7 +1,7 @@
 import type { Card as CardData, CardId } from '../../../../packages/engine/cards/types'
 import type { GridPos, Slot as SlotData } from '../../../../packages/engine/types'
 import { Card } from './Card'
-import type { DismissEntry } from '../engine-actions'
+import type { DismissEntry } from '../../../../packages/engine/actions'
 
 export type SlotProps = {
   pos: GridPos
@@ -19,7 +19,7 @@ export type SlotProps = {
 // Rat-in-stack modifiers), so a client-side affordability gate built on this
 // approximation could wrongly disable a legal dismiss with no way to retry.
 // The badge below is the same approximate display tui.ts itself uses; an
-// actually-unaffordable dismiss is caught by engine-actions.ts's try/catch
+// actually-unaffordable dismiss is caught by actions.ts's try/catch
 // and surfaced in the log, same as tui.ts's playerFacingMessage path.
 export function Slot({ pos, slot, cards, dismissEntries, onDismiss }: SlotProps) {
   if (!slot) {

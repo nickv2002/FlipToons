@@ -1,7 +1,7 @@
 import type { Card as CardData, CardId } from '../../../../packages/engine/cards/types'
 import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
 import { Slot } from './Slot'
-import type { DismissEntry } from '../engine-actions'
+import type { DismissEntry } from '../../../../packages/engine/actions'
 
 export type GridProps = {
   grid: GridData

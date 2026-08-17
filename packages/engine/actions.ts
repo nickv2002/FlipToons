@@ -1,12 +1,13 @@
-// The pure action layer between React and the engine. Deliberately not
-// inline in the useGame hook: a step-5 server will want to validate/replay
-// the same `Action` union without React in the loop, so the reducer shape
-// (state, action) -> { state, logLines } is kept transport-free and
-// hook-free on purpose (see flip-toonz-structure-plan.md §6's client/server
-// split — this is the seam that lets that land later without a rewrite).
-import type { CardId } from '../../../packages/engine/cards/types'
-import { occupiedSlots } from '../../../packages/engine/grid'
-import { hireCost } from '../../../packages/engine/market'
+// The pure action layer between a transport (React state, a WebSocket
+// connection, a test) and the engine — the reducer shape
+// (state, action) -> { state, logLines } is transport-free and UI-free on
+// purpose, so apps/web's useGame.ts and apps/server's room loop both import
+// this SAME module instead of each re-deriving the action vocabulary (see
+// flip-toonz-structure-plan.md §6's client/server split, and §8's original
+// key-files list, which named this file here from the start).
+import type { CardId } from './cards/types'
+import { occupiedSlots } from './grid'
+import { hireCost } from './market'
 import {
   dismiss,
   endMarketPhase,
@@ -15,15 +16,15 @@ import {
   runCleanup,
   runFlip,
   runPostFameHooks,
-} from '../../../packages/engine/phases'
-import { cardsById } from '../../../packages/engine/setup'
-import { createSoloGameState } from '../../../packages/engine/state'
-import type { GameState } from '../../../packages/engine/state'
-import { buildSoloSetup } from '../../../packages/engine/setup'
-import type { SoloDifficulty } from '../../../packages/engine/setup'
-import type { GridPos } from '../../../packages/engine/types'
-import { formatBreakdown } from '../../../packages/engine/score'
-import { shuffleWithState } from '../../../packages/engine/rng'
+} from './phases'
+import { cardsById } from './setup'
+import { createSoloGameState } from './state'
+import type { GameState } from './state'
+import { buildSoloSetup } from './setup'
+import type { SoloDifficulty } from './setup'
+import type { GridPos } from './types'
+import { formatBreakdown } from './score'
+import { shuffleWithState } from './rng'
 
 export type Action =
   | { kind: 'flip' }
@@ -182,5 +183,5 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
     return { state: next, logLines }
   }
 
-  throw new Error(`engine-actions.ts: unhandled action kind`)
+  throw new Error(`actions.ts: unhandled action kind`)
 }

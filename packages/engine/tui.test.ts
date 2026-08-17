@@ -198,3 +198,36 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
     expect(lines.some((l) => l.includes('YOU LOSE'))).toBe(true)
   })
 })
+
+// §10 calls for a property test that "replaying {seed, actions} reproduces
+// identical state." §4.7's action log doesn't exist yet (state.ts says so
+// explicitly), so there is no {seed, actions} representation to replay from
+// — THIS IS A SUBSTITUTE, not §10's test: same seed + same scripted token
+// list, run twice through the real TUI loop, asserting byte-identical final
+// GameState. It's a weaker claim (it depends on the script matching what
+// the game actually offers each round, not an arbitrary action log), and
+// should not be read as closing §10's replay item — see §12's note.
+describe('replay substitute: same seed + same script -> identical final state', () => {
+  test('two independent runs of the same seed and script produce a deep-equal final GameState', async () => {
+    const setup = buildSoloSetup(105, 1, 'normal')
+    const script = parseScript('hire:0,dismiss:0,end,hire:0,end,end,end,end,end,end,end,end,end,end')
+
+    async function play() {
+      const state = createSoloGameState({
+        seed: setup.seed,
+        startingDeck: setup.startingDeck,
+        toonDeck: setup.toonDeck,
+        prices: setup.prices,
+        fameToTriggerEndgame: setup.fameToTriggerEndgame,
+      })
+      const { out } = collectOutput()
+      return runSoloGame({ state, ask: makeScriptedAsk(script.slice()), out })
+    }
+
+    const runA = await play()
+    const runB = await play()
+
+    expect(runA).toEqual(runB)
+    expect(runA.result === 'win' || runA.result === 'loss').toBe(true)
+  })
+})

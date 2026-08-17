@@ -158,6 +158,38 @@ describe('loss trigger: toon deck depletion', () => {
   })
 })
 
+// §10: "Unspent fame is zeroed at Cleanup, never carried." The existing
+// win/loss tests all end the game at Cleanup, so this asserts the OTHER
+// branch — a round that continues — which was untested until now.
+describe('fame is zeroed at Cleanup on a non-terminal round', () => {
+  test('fame and fameGeneratedThisRound both reset to 0, and round increments, when the game continues', () => {
+    const setup = buildSoloSetup(4, 1, 'normal')
+    const roomyToonDeck = buildExplicitDeck(
+      ['ostrich', 'ostrich', 'eagle', 'donkey', 'butterfly', 'dog', 'goat', 'sheep', 'rabbit'],
+      cards,
+    )
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['ostrich', 'butterfly', 'goat', 'sheep', 'horse', 'bee'], cards),
+      toonDeck: roomyToonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+
+    state = runToMarket(state)
+    expect(state.fameGeneratedThisRound).toBeLessThan(30) // not a win this round
+    expect(state.fame).toBeGreaterThan(0) // something was generated to zero out
+    const roundBefore = state.round
+
+    state = runCleanup(endMarketPhase(state))
+
+    expect(state.phase).toBe('flip') // continues, doesn't end
+    expect(state.fame).toBe(0)
+    expect(state.fameGeneratedThisRound).toBe(0)
+    expect(state.round).toBe(roundBefore + 1)
+  })
+})
+
 describe('both triggers in the same round', () => {
   test('win takes priority over a simultaneous depletion — exactly one ended state, not two', () => {
     const setup = buildSoloSetup(5, 1, 'normal')
@@ -307,6 +339,110 @@ describe('card conservation over a full game', () => {
 
     expect(state.phase).toBe('ended')
     expect(state.result === 'win' || state.result === 'loss').toBe(true)
+  })
+
+  // The test above only checks totalPlayerCards' SUM — a bug that swapped a
+  // dismissed card back into the deck for a different lost card would still
+  // balance the sum and pass. Card ids aren't per-copy unique in this
+  // engine, so "the exact same physical card" isn't representable — but
+  // `dismissed` should still only ever GROW, as a multiset: once round N's
+  // dismissed cards are recorded, they must still all be present (at least
+  // that many of each id) in every later round's `dismissed`, never having
+  // dropped out to reappear in deck/grid/market/toonDeck.
+  test('dismissed is monotonically non-decreasing as a multiset across a multi-round game', () => {
+    const setup = buildSoloSetup(9, 1, 'normal')
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: setup.startingDeck,
+      toonDeck: setup.toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+
+    function counts(ids: string[]): Map<string, number> {
+      const m = new Map<string, number>()
+      for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1)
+      return m
+    }
+
+    let prevDismissedCounts = counts(state.dismissed)
+    let rounds = 0
+    while (state.phase !== 'ended' && rounds < 30) {
+      rounds++
+      state = runToMarket(state)
+
+      // Dismiss the first affordable, dismissible, face-up card each round,
+      // to actually exercise the dismissed pile rather than leaving it empty.
+      for (const { pos, slot } of occupiedSlots(state.grid)) {
+        if (state.actionsRemaining <= 0) break
+        const idx = slot.cards.length - 1
+        if (!slot.faceUp[idx]) continue
+        const card = cards[slot.cards[idx]]
+        if (card.immune?.includes('dismiss')) continue
+        try {
+          state = dismiss(state, pos, idx)
+          break // one dismiss per round is enough to exercise the invariant
+        } catch {
+          continue // unaffordable or otherwise not dismissible right now
+        }
+      }
+
+      state = endMarketPhase(state)
+      state = runCleanup(state)
+
+      const nowDismissedCounts = counts(state.dismissed)
+      for (const [id, prevCount] of prevDismissedCounts) {
+        expect(nowDismissedCounts.get(id) ?? 0).toBeGreaterThanOrEqual(prevCount)
+      }
+      prevDismissedCounts = nowDismissedCounts
+    }
+
+    expect(state.phase).toBe('ended')
+  })
+})
+
+// §10: "Fuzz run: many random full games, none crash, no round exceeds a
+// sane flip ceiling." No action log (§4.7) exists yet to replay from, so
+// this drives the real solo game loop directly across many seeds instead.
+describe('fuzz: many random full games', () => {
+  test('every seed reaches ended with a win or loss, no throw, within a sane round ceiling', () => {
+    const ROUND_CEILING = 60
+    for (let seed = 1; seed <= 25; seed++) {
+      const setup = buildSoloSetup(seed, 1, 'normal')
+      let state = createSoloGameState({
+        seed: setup.seed,
+        startingDeck: setup.startingDeck,
+        toonDeck: setup.toonDeck,
+        prices: setup.prices,
+        fameToTriggerEndgame: setup.fameToTriggerEndgame,
+      })
+
+      let rounds = 0
+      const run = () => {
+        while (state.phase !== 'ended') {
+          rounds++
+          if (rounds > ROUND_CEILING) throw new Error(`seed ${seed}: exceeded round ceiling ${ROUND_CEILING}`)
+          state = runToMarket(state)
+
+          // Spend fame greedily on the most expensive affordable slot each
+          // action, to exercise Market rather than always no-op'ing to 'end'.
+          while (state.actionsRemaining > 0) {
+            const affordable = state.market.slots
+              .map((cardId, i) => ({ cardId, i, price: state.market.prices[i] }))
+              .filter((s) => s.cardId !== null && s.price <= state.fame)
+              .sort((a, b) => b.price - a.price)[0]
+            if (!affordable) break
+            state = hire(state, affordable.i)
+          }
+
+          state = endMarketPhase(state)
+          state = runCleanup(state)
+        }
+      }
+      expect(run).not.toThrow()
+
+      expect(state.result === 'win' || state.result === 'loss').toBe(true)
+    }
   })
 })
 

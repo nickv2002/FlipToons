@@ -71,6 +71,30 @@ describe('scoreGrid — hand-computed totals', () => {
     expect(breakdown.total).toBe(1 + 3 + 0 + 0 + 2 + 0)
   })
 
+  // §10: "scoreGrid is a pure function: the same grid scores identically
+  // regardless of the order cards were placed in. This is the direct test
+  // of correction #1 and the one most worth having." buildFixedGrid places
+  // cards in `arrangement`'s order; this test places the SAME six cards at
+  // the SAME positions in reverse order and asserts an identical breakdown.
+  test('scores identically regardless of the order the cards were placed in', () => {
+    const forward = scoreGrid(buildFixedGrid(arrangement), cards)
+    const reversed = scoreGrid(buildFixedGrid(arrangement.slice().reverse()), cards)
+    expect(reversed).toEqual(forward)
+  })
+
+  // The Flip-phase side of a partial grid (short deck -> null base slots) is
+  // tested in flip.test.ts; this is the scoring-phase side, untested until
+  // now — a grid scoreGrid has never actually seen with empty slots.
+  test('scores a partial grid (some base slots null) without throwing, and empty slots contribute nothing', () => {
+    const grid = buildFixedGrid(arrangement.slice(0, 4)) // only 4 of 6 slots filled
+    expect(grid.base[1][1]).toBeNull()
+    expect(grid.base[1][2]).toBeNull()
+    expect(() => scoreGrid(grid, cards)).not.toThrow()
+    const breakdown = scoreGrid(grid, cards)
+    expect(breakdown.lines.length).toBe(4)
+    expect(breakdown.total).toBe(breakdown.lines.reduce((sum, l) => sum + l.total, 0))
+  })
+
   test('Dragonfly adjacent to two identical Caterpillars counts them once, not twice', () => {
     // row 0: caterpillar  dragonfly  caterpillar
     // row 1: bee          snail      skunk

@@ -28,13 +28,20 @@ button {
      grid (see .round-view__phase--market below) and sharing space with the
      ResolveLog sidebar here. 1100px capped the market pane at ~64px/card
      even at its widest — raised so the arithmetic works at common laptop
-     widths (~1280px). Track C: this line is outside .market*/.card* but
+     widths (~1280px). Track C: this line is outside .market/.card rules but
      needed for Part 2 of the same task; flag if it conflicts with your work. */
   max-width: 1400px;
   margin: 0 auto;
 }
 
-@media (min-width: 900px) {
+/* Bumped from 900px. .round-view__phase--market splits into grid+market
+   panes at its own 900px breakpoint below — letting the ResolveLog sidebar
+   split off here too, at the same width, compounds with that split and
+   squeezed the market pane to ~72px/card at 900-1099px (5 single-row cards
+   fighting for a fraction of a fraction of the available width). Deferring
+   the sidebar split to 1100px means the medium-width range gets the full
+   round-view width to work with, before the sidebar competes for space. */
+@media (min-width: 1100px) {
   .app__game {
     grid-template-columns: 2fr 1fr;
     align-items: start;
@@ -211,8 +218,40 @@ button {
   opacity: 0.75;
 }
 
+.card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.card__icon {
+  flex: none;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+img.card__icon {
+  width: 1.1em;
+  height: 1.1em;
+  /* Vendored SVGs are stripped to bare paths with no fill (they'd inherit
+     currentColor if inlined, but these are loaded via <img src>, which
+     can't be tinted with `fill` or `color`) — invert via filter under dark
+     mode so the icon stays visible against `body`'s color-scheme: light
+     dark background instead of rendering as near-invisible dark strokes. */
+  filter: invert(0);
+}
+
+@media (prefers-color-scheme: dark) {
+  img.card__icon {
+    filter: invert(1);
+  }
+}
+
 .card__name {
   font-weight: 600;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .card__fame,
@@ -237,6 +276,51 @@ button {
   border-color: #a35b00;
 }
 
+/* Narrow-context variant (currently: the market's single-row layout) —
+   tighter padding/font-size and clamped body text instead of letting
+   content overflow or clip as cards shrink. Full text is still available
+   via the button's `title` attribute (see Card.tsx). */
+.card--compact {
+  padding: 0.3rem;
+  font-size: 0.85em;
+  gap: 1px;
+}
+
+.card--compact .card__top {
+  font-size: 0.68rem;
+}
+
+.card--compact .card__icon {
+  font-size: 1rem;
+}
+
+.card--compact .card__name {
+  font-size: 0.85rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card--compact .card__fame,
+.card--compact .card__dismiss-cost {
+  font-size: 0.72rem;
+}
+
+.card--compact .card__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card--compact .card__warning {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ---------- Market ---------- */
 
 .market {
@@ -246,9 +330,32 @@ button {
 }
 
 .market__slots {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 0.5rem;
+  /* Fit all 5 market slots (packages/engine/setup.ts's solo prices row) in
+     one row by shrinking cards first — grid's auto-fit(minmax(100px, 1fr))
+     wrapped to a second row purely because of that 100px floor, well before
+     the container was actually out of room. flex: 1 1 0 on each card lets
+     them shrink together with no minimum, only falling back to wrapping
+     below ~560px (see .market__slots > .card, tested down to 390px). */
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+}
+
+.market__slots > .card {
+  flex: 1 1 0;
+  min-width: 0; /* buttons don't shrink below their content width by default */
+}
+
+@media (max-width: 560px) {
+  .market__slots {
+    flex-wrap: wrap;
+  }
+
+  .market__slots > .card {
+    /* flex: 1 1 0 never wraps (zero basis can't overflow a line) — give
+       cards a real basis here so two-per-row wrapping actually kicks in. */
+    flex: 1 1 calc(50% - 0.2rem);
+  }
 }
 
 .market__suggest {

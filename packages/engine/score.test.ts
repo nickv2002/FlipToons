@@ -485,7 +485,9 @@ describe('fame-audit: cards marked fameUnencodable because required state does n
     // Cat/Tiger/Opossum are also no longer in this list — see the
     // 'dismissed-pile fame queries' describe block below. They're fully
     // encodable now via scoreGrid's externalState.dismissed parameter.
-    { id: 'camel', name: 'Camel' },
+    // Camel is also no longer in this list — see the Camel describe block
+    // below. It's fully encodable now via scoreGrid's
+    // externalState.camelMarketCount parameter.
     { id: 'fox', name: 'Fox' },
   ]
 
@@ -636,6 +638,51 @@ describe('Dog — dogInMarketOrOtherPlayerGrid, resolved via scoreGrid externalS
       expect(cowLine.total).toBe(2)
       expect(cowLine.copiedFrom?.cardId).toBe('snail')
     })
+  })
+})
+
+describe('Camel — noOneHasMoreCamelsThanYou, resolved via scoreGrid externalState.camelMarketCount (not fameUnencodable)', () => {
+  test('camelMarketCount: 0 (no Camels in the market) — bonus applies, ties count as "no one has more"', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
+    const breakdown = scoreGrid(grid, cards, undefined, { camelMarketCount: 0 })
+    const line = breakdown.lines.find((l) => l.cardId === 'camel')!
+    expect(line.needsRuling).toBeUndefined()
+    expect(line.base).toBe(2)
+    expect(line.total).toBe(4)
+    expect(breakdown.total).toBe(4)
+  })
+
+  test('camelMarketCount equal to your own grid\'s Camel count — still a tie, bonus applies', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
+    const breakdown = scoreGrid(grid, cards, undefined, { camelMarketCount: 1 })
+    const line = breakdown.lines.find((l) => l.cardId === 'camel')!
+    expect(line.total).toBe(4)
+  })
+
+  test('camelMarketCount greater than your own grid\'s Camel count — no bonus, base fame only', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
+    const breakdown = scoreGrid(grid, cards, undefined, { camelMarketCount: 2 })
+    const line = breakdown.lines.find((l) => l.cardId === 'camel')!
+    expect(line.total).toBe(2)
+  })
+
+  test('two Camels in your own grid outnumber a single market Camel — both score the bonus', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 2 }, 'camel')
+    const breakdown = scoreGrid(grid, cards, undefined, { camelMarketCount: 1 })
+    const camelLines = breakdown.lines.filter((l) => l.cardId === 'camel')
+    expect(camelLines).toHaveLength(2)
+    for (const line of camelLines) expect(line.total).toBe(4)
+  })
+
+  test('externalState.camelMarketCount omitted — throws rather than silently scoring 0', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
+    expect(() => scoreGrid(grid, cards)).toThrow(/camelMarketCount/)
   })
 })
 

@@ -80,12 +80,23 @@ function dogElsewhereFromMarket(state: GameState): boolean {
   return state.market.slots.some((id) => id === 'dog')
 }
 
+// Solo-specific resolution of the Camel's 'noOneHasMoreCamelsThanYou'
+// condition (score.ts's evaluateBonus / cards/season1.ts's Camel entry):
+// "the players' grids and/or the market." Solo has no other players, so
+// (same reduction as Dog above) this reduces to "how many Camels are in
+// the shared market" — real, observable GameState the phase machine has
+// and scoreGrid itself does not.
+function camelMarketCountFromMarket(state: GameState): number {
+  return state.market.slots.filter((id) => id === 'camel').length
+}
+
 export function runCheckFame(state: GameState): GameState {
   assertPhase(state, 'checkFame', 'runCheckFame')
   const cards = cardsById()
   const breakdown = scoreGrid(state.grid, cards, state.deck.length, {
     dogElsewhere: dogElsewhereFromMarket(state),
     dismissed: state.dismissed,
+    camelMarketCount: camelMarketCountFromMarket(state),
   })
 
   return {

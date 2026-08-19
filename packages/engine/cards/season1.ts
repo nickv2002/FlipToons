@@ -119,14 +119,14 @@ export const season1Cards: Card[] = [
     id: 'camel', name: 'Camel', season: 1, rank: 8, copies: 5,
     fame: { base: 2, bonuses: [{ kind: 'ifCondition', condition: 'noOneHasMoreCamelsThanYou', amount: 2 }] },
     faqNote: "FAQ: \"If there is a tie for most camels in the players' grids and/or the market, all tied players' camels generate four fame.\" Confirms the condition is 'no one else has STRICTLY MORE camels than you' — ties still qualify.",
-    // FLAG-AUDIT FINDING (this pass): 'noOneHasMoreCamelsThanYou' needs the
-    // shared market plus every other player's grid — same missing-state
-    // category as Dog above, previously unimplemented (throws, crashes
-    // scoreGrid for any grid with a Camel). fameUnencodable blanks the
-    // whole line, including the known base fame of 2 — see Dog's comment.
-    fameUnencodable: true,
-    fameUnencodableReason:
-      "fame bonus condition 'noOneHasMoreCamelsThanYou' needs a camel count across the shared market and every other player's grid, which don't exist in this single-grid engine — deliberately not faking that state",
+    // 'noOneHasMoreCamelsThanYou' needs the shared market plus every OTHER
+    // player's grid — same missing-state category as Dog above. Solo has no
+    // other players (same reduction Dog's own solo resolution uses), so
+    // this reduces to "your grid's Camel count >= the market's Camel
+    // count" — fully encodable via scoreGrid's externalState.camelMarketCount
+    // (see score.ts's evaluateBonus and phases.ts's runCheckFame), the same
+    // explicit-external-parameter pattern as Dog's dogElsewhere, not
+    // fameUnencodable.
   },
   {
     id: 'rabbit', name: 'Rabbit', season: 1, rank: 9, copies: 4,

@@ -56,9 +56,13 @@ export type RefillResult = {
   toonDeckEmpty: boolean
 }
 
-// The ONE refillMarket used both after Market-phase actions (hire/dismiss)
-// and after the solo/2-player decay step (§3.2.2: "avoid two separate
-// refill implementations"). Refill-then-resort:
+// The ONE refillMarket used everywhere the market gets refilled: the
+// standard once-per-turn refill at the end of the Market phase (CONFIRMED
+// rulebook text: "Once a player has completed their actions... reveal
+// cards... and rearrange... by rank" — NOT per hire/dismiss action, see
+// phases.ts's hire() header comment), Horse's/Crow's own card-specific
+// IMMEDIATE refills, and the solo/2-player decay step (§3.2.2: "avoid two
+// separate refill implementations"). Refill-then-resort:
 //   1. Fill every empty slot by drawing from the front of the toon deck,
 //      each draw stamped with a strictly increasing insertionSeq.
 //   2. Re-sort the WHOLE row (existing occupants + newly drawn) by

@@ -180,8 +180,17 @@ function applyRefillResult<T extends GameState>(
 }
 
 // Hire — pay the price card above the slot, card goes to the DECK (§3.2).
-// Refills + re-sorts the market afterward (the change that actually needs
-// it: a slot just emptied).
+// CONFIRMED from the printed rulebook ("Refill the Market: Once a player
+// has completed their actions, if there are fewer than five cards in the
+// market, reveal cards... and rearrange... by rank"): refill is NOT a
+// per-action thing — it fires ONCE, after all of a turn's Market actions
+// are done (phases.ts's endMarketPhase). hire() therefore deliberately
+// leaves the vacated slot EMPTY; it does NOT call refillMarket itself. The
+// one confirmed exception is Horse's own ability ("If a player hires a
+// horse, immediately discard any number of cards in the market, reveal an
+// equal number of new cards... and arrange them by rank") — a card-specific
+// IMMEDIATE refill, handled entirely by applyEffects's discardMarketAndRefill
+// case below (which also covers Horse's own vacated slot — see its comment).
 export function hire(state: GameState, slotIndex: number, choices?: EffectChoices): GameState {
   assertPhase(state, 'market', 'hire')
   if (state.actionsRemaining <= 0) throw new Error('phases.ts: hire — no Market actions remaining this round')
@@ -204,23 +213,23 @@ export function hire(state: GameState, slotIndex: number, choices?: EffectChoice
   marketAfterRemoval.insertionSeq[slotIndex] = null
 
   const cards = cardsById()
-  const refill = refillMarket(marketAfterRemoval, state.toonDeck, cards, state.nextInsertionSeq)
+  const card = cards[cardId]
 
   const hired: GameState = {
     ...state,
     fame: state.fame - price,
     deck: [...state.deck, cardId],
     actionsRemaining: state.actionsRemaining - 1,
-    ...applyRefillResult(state, refill),
+    market: marketAfterRemoval,
   }
 
-  // onHire fires AFTER the above (post-decrement, post-refill) — see
-  // applyEffects's header comment (Peacock's bonus action must be additive
-  // on the decremented actionsRemaining, not a wash). Any choice indices in
-  // `choices` (e.g. Crow's/Horse's market-slot targets) refer to the
-  // POST-REFILL market — the same market a player/UI would actually be
-  // looking at when making the choice, not the pre-hire snapshot.
-  return applyEffects(hired, cards[cardId], cards[cardId].onHire, choices)
+  // onHire fires AFTER the above (post-decrement) — see applyEffects's
+  // header comment (Peacock's bonus action must be additive on the
+  // decremented actionsRemaining, not a wash). Choice indices in `choices`
+  // (e.g. Horse's/Crow's market-slot targets) refer to THIS still-gapped
+  // market (this card's own vacated slot included), not a refilled one — no
+  // refill has happened yet at this point for anyone.
+  return applyEffects(hired, card, card.onHire, choices)
 }
 
 // Shared raw grid-removal primitive — used by public dismiss() below, by
@@ -383,18 +392,27 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
         break
       }
       case 'discardMarketAndRefill': {
-        // Horse: OPTIONAL — no-op if declined/empty. Discards the CHOSEN
-        // slots (any number, player's choice) and refills; matches the
-        // FAQ's "refill count equals the number discarded" (refillMarket's
-        // own fill-then-resort logic already does this for free).
-        const slots = choices?.discardMarketSlots
-        if (!slots || slots.length === 0) break
+        // Horse: CONFIRMED FAQ exception to the normal once-per-turn refill
+        // (see hire()'s header comment) — its own ability refills
+        // IMMEDIATELY. The discard choice itself is OPTIONAL ("any number" —
+        // zero is a legal, meaningful choice), but this refill always runs
+        // regardless: hire() deliberately left THIS card's own vacated slot
+        // unrefilled (every hire does, now — see hire()'s comment), and this
+        // is the only place that slot gets filled BEFORE the normal
+        // end-of-turn point — USER-DIRECTED: combine this card's own gap
+        // with any additionally-chosen slots into ONE refillMarket call
+        // (not two sequential ones), even when zero additional slots are
+        // chosen, so the player never has to separately wait for Horse's own
+        // vacancy to resolve. Skipping this entirely on decline would leave
+        // it to the normal end-of-turn refill instead — also correct, but
+        // not what was asked for here.
+        const additionalSlots = choices?.discardMarketSlots ?? []
         const marketAfterDiscard = {
           prices: next.market.prices,
           slots: next.market.slots.slice(),
           insertionSeq: next.market.insertionSeq.slice(),
         }
-        for (const i of slots) {
+        for (const i of additionalSlots) {
           if (i < 0 || i >= marketAfterDiscard.slots.length) {
             throw new Error(`phases.ts: applyEffects — discardMarketAndRefill (${card.name}) slot index ${i} out of range`)
           }
@@ -454,11 +472,10 @@ function dismissCostFor(grid: Grid, pos: GridPos, index: number, cardsById: Reco
 }
 
 // Dismiss — pay 5 fame (or the card's own dismissCost) to remove a card
-// from the grid permanently, face-up beside the deck (§3.2, §3.3a). Also
-// refills+re-sorts the market afterward for consistency with hire (a no-op
-// when the market wasn't touched, since there's nothing to fill/re-sort —
-// see market.ts's refillMarket comment: "the ONE refillMarket used both
-// after Market-phase actions").
+// from the grid permanently, face-up beside the deck (§3.2, §3.3a). Doesn't
+// touch the market at all — dismiss removes from the player's OWN GRID, not
+// a market slot, and (per hire()'s header comment) refill only happens
+// ONCE, at the end of the Market phase, not per action.
 export function dismiss(state: GameState, pos: GridPos, index?: number, choices?: EffectChoices): GameState {
   assertPhase(state, 'market', 'dismiss')
   if (state.actionsRemaining <= 0) throw new Error('phases.ts: dismiss — no Market actions remaining this round')
@@ -482,20 +499,19 @@ export function dismiss(state: GameState, pos: GridPos, index?: number, choices?
   const grid = cloneGrid(state.grid)
   removeCardRaw(grid, pos, idx)
 
-  const refill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
-
   const dismissedState: GameState = {
     ...state,
     fame: state.fame - cost,
     grid,
     dismissed: [...state.dismissed, cardId],
     actionsRemaining: state.actionsRemaining - 1,
-    ...applyRefillResult(state, refill),
   }
 
-  // onDismiss fires AFTER the above (post-decrement, post-refill) — same
-  // ordering rationale as hire()'s onHire call. `card` here is the DISMISSED
-  // card (Crow), not whatever the effect subsequently hires.
+  // onDismiss fires AFTER the above (post-decrement) — same ordering
+  // rationale as hire()'s onHire call. `card` here is the DISMISSED card
+  // (Crow), not whatever the effect subsequently hires. Crow's own
+  // hireFromMarketAndRefill (applyEffects below) is its own confirmed
+  // card-specific immediate market action, same category as Horse's.
   return applyEffects(dismissedState, card, card.onDismiss, choices)
 }
 
@@ -591,11 +607,24 @@ export function endMarketPhase(state: GameState): GameState {
   assertPhase(state, 'market', 'endMarketPhase')
   const afterHooks = runPostMarketHooks(state)
   const cards = cardsById()
-  const decay = soloMarketDecay(afterHooks.market, afterHooks.toonDeck, cards, afterHooks.nextInsertionSeq)
+
+  // CONFIRMED rulebook text ("Once a player has completed their actions...
+  // reveal cards... until there are five available and rearrange... by
+  // rank"): THIS is the standard once-per-turn refill — the one place any
+  // gaps hire()/dismiss() left mid-turn (every hire but Horse leaves one;
+  // dismiss never touches the market) actually get filled. Must run BEFORE
+  // the decay step below: soloMarketDecay reads literal positions 0 and
+  // length-1 as "leftmost"/"rightmost" (market.ts's own comment), which
+  // only means what it says once the market is full/right-justified — an
+  // interior gap from an un-refilled mid-turn hire would corrupt that.
+  const standardRefill = refillMarket(afterHooks.market, afterHooks.toonDeck, cards, afterHooks.nextInsertionSeq)
+  const afterStandardRefill = { ...afterHooks, ...applyRefillResult(afterHooks, standardRefill) }
+
+  const decay = soloMarketDecay(afterStandardRefill.market, afterStandardRefill.toonDeck, cards, afterStandardRefill.nextInsertionSeq)
 
   return {
-    ...afterHooks,
-    ...applyRefillResult(afterHooks, decay),
+    ...afterStandardRefill,
+    ...applyRefillResult(afterStandardRefill, decay),
     actionsRemaining: 0,
     phase: 'cleanup',
   }

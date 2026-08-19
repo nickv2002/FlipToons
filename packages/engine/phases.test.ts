@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { emptyGrid, occupiedSlots, placeCardFaceUp } from './grid'
+import { emptyGrid, getSlot, occupiedSlots, placeCardFaceUp } from './grid'
 import { dismiss, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks, runPostMarketHooks } from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
@@ -51,9 +51,12 @@ describe('win trigger: reaching the fame threshold', () => {
 
     // Spend down: hire the priciest affordable slot, proving the WIN check
     // reads the Check-Fame snapshot, not the post-spend spendable pool.
+    // Restricted to cards with no onHire effects (e.g. excludes Peacock's
+    // "gain 2 fame") so the plain `before - price` arithmetic below isn't
+    // muddied by a card that changes fame on hire for an unrelated reason.
     const affordableSlot = state.market.slots
       .map((cardId, i) => ({ cardId, i, price: state.market.prices[i] }))
-      .filter((s) => s.cardId !== null && s.price <= state.fame)
+      .filter((s) => s.cardId !== null && s.price <= state.fame && !cards[s.cardId!].onHire?.length)
       .sort((a, b) => b.price - a.price)[0]
     expect(affordableSlot).toBeDefined()
     let hiredCount = 0
@@ -251,6 +254,26 @@ describe('dismiss', () => {
     expect(cat).toBeDefined()
     if (!cat) return
     expect(() => dismiss(state, cat.pos, cat.i)).toThrow(/immune/)
+  })
+
+  test('a face-down card cannot be dismissed', () => {
+    const setup = buildSoloSetup(6, 1, 'normal')
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: setup.startingDeck,
+      toonDeck: setup.toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    state = runToMarket(state)
+    const found = occupiedSlots(state.grid).flatMap(({ pos, slot }) =>
+      slot.cards.map((id, i) => ({ pos, i, faceUp: slot.faceUp[i] })),
+    ).find((c) => c.faceUp)
+    expect(found).toBeDefined()
+    if (!found) return
+    const slot = getSlot(state.grid, found.pos)!
+    slot.faceUp[found.i] = false // flip it face-down directly, same pattern as the Ladybug/Rat face-down tests below
+    expect(() => dismiss(state, found.pos, found.i)).toThrow(/face-down/)
   })
 })
 
@@ -494,24 +517,31 @@ describe('Group 1 — onHire/onDismiss firing (butterfly, horse, peacock, raccoo
 
   describe('Horse — onHire discardMarketAndRefill (OPTIONAL)', () => {
     test('discarding chosen slots refills from the toon deck', () => {
-      // Post-hire-refill, rank-sorted market is [ostrich(1), goat(6),
-      // sheep(7)] (horse's own slot 0 vacates and draws 'sheep' first,
-      // rank 7, which sorts to the end) — see the comment on choice
-      // indices in hire()/applyEffects: onHire choices target the
-      // POST-REFILL market, not the pre-hire snapshot.
+      // USER-DIRECTED ordering: hire() leaves Horse's own vacated slot (0)
+      // UNREFILLED — discardMarketSlots indices target that same gapped,
+      // pre-refill market (nothing has moved yet), so index 1 here is still
+      // 'ostrich'. Horse's own gap and the chosen slot are then refilled
+      // TOGETHER in one combined pass and re-sorted by rank: goat(6),
+      // sheep(7), rabbit(9).
       let state = marketState(203)
       const market = { prices: [3, 4, 7], slots: ['horse', 'ostrich', 'goat'], insertionSeq: [0, 1, 2] }
       const toonDeck = buildExplicitDeck(['sheep', 'rabbit'], cards)
       state = { ...state, market, toonDeck, nextInsertionSeq: 3 }
       const before = state.fame
-      state = hire(state, 0, { discardMarketSlots: [1] }) // post-refill index 1 = goat
+      state = hire(state, 0, { discardMarketSlots: [1] }) // pre-refill index 1 = ostrich
       expect(state.fame).toBe(before - 3) // discardMarketAndRefill has no cost of its own
-      expect(state.market.slots).not.toContain('goat')
-      expect(state.market.slots).toContain('ostrich')
-      expect(state.toonDeck.length).toBe(0) // both sheep and rabbit consumed across the two refills
+      expect(state.market.slots).not.toContain('ostrich')
+      expect(state.market.slots).toEqual(['goat', 'sheep', 'rabbit']) // rank order: 6, 7, 9
+      expect(state.toonDeck.length).toBe(0) // both sheep and rabbit consumed in the one combined refill
     })
 
-    test('declining (no choice) hires normally, market only refilled by hire() itself', () => {
+    test('declining (no additional slots) still refills Horse\'s own vacated slot — the discard is optional, the refill is not', () => {
+      // hire() itself deliberately does NOT refill Horse's slot (see
+      // hasDiscardMarketAndRefillOnHire's comment) — applyEffects's
+      // discardMarketAndRefill case is unconditional specifically so this
+      // slot doesn't stay permanently empty when the player discards
+      // nothing extra (e.g. every web/server hire, which never passes
+      // `choices` at all).
       let state = marketState(204)
       const market = { prices: [3, 4, 7], slots: ['horse', 'ostrich', 'goat'], insertionSeq: [0, 1, 2] }
       const toonDeck = buildExplicitDeck(['sheep', 'rabbit'], cards)
@@ -519,7 +549,8 @@ describe('Group 1 — onHire/onDismiss firing (butterfly, horse, peacock, raccoo
       state = hire(state, 0)
       expect(state.market.slots).toContain('ostrich')
       expect(state.market.slots).toContain('goat')
-      expect(state.toonDeck.length).toBe(1) // only hire()'s own single-slot refill drew a card
+      expect(state.market.slots).not.toContain(null)
+      expect(state.toonDeck.length).toBe(1) // only Horse's own single-slot refill drew a card
     })
   })
 

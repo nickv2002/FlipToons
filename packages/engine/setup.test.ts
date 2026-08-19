@@ -28,14 +28,15 @@ describe('buildSeason1SoloStartingDeck (§3.7, confirmed against the rulebook qu
 })
 
 describe('buildSoloToonDeckUnshuffled', () => {
-  test('season 1: excludes the Pig, includes every other rank>0 card by its copies count, no rank-0 card', () => {
+  test('season 1: excludes the Pig and Axolotl, includes every other rank>0 card by its copies count, no rank-0 card', () => {
     const deck = buildSoloToonDeckUnshuffled(1)
     expect(deck).not.toContain('pig')
+    expect(deck).not.toContain('axolotl')
 
     const rank0Ids = new Set(season1Cards.filter((c) => c.rank === 0).map((c) => c.id))
     for (const id of deck) expect(rank0Ids.has(id)).toBe(false)
 
-    const expectedMarketCards = season1Cards.filter((c) => c.rank > 0 && c.id !== 'pig')
+    const expectedMarketCards = season1Cards.filter((c) => c.rank > 0 && c.id !== 'pig' && c.id !== 'axolotl')
     const expectedLength = expectedMarketCards.reduce((sum, c) => sum + c.copies, 0)
     expect(deck.length).toBe(expectedLength)
 
@@ -44,16 +45,18 @@ describe('buildSoloToonDeckUnshuffled', () => {
     }
   })
 
-  // Season 2's exclusion list is currently [] (setup.ts: "UNCONFIRMED as
-  // genuinely none vs. not yet found"). This asserts CURRENT CODE BEHAVIOR,
-  // not a confirmed rule — if a Season 2 Pig-analogue is ever identified,
-  // this test's expected length changes along with SOLO_TOON_DECK_EXCLUSIONS.
-  test('season 2: current exclusion list is empty — includes every rank>0 card by its copies count', () => {
+  // Season 2's exclusion list holds only 'platypus' (Big Button — see
+  // setup.ts). This asserts CURRENT CODE BEHAVIOR, not a confirmed rule — if
+  // a Season 2 Pig-analogue is ever identified, this test's expected length
+  // changes along with SOLO_TOON_DECK_EXCLUSIONS.
+  test('season 2: excludes the Platypus, includes every other rank>0 card by its copies count', () => {
     const deck = buildSoloToonDeckUnshuffled(2)
+    expect(deck).not.toContain('platypus')
+
     const rank0Ids = new Set(season2Cards.filter((c) => c.rank === 0).map((c) => c.id))
     for (const id of deck) expect(rank0Ids.has(id)).toBe(false)
 
-    const expectedMarketCards = season2Cards.filter((c) => c.rank > 0)
+    const expectedMarketCards = season2Cards.filter((c) => c.rank > 0 && c.id !== 'platypus')
     const expectedLength = expectedMarketCards.reduce((sum, c) => sum + c.copies, 0)
     expect(deck.length).toBe(expectedLength)
   })

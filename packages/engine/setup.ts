@@ -88,9 +88,19 @@ export function buildSeason2SoloStartingDeck(): CardId[] {
 // Pig-shaped Season 2 card. `excludeFromSoloToonDeck` is season-parameterized
 // for exactly this reason: Season 1 gets ['pig'], Season 2 gets [] until a
 // real source says otherwise.
+//
+// Axolotl (Season 1) and Platypus (Season 2) are excluded for an unrelated
+// reason: both reference the Big Button mini-expansion component (see their
+// `unencodable`/`fameUnencodable` flags in cards/season1.ts and
+// cards/season2.ts), which has no representation in the current rules model.
+// Rather than deal a card whose onHire effect (and, for Platypus, fame
+// value) always needs a manual ruling, they're kept out of real games
+// entirely until Big Button state is actually simulated. This is a
+// deliberate engine-capability exclusion, not a rulebook-mandated one like
+// the Pig's — don't conflate the two reasons.
 const SOLO_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
-  1: ['pig'],
-  2: [], // UNCONFIRMED as "genuinely none" vs. "not yet found" — see comment above
+  1: ['pig', 'axolotl'],
+  2: ['platypus'], // no longer "UNCONFIRMED as genuinely none" — see Big Button note above
 }
 
 // All of one season's MARKET cards (rank > 0 — rank-0 cards are

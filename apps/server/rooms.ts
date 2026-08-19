@@ -34,7 +34,12 @@ function generateRoomCode(): string {
 
 export function createRoom(seed: number, difficulty: SoloDifficulty, season: 1 | 2): { roomCode: string; room: Room } {
   const roomCode = generateRoomCode()
-  const room: Room = { state: buildNewGameState(seed, difficulty, season), log: [], sockets: new Set() }
+  // Cascade the initial flip immediately (actions.ts's applyAction now
+  // advances flip -> checkFame -> postFameHooks -> market on its own), so a
+  // freshly created room never sits in 'flip' — the web client no longer
+  // renders that phase at all.
+  const { state, logLines } = applyAction(buildNewGameState(seed, difficulty, season), { kind: 'flip' })
+  const room: Room = { state, log: logLines, sockets: new Set() }
   rooms.set(roomCode, room)
   return { roomCode, room }
 }

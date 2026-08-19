@@ -81,23 +81,25 @@ describe('apps/server room protocol', () => {
     if (reply.type !== 'joined') throw new Error('unreachable')
     expect(reply.roomCode).toHaveLength(5)
     for (const char of reply.roomCode) expect(ROOM_CODE_ALPHABET).toContain(char)
-    expect(reply.log).toEqual([])
-    const expected = buildNewGameState(42, 'normal', 1)
-    expect(reply.state).toEqual(expected)
+    // createRoom now cascades the initial flip itself (rooms.ts), so a
+    // freshly created room already sits at phase 'market' with a non-empty
+    // log — the client-facing RoundView no longer renders a 'flip' phase.
+    const expected = applyAction(buildNewGameState(42, 'normal', 1), { kind: 'flip' })
+    expect(reply.log).toEqual(expected.logLines)
+    expect(reply.state).toEqual(expected.state)
     ws.close()
   })
 
-  test('a sequence of actions (flip, hire, etc.) matches applyAction threaded locally', async () => {
+  test('a sequence of actions (hire, etc.) matches applyAction threaded locally', async () => {
     const ws = await openSocket()
     const waiter1 = nextMessage(ws)
     sendMsg(ws, { type: 'create', seed: 7, difficulty: 'normal', season: 1 })
     const createdReply = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
     expect(createdReply.type).toBe('joined')
 
-    // 'flip' now cascades all the way to 'market' by itself (see actions.ts's
-    // advanceThroughPassthroughPhases) — checkFame/continueToMarket are no
-    // longer separate steps a caller needs to dispatch.
-    const actions: Action[] = [{ kind: 'flip' }, { kind: 'hire', slotIndex: 0 }]
+    // The room is already at 'market' by the time 'joined' arrives (createRoom
+    // cascades the initial flip) — no separate flip action to dispatch here.
+    const actions: Action[] = [{ kind: 'hire', slotIndex: 0 }]
     const { serverState, localState } = await runSequence(ws, createdReply.roomCode, createdReply.state, actions)
     expect(serverState).toEqual(localState)
     ws.close()
@@ -109,7 +111,7 @@ describe('apps/server room protocol', () => {
     sendMsg(ws1, { type: 'create', seed: 99, difficulty: 'easy', season: 1 })
     const joined1 = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
 
-    const actions: Action[] = [{ kind: 'flip' }]
+    const actions: Action[] = [{ kind: 'hire', slotIndex: 0 }]
     const { serverState, serverLogLines } = await runSequence(ws1, joined1.roomCode, joined1.state, actions)
 
     const ws2 = await openSocket()
@@ -119,7 +121,9 @@ describe('apps/server room protocol', () => {
 
     expect(joined2.type).toBe('joined')
     expect(joined2.state).toEqual(serverState)
-    expect(joined2.log).toEqual(serverLogLines)
+    // Room's log accumulates from creation (createRoom's own cascaded flip)
+    // onward, not just the actions this test dispatched afterward.
+    expect(joined2.log).toEqual([...joined1.log, ...serverLogLines])
 
     ws1.close()
     ws2.close()
@@ -146,7 +150,7 @@ describe('apps/server room protocol', () => {
     await joinWaiter
 
     const bothWaiters = Promise.all([nextMessage(ws1), nextMessage(ws2)])
-    sendMsg(ws1, { type: 'action', roomCode: joined1.roomCode, action: { kind: 'flip' } })
+    sendMsg(ws1, { type: 'action', roomCode: joined1.roomCode, action: { kind: 'hire', slotIndex: 0 } })
     const [reply1, reply2] = await bothWaiters
     expect(reply1.type).toBe('state')
     expect(reply2.type).toBe('state')
@@ -162,7 +166,8 @@ describe('apps/server room protocol', () => {
     sendMsg(ws, { type: 'create', seed: 55, difficulty: 'normal', season: 1 })
     const created = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
 
-    await runSequence(ws, created.roomCode, created.state, [{ kind: 'flip' }])
+    // Room already sits at 'market' by the time 'joined' arrives — no setup
+    // action needed before exercising the rejected-hire path below.
 
     const waiter2 = nextMessage(ws)
     sendMsg(ws, { type: 'action', roomCode: created.roomCode, action: { kind: 'hire', slotIndex: 99 } })
@@ -185,10 +190,12 @@ describe('apps/server room protocol', () => {
     const waiter1 = nextMessage(ws)
     sendMsg(ws, { type: 'create', seed: 3, difficulty: 'normal', season: 1 })
     const created = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
-    expect(created.state.phase).toBe('flip')
+    expect(created.state.phase).toBe('market')
 
+    // 'checkFame' is only valid mid-flip; dispatching it while the room is
+    // already at 'market' hits assertPhase's genuine phase-machine throw.
     const waiter2 = nextMessage(ws)
-    sendMsg(ws, { type: 'action', roomCode: created.roomCode, action: { kind: 'hire', slotIndex: 0 } })
+    sendMsg(ws, { type: 'action', roomCode: created.roomCode, action: { kind: 'checkFame' } })
     const reply = await waiter2
     expect(reply.type).toBe('error')
 
@@ -196,7 +203,9 @@ describe('apps/server room protocol', () => {
     sendMsg(ws, { type: 'join', roomCode: created.roomCode })
     const rejoined = (await waiter3) as Extract<ServerMessage, { type: 'joined' }>
     expect(rejoined.state).toEqual(created.state)
-    expect(rejoined.log).toEqual([])
+    // The rejected action never mutated room.log — it still holds only what
+    // createRoom seeded at creation (the cascaded initial flip's lines).
+    expect(rejoined.log).toEqual(created.log)
 
     ws.close()
   })

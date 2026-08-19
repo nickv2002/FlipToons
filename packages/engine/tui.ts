@@ -18,7 +18,9 @@
 // Entry points:
 //   bun run packages/engine/tui.ts [--seed=N] [--difficulty=easy|normal|hard]
 //     Interactive: prompts on stdin/stdout via readline.
-//   bun run packages/engine/tui.ts --seed=N --script=hire:2,dismiss:0,end,...
+//   bun run packages/engine/tui.ts --seed=N --script=hire:2,dismiss:1,end,...
+//     (hire:/dismiss: numbers are 1-based, matching the printed [1], [2], ...
+//     labels; h/d are accepted shorthand, e.g. h2,d1)
 //   bun run packages/engine/tui.ts --seed=N --script-file=path/to/script.txt
 //     Non-interactive: drives the exact same loop from a scripted action
 //     list instead of a human at the keyboard — this is how tui.test.ts
@@ -41,8 +43,8 @@ import { readFileSync } from 'node:fs'
 import * as readline from 'node:readline/promises'
 
 import { playAutomatically } from './ai'
-import { renderGridBoxes } from './cli'
-import type { Card, CardId } from './cards/types'
+import { cardRuleLines, renderGridBoxes } from './cli'
+import type { Card, CardId, EffectChoices } from './cards/types'
 import { occupiedSlots } from './grid'
 import { hireCost } from './market'
 import { dismiss, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks } from './phases'
@@ -56,6 +58,57 @@ import type { GridPos } from './types'
 
 export type Ask = (prompt: string) => Promise<string>
 export type Out = (line: string) => void
+
+// Visually de-prioritizes a listing the player can't currently afford —
+// terminal analogue of the web GUI's `.card:disabled { opacity: 0.5 }`
+// (apps/web/src/style.css). Plain ANSI dim/reset since tui.ts stays
+// zero-dependency (see file header).
+function dim(text: string): string {
+  return `\x1b[2m${text}\x1b[0m`
+}
+
+// Zero-pads fame/rank numbers in the Market and dismiss listings to 2 digits
+// (highest possible values: price 15, rank 26) purely so the columns line
+// up — every card in this range is at most 2 digits, so this never
+// truncates.
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+// Single-line rule-text summary for the Market/dismiss listings —
+// cardRuleLines (cli.ts) returns one line per rule (name/rank, fame value,
+// then ability/dismiss-cost/immunity text); the name/rank is already
+// covered by the listing line itself here, so everything else (the card's
+// own fame value AND its ability) gets appended — a card with no special
+// ability (e.g. a plain Goat) still shows what it's worth.
+function abilitySummary(card: Card): string {
+  const [, ...detail] = cardRuleLines(card)
+  return detail.join('; ')
+}
+
+// Horse's onHire ability (discardMarketAndRefill) is OPTIONAL and needs a
+// player choice (which market slots to discard) — keyed on the effect
+// KIND, not card.id, so any future card sharing this exact ability is
+// covered automatically (same style as score.ts's hasDogElsewhereCondition).
+function hasDiscardMarketAndRefillOnHire(card: Card): boolean {
+  return (card.onHire ?? []).some((e) => e.kind === 'discardMarketAndRefill')
+}
+
+// Parses the player's answer to the discard-choice prompt: any digits found
+// (comma/space/anything separated) become 1-based slot numbers, converted
+// to the 0-based indices hire()'s `discardMarketSlots` expects. A blank or
+// unparseable answer yields an empty array, i.e. decline — this ancillary
+// prompt is deliberately forgiving rather than re-prompting on bad input,
+// unlike the main hire/dismiss/end grammar.
+function parseDiscardChoices(raw: string, slotCount: number): number[] {
+  const numbers = raw.match(/\d+/g) ?? []
+  const chosen = new Set<number>()
+  for (const n of numbers) {
+    const displayed = Number(n)
+    if (displayed >= 1 && displayed <= slotCount) chosen.add(displayed - 1)
+  }
+  return [...chosen]
+}
 
 // ---------------------------------------------------------------------------
 // Unencodable-effect surfacing (task item 2). 18-ish cards across the toon
@@ -127,11 +180,17 @@ function parseAction(raw: string): Action {
   // (EOF is handled separately, by racing rl.question() against the
   // interface's 'close' event — see the import.meta.main block — so this
   // function no longer needs to double as the EOF signal.)
-  if (trimmed === 'end' || trimmed === 'end-market') return { kind: 'end' }
-  const m = trimmed.match(/^(hire|dismiss)[:\s]+(\d+)$/)
+  if (trimmed === 'end' || trimmed === 'end-market' || trimmed === 'e') return { kind: 'end' }
+  const m = trimmed.match(/^(hire|h|dismiss|d)[:\s]*(\d+)$/)
   if (!m) return { kind: 'invalid' }
-  const n = Number(m[2])
-  return m[1] === 'hire' ? { kind: 'hire', slot: n } : { kind: 'dismiss', index: n }
+  // Displayed numbering is 1-based (matches the printed [1], [2], ... labels
+  // below); internally everything downstream — market.slots, dismissable[]
+  // — stays 0-based, so convert here, at the one boundary between "what the
+  // player typed" and "what the engine indexes".
+  const displayed = Number(m[2])
+  if (displayed < 1) return { kind: 'invalid' }
+  const n = displayed - 1
+  return m[1] === 'hire' || m[1] === 'h' ? { kind: 'hire', slot: n } : { kind: 'dismiss', index: n }
 }
 
 // The engine's own signal that the TUI's phase machine called a phase
@@ -155,6 +214,14 @@ function playerFacingMessage(err: unknown): string {
   return message.replace(/^phases\.ts: \w+ — /, '')
 }
 
+// phases.ts's hire() reports its 0-based market.slots index verbatim (e.g.
+// "cannot afford slot 0 ..."); the player just typed a 1-based number for
+// that same slot, so remap it back before display to avoid an off-by-one
+// that looks like a bug.
+function toDisplaySlotMessage(message: string): string {
+  return message.replace(/\bslot (\d+)\b/, (_, n) => `slot ${Number(n) + 1}`)
+}
+
 // ---------------------------------------------------------------------------
 // Market phase — the interactive core (task item 4).
 // ---------------------------------------------------------------------------
@@ -168,12 +235,16 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
     out('Market:')
     state.market.slots.forEach((cardId, i) => {
       const price = hireCost(state.market, i)
+      const affordable = state.fame >= price
+      const n = i + 1 // displayed numbering is 1-based; see parseAction
       if (cardId === null) {
-        out(`  [${i}] (empty) — ${price} fame`)
+        out(dim(`  [${n}] ${pad2(price)} fame — (empty)`))
         return
       }
       const card = cards[cardId]
-      out(`  [${i}] ${card.name} (rank ${card.rank}) — ${price} fame${card.unencodable ? '  [effect not simulated]' : ''}`)
+      const ability = abilitySummary(card)
+      const line = `  [${n}] ${pad2(price)} fame — ${card.name} (rank ${pad2(card.rank)})${card.unencodable ? '  [effect not simulated]' : ''}${ability ? `  — ${ability}` : ''}`
+      out(affordable ? line : dim(line))
     })
 
     const dismissable = listDismissEntries(state)
@@ -183,17 +254,32 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
         const card = cards[e.cardId]
         const cost = card.dismissCost ?? 5
         const immune = card.immune?.includes('dismiss') ? '  [immune to dismiss]' : ''
-        out(`  [${e.index}] ${card.name} (rank ${card.rank}) at ${posLabel(e.pos)} — dismiss cost ${cost}${immune}`)
+        const ability = abilitySummary(card)
+        const n = e.index + 1 // displayed numbering is 1-based; see parseAction
+        const line = `  [${n}] ${pad2(cost)} fame — ${card.name} (rank ${pad2(card.rank)}) at ${posLabel(e.pos)}${immune}${ability ? `  — ${ability}` : ''}`
+        out(state.fame >= cost ? line : dim(line))
       }
     } else {
       out('Your grid has no dismissable (face-up) cards.')
     }
 
-    const raw = await ask('Action (hire:<slot> / dismiss:<index> / end): ')
+    // Nothing left the player can afford (no hireable slot, no dismissable
+    // card within budget) — auto-close rather than force an `e` the player
+    // has no real choice about; note it in the log so it's clear this wasn't
+    // a manual `end`.
+    const anyHireAffordable = state.market.slots.some((cardId, i) => cardId !== null && state.fame >= hireCost(state.market, i))
+    const anyDismissAffordable = dismissable.some((e) => state.fame >= (cards[e.cardId].dismissCost ?? 5))
+    if (!anyHireAffordable && !anyDismissAffordable) {
+      out('No affordable actions remain — auto-ending Market phase.')
+      state = endMarketPhase(state)
+      break
+    }
+
+    const raw = await ask('Action (hire:<n>/h<n> / dismiss:<n>/d<n>, 1-based, e.g. h1, d2 / e to end): ')
     const action = parseAction(raw)
 
     if (action.kind === 'invalid') {
-      out(`Didn't understand "${raw}" — use hire:<slot>, dismiss:<index>, or end.`)
+      out(`Didn't understand "${raw}" — use hire:<n>, dismiss:<n> (numbers start at 1), or end.`)
       continue
     }
 
@@ -205,14 +291,34 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
     if (action.kind === 'hire') {
       const cardId = state.market.slots[action.slot]
       const price = action.slot >= 0 && action.slot < state.market.prices.length ? hireCost(state.market, action.slot) : undefined
+      const card = cardId ? cards[cardId] : undefined
       try {
-        state = hire(state, action.slot)
-        const card = cards[cardId!]
-        out(`Hired ${card.name} for ${price} fame.`)
-        if (card.unencodable) printUnencodableNotice(card, out, 'hired')
+        let choices: EffectChoices | undefined
+        if (card && price !== undefined && state.fame >= price && hasDiscardMarketAndRefillOnHire(card)) {
+          // Horse: hire() deliberately leaves this card's OWN vacated slot
+          // unrefilled until this ability's choice resolves (phases.ts's
+          // hasDiscardMarketAndRefillOnHire comment), so discardMarketSlots
+          // indices below target THIS gapped market — the same one already
+          // listed above this prompt, just with this slot now empty — not a
+          // preview of some future refilled state.
+          out(`${card.name}'s ability: the market now has a gap at [${action.slot + 1}] — discard any number of the OTHER slots too, and every gap refills together.`)
+          const discardRaw = await ask(
+            `${card.name}: discard any number of these market slots (comma-separated numbers, blank to discard none): `,
+          )
+          // Already-empty slots (Horse's own gap, or a short market) are
+          // silently dropped rather than passed through — they're not a
+          // real discard, and counting them would over-report "Discarded N"
+          // below for a no-op.
+          const discardSlots = parseDiscardChoices(discardRaw, state.market.slots.length).filter((i) => state.market.slots[i] !== null)
+          if (discardSlots.length > 0) choices = { discardMarketSlots: discardSlots }
+        }
+        state = hire(state, action.slot, choices)
+        out(`Hired ${card!.name} for ${price} fame.`)
+        if (card!.unencodable) printUnencodableNotice(card!, out, 'hired')
+        if (choices?.discardMarketSlots?.length) out(`Discarded ${choices.discardMarketSlots.length} additional market card(s); all gaps refilled.`)
       } catch (err) {
         rethrowIfEngineBug(err)
-        out(`Can't do that: ${playerFacingMessage(err)}`)
+        out(`Can't do that: ${toDisplaySlotMessage(playerFacingMessage(err))}`)
       }
       continue
     }
@@ -220,7 +326,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
     if (action.kind === 'dismiss') {
       const entry = dismissable[action.index]
       if (!entry) {
-        out(`No dismissable card at index ${action.index}.`)
+        out(`No dismissable card at index ${action.index + 1}.`)
         continue
       }
       try {
@@ -268,6 +374,9 @@ export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out }
       out('')
       out(renderGridBoxes(state.grid, cards))
 
+      const gridCardCount = occupiedSlots(state.grid).reduce((sum, { slot }) => sum + slot.cards.length, 0)
+      out(`(${gridCardCount} card(s) in grid, ${state.deck.length} card(s) left undrawn in deck)`)
+
       // Manual-resolution notices for every unencodable card that's now
       // face-up in the grid, whatever put it there (placement, a prior
       // hire, a prior dismiss that left a stack-mate behind) — this is the
@@ -290,9 +399,11 @@ export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out }
       if (state.lastCheckFame) out(formatBreakdown(state.lastCheckFame))
       out(`Round fame generated: ${state.fameGeneratedThisRound}`)
 
-      // fameUnencodable cards (Camel/Cat/Tiger, this season) print as "NEEDS
-      // RULING" in formatBreakdown already — dump the verbatim card text
-      // alongside so the player can resolve it by hand instead of guessing.
+      // Remaining fameUnencodable cards (Fox, this season — Camel/Cat/Tiger
+      // are now fully resolved via scoreGrid's externalState) print as
+      // "NEEDS RULING" in formatBreakdown already — dump the verbatim card
+      // text alongside so the player can resolve it by hand instead of
+      // guessing.
       for (const line of state.lastCheckFame?.lines ?? []) {
         if (!line.needsRuling) continue
         const card = cards[line.cardId]

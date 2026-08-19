@@ -7,6 +7,8 @@
 // underlying engine (which phases.test.ts already covers independently).
 
 import { describe, expect, test } from 'bun:test'
+import { getSlot, occupiedSlots } from './grid'
+import { runCheckFame, runFlip, runPostFameHooks } from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
 import { makeScriptedAsk, parseScript, runSoloGame } from './tui'
@@ -41,7 +43,7 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
     // Market phase. Scripted mode falls back to implicit `end` after the
     // script is exhausted, so subsequent rounds (there won't be any — this
     // deck wins round 1) need nothing further.
-    const ask = makeScriptedAsk(parseScript('dismiss:0,hire:0,end'))
+    const ask = makeScriptedAsk(parseScript('dismiss:1,hire:1,end'))
     const final = await runSoloGame({ state, ask, out })
 
     expect(final.phase).toBe('ended')
@@ -134,9 +136,14 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
       asked = true
       const fameLine = lines.slice().reverse().find((l) => l.startsWith('Fame available to spend:'))
       const fame = fameLine ? Number(fameLine.split(':')[1]) : 0
-      const marketLines = lines.slice().reverse().filter((l) => /^\s*\[\d+\] Axolotl/.test(l))
+      // Market and dismiss lines share the same "[n] <cost> fame — <name>"
+      // shape now that price/cost is printed before the name — the dismiss
+      // listing's " at <pos>" suffix (absent from market lines) is what
+      // distinguishes a Market-slot Axolotl from a grid Axolotl.
+      const marketLineRe = /^\s*\[(\d+)\]\s*(\d+)\s*fame\s*—\s*Axolotl\s*\(rank\s*\d+\)(?!\s+at\s)/
+      const marketLines = lines.slice().reverse().filter((l) => marketLineRe.test(l))
       for (const l of marketLines) {
-        const m = l.match(/^\s*\[(\d+)\] Axolotl.*?—\s*(\d+)\s*fame/)
+        const m = l.match(marketLineRe)
         if (m && Number(m[2]) <= fame) return `hire:${m[1]}`
       }
       return 'end'
@@ -166,9 +173,10 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
       asked = true
       const fameLine = lines.slice().reverse().find((l) => l.startsWith('Fame available to spend:'))
       const fame = fameLine ? Number(fameLine.split(':')[1]) : 0
-      const marketLines = lines.slice().reverse().filter((l) => /^\s*\[\d+\] Butterfly/.test(l))
+      const marketLineRe = /^\s*\[(\d+)\]\s*(\d+)\s*fame\s*—\s*Butterfly\s*\(rank\s*\d+\)(?!\s+at\s)/
+      const marketLines = lines.slice().reverse().filter((l) => marketLineRe.test(l))
       for (const l of marketLines) {
-        const m = l.match(/^\s*\[(\d+)\] Butterfly.*?—\s*(\d+)\s*fame/)
+        const m = l.match(marketLineRe)
         if (m && Number(m[2]) <= fame) return `hire:${m[1]}`
       }
       return 'end'
@@ -212,7 +220,7 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
 describe('replay substitute: same seed + same script -> identical final state', () => {
   test('two independent runs of the same seed and script produce a deep-equal final GameState', async () => {
     const setup = buildSoloSetup(105, 1, 'normal')
-    const script = parseScript('hire:0,dismiss:0,end,hire:0,end,end,end,end,end,end,end,end,end,end')
+    const script = parseScript('hire:1,dismiss:1,end,hire:1,end,end,end,end,end,end,end,end,end,end')
 
     async function play() {
       const state = createSoloGameState({
@@ -231,6 +239,51 @@ describe('replay substitute: same seed + same script -> identical final state', 
 
     expect(runA).toEqual(runB)
     expect(runA.result === 'win' || runA.result === 'loss').toBe(true)
+  })
+})
+
+// listDismissEntries (tui.ts) filters occupiedSlots to face-up cards only —
+// this proves that filtering holds through the real printed Market prompt,
+// not just by reading the private function's source.
+describe('tui.ts Market prompt never lists a face-down card as dismissable', () => {
+  test('a card manually flipped face-down is excluded from the dismissable list, and the count matches face-up cards only', async () => {
+    const setup = buildSoloSetup(6, 1, 'normal')
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: setup.startingDeck,
+      toonDeck: setup.toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    state = runPostFameHooks(runCheckFame(runFlip(state)))
+
+    const found = occupiedSlots(state.grid)
+      .flatMap(({ pos, slot }) => slot.cards.map((id, i) => ({ pos, id, i, faceUp: slot.faceUp[i] })))
+      .find((c) => c.faceUp)
+    expect(found).toBeDefined()
+    if (!found) return
+    const slot = getSlot(state.grid, found.pos)!
+    slot.faceUp[found.i] = false // flip it face-down directly, same technique as phases.test.ts's dismiss tests
+    const flippedCard = cards[found.id]
+
+    const faceUpCount = occupiedSlots(state.grid).reduce((sum, { slot }) => sum + slot.faceUp.filter(Boolean).length, 0)
+
+    const { lines, out } = collectOutput()
+    await runSoloGame({ state, ask: makeScriptedAsk(parseScript('end')), out })
+
+    const headerIndex = lines.findIndex((l) => l.startsWith('Your grid (dismissable face-up cards):'))
+    expect(headerIndex).toBeGreaterThanOrEqual(0)
+    const dismissLines: string[] = []
+    for (let i = headerIndex + 1; i < lines.length && /^\s*\[\d+\]/.test(lines[i]); i++) {
+      dismissLines.push(lines[i])
+    }
+
+    // Match on name + position, not name alone — the starting deck has
+    // duplicate card names (e.g. two Bees), so a bare name check could pass
+    // by matching a different face-up copy of the same card.
+    const flippedPosLabel = found.pos.section === 'base' ? `row ${found.pos.row}, col ${found.pos.col}` : `extra row ${found.pos.row}, col ${found.pos.col}`
+    expect(dismissLines.length).toBe(faceUpCount)
+    expect(dismissLines.some((l) => l.includes(flippedCard.name) && l.includes(`at ${flippedPosLabel}`))).toBe(false)
   })
 })
 
@@ -265,8 +318,13 @@ describe('tui.ts --ai autoplay mode (CLI entry point)', () => {
   })
 
   test('reaches a deterministic LOSS with exit code 1 for a fixed seed, identically across two runs', async () => {
+    // seed=42 flipped to a WIN once the market's refill timing was fixed to
+    // match the confirmed rulebook text (once per turn, not once per
+    // hire/dismiss — see phases.ts's hire() header comment): the toon deck
+    // now depletes slower, so it no longer reliably loses. seed=3 still
+    // reliably loses under the corrected timing.
     const runOnce = () =>
-      Bun.spawnSync(['bun', 'run', TUI_PATH, '--ai', '--seed=42', '--difficulty=easy'], {
+      Bun.spawnSync(['bun', 'run', TUI_PATH, '--ai', '--seed=3', '--difficulty=easy'], {
         stdout: 'pipe',
         stderr: 'pipe',
       })

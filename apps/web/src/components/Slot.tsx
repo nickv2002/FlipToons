@@ -35,7 +35,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss }: SlotProps)
         const dismissCost = faceUp ? card.dismissCost ?? 5 : undefined
         const immuneToDismiss = faceUp && card.immune?.includes('dismiss')
         return (
-          <div className="slot__member" key={i}>
+          <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={i}>
             <Card
               card={card}
               faceUp={faceUp}

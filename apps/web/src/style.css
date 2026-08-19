@@ -23,7 +23,14 @@ button {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
-  max-width: 1100px;
+  /* Was 1100px. A single-row 5-card market (Part 1) needs real width to stay
+     legible once it's also splitting the round-view pane 1fr/1.3fr with the
+     grid (see .round-view__phase--market below) and sharing space with the
+     ResolveLog sidebar here. 1100px capped the market pane at ~64px/card
+     even at its widest — raised so the arithmetic works at common laptop
+     widths (~1280px). Track C: this line is outside .market*/.card* but
+     needed for Part 2 of the same task; flag if it conflicts with your work. */
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -82,9 +89,18 @@ button {
   gap: 1rem;
 }
 
-@media (min-width: 700px) {
+/* Bumped from 700px: once the market renders its 5 slots in a single row
+   (see .market__slots below) it needs materially more width per card than
+   the old wrapping layout did, so splitting into two columns any earlier
+   than laptop width squeezed the market pane down to an unreadable ~2-3
+   card widths. 900px roughly matches where .app__game itself first goes
+   two-column, so grid+market only split once there's already room. */
+@media (min-width: 900px) {
   .round-view__phase--market {
-    grid-template-columns: 1fr 1fr;
+    /* Grid pane doesn't need as much width as the market pane: grid cards
+       are individually narrower (3 stacked columns vs. 5 market slots
+       fighting for the same row), so give the market pane a larger share. */
+    grid-template-columns: 1fr 1.3fr;
   }
 }
 
@@ -93,7 +109,7 @@ button {
 .grid {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 1.1rem;
   width: fit-content;
 }
 
@@ -101,6 +117,9 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(90px, 1fr));
   gap: 0.4rem;
+  padding: 0.45rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, canvastext 5%, transparent);
 }
 
 .grid__row--extra {
@@ -116,7 +135,17 @@ button {
 .slot {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+}
+
+.slot__member {
+  position: relative;
+}
+
+.slot__member--stacked {
+  margin-top: -60%;
+  margin-left: 10px;
+  box-shadow: -4px -4px 6px -2px rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
 }
 
 .slot__immune-note {

@@ -6,7 +6,13 @@
 #   make solo ARGS="--seed=1 --difficulty=hard"
 #   make solo-ai ARGS="--seed=1 --season=2"
 
-.PHONY: solo solo-season2 solo-ai web server play test typecheck
+.PHONY: help solo solo-season2 solo-ai web server play test typecheck
+
+.DEFAULT_GOAL := help
+
+## Show this list of targets and what they do
+help:
+	@awk '/^## / { desc = substr($$0, 4); next } /^[a-zA-Z0-9_-]+:/ && desc { printf "  \033[36m%-15s\033[0m %s\n", substr($$1, 1, length($$1)-1), desc; desc = "" }' $(MAKEFILE_LIST)
 
 ## TUI: interactive Season 1 solo game (default season/difficulty; override via ARGS)
 solo:

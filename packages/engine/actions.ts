@@ -87,13 +87,70 @@ function posLabel(pos: GridPos): string {
   return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
 }
 
+// The UI never dispatches 'checkFame' / 'continueToMarket' / 'advanceCleanup'
+// directly any more (see the module comment on the Action union) — the goal
+// is zero-click auto-advance through every no-decision phase, so a round
+// goes straight from cleanup into the next market screen (or into 'ended')
+// with no intermediate screens shown at all, not even a brief flash. This
+// helper is the single place that cascade lives: given a state that may be
+// sitting in 'cleanup', 'flip', 'checkFame', or 'postFameHooks' (any prefix
+// of that sequence — callers enter at whichever phase they're already in),
+// it drives forward phase-by-phase until landing on 'market' or 'ended',
+// appending the same log lines each individual action used to produce so no
+// information is lost by removing the intermediate screens.
+export function advanceThroughPassthroughPhases(state: GameState, logLines: string[]): GameState {
+  let next = state
+
+  if (next.phase === 'cleanup') {
+    const roundJustEnded = next.round
+    const fameThisRound = next.fameGeneratedThisRound
+    const threshold = next.fameToTriggerEndgame
+    next = runCleanup(next)
+    if (next.phase === 'ended') {
+      logLines.push(
+        next.result === 'win'
+          ? `YOU WIN — reached ${fameThisRound}/${threshold} fame in round ${roundJustEnded}.`
+          : `YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`,
+      )
+      return next
+    }
+    logLines.push(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
+  }
+
+  if (next.phase === 'flip') {
+    // Season 1 has no Return-to-deck effect, so the pre-flip shuffle order
+    // IS the actual reveal order — a pure re-derivation of runFlip's own
+    // internal shuffle (same deck, same rng state), not a second live
+    // shuffle. Matches tui.ts's flip-order preview line.
+    const preview = shuffleWithState(next.deck, next.rng).result
+    logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
+    next = runFlip(next)
+  }
+
+  if (next.phase === 'checkFame') {
+    next = runCheckFame(next)
+    if (next.lastCheckFame) logLines.push(formatBreakdown(next.lastCheckFame))
+  }
+
+  if (next.phase === 'postFameHooks') {
+    // Provably a pass-through in solo — see phases.ts's runPostFameHooks
+    // header comment (Skunk/Firefly are both starting-deck-only and solo's
+    // setup swaps the least-fame starter out).
+    next = runPostFameHooks(next)
+  }
+
+  return next
+}
+
 // tui.ts's runMarketPhase: "actionsRemaining hit 0 without an explicit
 // `end` — auto-close the Market phase rather than offering an action that
 // would only throw." Same rule here, run after every successful hire/dismiss.
 function closeMarketIfExhausted(state: GameState, logLines: string[]): GameState {
   if (state.phase === 'market' && state.actionsRemaining <= 0) {
     logLines.push('No Market actions remaining — ending the Market phase.')
-    return endMarketPhase(state)
+    let next = endMarketPhase(state)
+    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
+    return next
   }
   return state
 }
@@ -102,13 +159,10 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
   const logLines: string[] = []
 
   if (action.kind === 'flip') {
-    // Season 1 has no Return-to-deck effect, so the pre-flip shuffle order
-    // IS the actual reveal order — a pure re-derivation of runFlip's own
-    // internal shuffle (same deck, same rng state), not a second live
-    // shuffle. Matches tui.ts's flip-order preview line.
-    const preview = shuffleWithState(state.deck, state.rng).result
-    const next = runFlip(state)
-    logLines.push(`Round ${state.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
+    // Cascades all the way through checkFame and postFameHooks (both
+    // no-decision pass-throughs) so the caller always lands on 'market' —
+    // see advanceThroughPassthroughPhases above.
+    const next = advanceThroughPassthroughPhases(state, logLines)
     return { state: next, logLines }
   }
 
@@ -161,8 +215,9 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
   }
 
   if (action.kind === 'endMarket') {
-    const next = endMarketPhase(state)
+    let next = endMarketPhase(state)
     logLines.push('Ended the Market phase.')
+    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
     return { state: next, logLines }
   }
 

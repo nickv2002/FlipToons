@@ -5,7 +5,6 @@ import type { Action } from '../../../../packages/engine/actions'
 import { listDismissEntries } from '../../../../packages/engine/actions'
 import { Grid } from './Grid'
 import { Market } from './Market'
-import { FameBreakdown } from './FameBreakdown'
 import { ChoicePrompt } from './ChoicePrompt'
 
 const cards = cardsById()
@@ -16,10 +15,12 @@ export type RoundViewProps = {
   onAbandon: () => void
 }
 
-// Top-level per-phase orchestrator (plan §8's "Key files") — one phase of
-// GameState.phase maps to one section here, matching the SAME phase
-// sequence tui.ts's runSoloGame loop drives: flip -> checkFame ->
-// postFameHooks -> market -> cleanup -> (loop, or ended).
+// Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
+// ever rests at 'market' or 'ended' here — flip/checkFame/postFameHooks/
+// cleanup are no-decision pass-throughs that actions.ts's applyAction now
+// cascades through automatically (see advanceThroughPassthroughPhases),
+// same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
+// just with zero intermediate screens shown in this UI.
 export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
   if (state.phase === 'ended') {
     return (
@@ -48,36 +49,6 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
         </button>
       </div>
 
-      {state.phase === 'flip' && (
-        <div className="round-view__phase">
-          <h2>Flip</h2>
-          <Grid grid={state.grid} cards={cards} />
-          <button type="button" className="round-view__primary" onClick={() => dispatch({ kind: 'flip' })}>
-            Flip
-          </button>
-        </div>
-      )}
-
-      {state.phase === 'checkFame' && (
-        <div className="round-view__phase">
-          <h2>Grid revealed</h2>
-          <Grid grid={state.grid} cards={cards} />
-          <button type="button" className="round-view__primary" onClick={() => dispatch({ kind: 'checkFame' })}>
-            Check Fame
-          </button>
-        </div>
-      )}
-
-      {state.phase === 'postFameHooks' && (
-        <div className="round-view__phase">
-          <h2>Check Fame</h2>
-          {state.lastCheckFame && <FameBreakdown breakdown={state.lastCheckFame} />}
-          <button type="button" className="round-view__primary" onClick={() => dispatch({ kind: 'continueToMarket' })}>
-            Continue to Market
-          </button>
-        </div>
-      )}
-
       {state.phase === 'market' && (
         <div className="round-view__phase round-view__phase--market">
           <div className="round-view__grid-pane">
@@ -100,16 +71,6 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
             />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} />
           </div>
-        </div>
-      )}
-
-      {state.phase === 'cleanup' && (
-        <div className="round-view__phase">
-          <h2>Cleanup</h2>
-          <p>Grid collects back into your deck. Fame resets to 0.</p>
-          <button type="button" className="round-view__primary" onClick={() => dispatch({ kind: 'advanceCleanup' })}>
-            Continue
-          </button>
         </div>
       )}
     </div>

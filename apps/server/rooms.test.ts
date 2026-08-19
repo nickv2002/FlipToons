@@ -94,7 +94,10 @@ describe('apps/server room protocol', () => {
     const createdReply = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
     expect(createdReply.type).toBe('joined')
 
-    const actions: Action[] = [{ kind: 'flip' }, { kind: 'checkFame' }, { kind: 'continueToMarket' }, { kind: 'hire', slotIndex: 0 }]
+    // 'flip' now cascades all the way to 'market' by itself (see actions.ts's
+    // advanceThroughPassthroughPhases) — checkFame/continueToMarket are no
+    // longer separate steps a caller needs to dispatch.
+    const actions: Action[] = [{ kind: 'flip' }, { kind: 'hire', slotIndex: 0 }]
     const { serverState, localState } = await runSequence(ws, createdReply.roomCode, createdReply.state, actions)
     expect(serverState).toEqual(localState)
     ws.close()
@@ -106,7 +109,7 @@ describe('apps/server room protocol', () => {
     sendMsg(ws1, { type: 'create', seed: 99, difficulty: 'easy', season: 1 })
     const joined1 = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
 
-    const actions: Action[] = [{ kind: 'flip' }, { kind: 'checkFame' }]
+    const actions: Action[] = [{ kind: 'flip' }]
     const { serverState, serverLogLines } = await runSequence(ws1, joined1.roomCode, joined1.state, actions)
 
     const ws2 = await openSocket()
@@ -159,7 +162,7 @@ describe('apps/server room protocol', () => {
     sendMsg(ws, { type: 'create', seed: 55, difficulty: 'normal', season: 1 })
     const created = (await waiter1) as Extract<ServerMessage, { type: 'joined' }>
 
-    await runSequence(ws, created.roomCode, created.state, [{ kind: 'flip' }, { kind: 'checkFame' }, { kind: 'continueToMarket' }])
+    await runSequence(ws, created.roomCode, created.state, [{ kind: 'flip' }])
 
     const waiter2 = nextMessage(ws)
     sendMsg(ws, { type: 'action', roomCode: created.roomCode, action: { kind: 'hire', slotIndex: 99 } })

@@ -42,11 +42,18 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
     <div className="round-view">
       <div className="round-view__header">
         <span>Round {state.round}</span>
-        <span>Fame this round: {state.fameGeneratedThisRound}</span>
-        <span>Win at: {state.fameToTriggerEndgame} fame</span>
+        <span className="round-view__score">
+          Score this round: <strong>{state.fameGeneratedThisRound}</strong> / {state.fameToTriggerEndgame} to win
+        </span>
         <button type="button" className="round-view__abandon" onClick={onAbandon}>
           Abandon game
         </button>
+      </div>
+      <div className="round-view__progress" title={`${state.fameGeneratedThisRound} of ${state.fameToTriggerEndgame} fame needed to win`}>
+        <div
+          className="round-view__progress-bar"
+          style={{ width: `${Math.min(100, (state.fameGeneratedThisRound / state.fameToTriggerEndgame) * 100)}%` }}
+        />
       </div>
 
       {state.phase === 'market' && (

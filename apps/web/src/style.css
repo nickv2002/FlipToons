@@ -1,6 +1,35 @@
 :root {
   color-scheme: light dark;
   font-family: system-ui, -apple-system, sans-serif;
+
+  /* Semantic color tokens — a small, consistent vocabulary rather than
+     scattering one-off hex values through the sheet: green = gain/afford,
+     red = loss/unaffordable/error, amber = needs-attention/unencoded,
+     accent = active/clickable/currency. Light-mode values here; dark-mode
+     overrides right below so both themes stay legible (--color-scheme:
+     light dark plus `canvas`/`canvastext` handles neutrals, but these
+     semantic hues need explicit dark variants for contrast). */
+  --color-positive: #1a7f37;
+  --color-positive-bg: rgba(26, 127, 55, 0.12);
+  --color-negative: #cf222e;
+  --color-negative-bg: rgba(207, 34, 46, 0.12);
+  --color-warning: #a35b00;
+  --color-warning-bg: rgba(163, 91, 0, 0.12);
+  --color-accent: #4a90d9;
+  --color-accent-bg: rgba(74, 144, 217, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-positive: #4ec86a;
+    --color-positive-bg: rgba(78, 200, 106, 0.16);
+    --color-negative: #ff6b64;
+    --color-negative-bg: rgba(255, 107, 100, 0.16);
+    --color-warning: #d29922;
+    --color-warning-bg: rgba(210, 153, 34, 0.16);
+    --color-accent: #6cb2ff;
+    --color-accent-bg: rgba(108, 178, 255, 0.16);
+  }
 }
 
 * {
@@ -65,7 +94,7 @@ button {
 }
 
 .new-game-form__warning {
-  color: #a35b00;
+  color: var(--color-warning);
   font-size: 0.9rem;
 }
 
@@ -82,6 +111,31 @@ button {
 
 .round-view__abandon {
   margin-left: auto;
+}
+
+.round-view__score strong {
+  color: var(--color-accent);
+}
+
+/* Score-this-round vs. win threshold — a quick visual read of round
+   progress to complement the "N / M to win" text (state.fameGeneratedThisRound
+   is the round score the win check reads; kept visually distinct from the
+   spendable-currency number in ChoicePrompt via --color-accent here vs.
+   --color-positive there, per the fame/currency vs. fame/score confusion
+   this pass exists to fix). */
+.round-view__progress {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, canvastext 10%, transparent);
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.round-view__progress-bar {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
 
 .round-view__primary {
@@ -183,12 +237,32 @@ button {
 }
 
 .card--clickable:hover {
-  border-color: #4a90d9;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.card--clickable:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .card:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.card__price--affordable {
+  color: var(--color-positive);
+  font-weight: 600;
+}
+
+.card__price--unaffordable {
+  color: var(--color-negative);
+}
+
+.card__dismiss-cost--active {
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .card--empty {
@@ -268,12 +342,12 @@ img.card__icon {
 
 .card__warning {
   font-size: 0.75rem;
-  color: #a35b00;
+  color: var(--color-warning);
   white-space: normal;
 }
 
 .card--unencodable {
-  border-color: #a35b00;
+  border-color: var(--color-warning);
 }
 
 /* Narrow-context variant (currently: the market's single-row layout) —
@@ -390,7 +464,7 @@ img.card__icon {
 }
 
 .fame-breakdown__row--needs-ruling {
-  color: #a35b00;
+  color: var(--color-warning);
 }
 
 .fame-breakdown__total {
@@ -415,23 +489,166 @@ img.card__icon {
   padding: 0.5rem 1.2rem;
 }
 
+.choice-prompt__currency {
+  color: var(--color-positive);
+}
+
 /* ---------- Resolve log ---------- */
 
 .resolve-log {
   border: 1px solid #8883;
   border-radius: 6px;
   padding: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.resolve-log__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.resolve-log__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.resolve-log__toggle {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 4px;
+  border: 1px solid #8886;
+  background: canvas;
+  color: canvastext;
+}
+
+.resolve-log__body {
   max-height: 70vh;
   overflow-y: auto;
-  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.resolve-log__empty {
+  opacity: 0.6;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+.resolve-log__group + .resolve-log__group {
+  margin-top: 0.3rem;
+}
+
+.resolve-log__round-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.3rem;
+  border: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, canvastext 6%, transparent);
+  color: canvastext;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.resolve-log__round-header:hover {
+  background: color-mix(in srgb, canvastext 10%, transparent);
+}
+
+.resolve-log__caret {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  opacity: 0.7;
+  font-size: 0.7rem;
+}
+
+.resolve-log__caret--open {
+  transform: rotate(90deg);
+}
+
+.resolve-log__count {
+  margin-left: auto;
+  opacity: 0.6;
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+
+.resolve-log__entries {
+  padding: 0.3rem 0 0.3rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .resolve-log__entry {
   white-space: pre-wrap;
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  border-left: 3px solid transparent;
 }
 
-.resolve-log__round {
-  opacity: 0.6;
+.resolve-log__entry--hire {
+  color: var(--color-positive);
+  background: var(--color-positive-bg);
+  border-left-color: var(--color-positive);
+}
+
+.resolve-log__entry--dismiss {
+  color: var(--color-accent);
+  background: var(--color-accent-bg);
+  border-left-color: var(--color-accent);
+}
+
+.resolve-log__entry--error {
+  color: var(--color-negative);
+  background: var(--color-negative-bg);
+  border-left-color: var(--color-negative);
+}
+
+.resolve-log__entry--win {
+  color: var(--color-positive);
+  background: var(--color-positive-bg);
+  border-left-color: var(--color-positive);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.resolve-log__entry--lose {
+  color: var(--color-negative);
+  background: var(--color-negative-bg);
+  border-left-color: var(--color-negative);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.resolve-log__entry--round-complete {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.resolve-log__entry--flip-order,
+.resolve-log__entry--phase-end {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.resolve-log__entry--new-game {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.resolve-log__entry--note {
+  opacity: 0.65;
+  font-size: 0.72rem;
+}
+
+.resolve-log__entry--breakdown {
+  opacity: 0.85;
+  background: color-mix(in srgb, canvastext 4%, transparent);
 }

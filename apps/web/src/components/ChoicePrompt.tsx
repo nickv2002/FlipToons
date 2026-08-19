@@ -16,8 +16,9 @@ export function ChoicePrompt({ state, onEndMarket }: ChoicePromptProps) {
   return (
     <div className="choice-prompt">
       <div className="choice-prompt__summary">
-        Market actions remaining: <strong>{state.actionsRemaining}</strong> — fame to spend:{' '}
-        <strong>{state.fame}</strong> (resets to 0 after this phase — spend it or lose it)
+        Market actions remaining: <strong>{state.actionsRemaining}</strong> — spendable fame:{' '}
+        <strong className="choice-prompt__currency">{state.fame}</strong> (resets to 0 after this phase — spend it or
+        lose it)
       </div>
       <button type="button" className="choice-prompt__end" onClick={onEndMarket}>
         End Market phase

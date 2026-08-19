@@ -12,6 +12,12 @@ export type CardProps = {
   dismissCost?: number // market-phase dismiss cost, shown as a badge
   onClick?: () => void
   disabled?: boolean
+  // True specifically when `disabled` is because the price exceeds current
+  // fame (vs. e.g. an empty slot or dismiss-immunity) — lets the price
+  // badge render in --color-negative instead of just the generic dimmed
+  // `:disabled` opacity, so "can't afford this" reads at a glance instead
+  // of looking identical to "not interactable for some reason".
+  unaffordable?: boolean
   emptyLabel?: string // e.g. "(empty)" for a vacant market/grid slot
   // Tighter font-size/padding/line-clamping for narrow contexts (the
   // market's single-row layout) — same markup, no separate component.
@@ -31,7 +37,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, onClick, disabled, emptyLabel, compact }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, onClick, disabled, unaffordable, emptyLabel, compact }: CardProps) {
   const clickable = !!onClick && !disabled
 
   if (!card) {
@@ -65,7 +71,9 @@ export function Card({ card, faceUp = true, price, dismissCost, onClick, disable
     >
       <div className="card__top">
         <span className="card__rank">rank {card.rank}</span>
-        {price !== undefined && <span className="card__price">{price} fame</span>}
+        {price !== undefined && (
+          <span className={`card__price${unaffordable ? ' card__price--unaffordable' : ' card__price--affordable'}`}>{price} fame</span>
+        )}
       </div>
       <div className="card__name-row">
         <CardIcon id={card.id} />
@@ -75,7 +83,9 @@ export function Card({ card, faceUp = true, price, dismissCost, onClick, disable
         fame: {card.fame.base === '=' ? 'varies' : card.fame.base}
         {card.fameUnencodable ? ' (needs ruling)' : ''}
       </div>
-      {dismissCost !== undefined && <div className="card__dismiss-cost">dismiss: {dismissCost} fame</div>}
+      {dismissCost !== undefined && (
+        <div className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}`}>dismiss: {dismissCost} fame</div>
+      )}
       {bodyText && <div className="card__text">{bodyText}</div>}
       {warningText && <div className="card__warning">{warningText}</div>}
     </button>

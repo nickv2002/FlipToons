@@ -66,6 +66,7 @@ export function Market({ market, cards, fame, onHire, state }: MarketProps) {
               emptyLabel={`${price} fame`}
               onClick={card && onHire ? () => onHire(i) : undefined}
               disabled={!card || !affordable}
+              unaffordable={!!card && !affordable}
               compact
             />
           )

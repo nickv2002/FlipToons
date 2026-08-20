@@ -151,7 +151,7 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     // shuffle. Matches tui.ts's flip-order preview line.
     const preview = shuffleWithState(next.deck, next.rng).result
     logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
-    next = runFlip(next)
+    next = runFlip(next, logLines)
     logLines.push(`${next.deck.length} card(s) left in your deck.`)
   }
 

@@ -62,6 +62,11 @@ export type FlipResult = {
   // after Flip that can safely add to `fame`/`actionsRemaining` without
   // Check Fame's snapshot immediately overwriting it.
   pendingOnHireCardIds: CardId[]
+  // Player-facing log lines for events the post-Flip grid can't explain by
+  // itself — see applyOnPlaceEffects's `notes` param comment. Consumed by
+  // actions.ts's advanceThroughPassthroughPhases (and tui.ts's own Flip
+  // section) right after the "flip order" preview line.
+  flipNotes: string[]
 }
 
 type CardPointer = { cardId: CardId; pos: GridPos; index: number }
@@ -288,6 +293,15 @@ function applyOnPlaceEffects(
   dismissed: CardId[],
   cardsById: Record<CardId, Card>,
   ctx: { pos: GridPos; index: number; previousPlaced: CardPointer | null; selfPointer: CardPointer },
+  // Player-facing log lines for the two toon-deck-threading effects below
+  // (Snake/Mongoose) — the only onPlace effects that consume/produce cards
+  // the grid display alone can't explain (a dismissed deck-bottom card and a
+  // drawn toon-deck card are both invisible to the post-Flip grid view).
+  // Every other onPlace effect kind is fully legible from the grid itself
+  // (a stack, a relocation, a face-down flip all show up there directly), so
+  // this stays narrowly scoped to these two rather than becoming a general
+  // per-effect log — see actions.ts's advanceThroughPassthroughPhases.
+  notes: string[],
 ): { pending: Pending; lastPlaced: CardPointer | null; toonDeckEmptied: boolean; onHireDeferredCardId: CardId | null } {
   let pending: Pending = null
   let lastPlaced: CardPointer | null = ctx.selfPointer
@@ -434,6 +448,7 @@ function applyOnPlaceEffects(
           remainingDeck.shift()
           if (!topCard.immune?.includes('dismiss')) {
             dismissed.push(topId)
+            notes.push(`${card.name} dismissed ${topCard.name} from the top of your deck.`)
           } else {
             // "place it to the right of the snake instead, or return it to
             // the player's deck if the snake is in the final space of the
@@ -447,8 +462,10 @@ function applyOnPlaceEffects(
               ctx.pos.section === 'base' && ctx.pos.col < 2 ? { section: 'base' as const, row: ctx.pos.row, col: ctx.pos.col + 1 } : null
             if (right) {
               placeCardFaceUp(grid, right, topId)
+              notes.push(`${card.name} could not dismiss ${topCard.name} (immune) — placed it to the right instead.`)
             } else {
               remainingDeck.push(topId) // back to the bottom of the deck
+              notes.push(`${card.name} could not dismiss ${topCard.name} (immune) — returned it to the bottom of your deck.`)
             }
           }
         }
@@ -463,6 +480,7 @@ function applyOnPlaceEffects(
           placeCardFaceUp(grid, ctx.pos, drawn)
           if (toonDeck.length === 0) toonDeckEmptied = true
           const drawnCard = cardsById[drawn]
+          notes.push(`${card.name} drew ${drawnCard?.name ?? drawn} from the toon deck and stacked it face up on its own slot.`)
           if (drawnCard?.onHire?.length) onHireDeferredCardId = drawn
         }
         break
@@ -476,6 +494,23 @@ function applyOnPlaceEffects(
         // bottom-of-deck target), so — per this pass's plan — Mongoose's
         // `unencodable` flag is DROPPED rather than kept for a limitation
         // that isn't really about Mongoose (see season2.ts's mongoose entry).
+        //
+        // UNCONFIRMED, deliberately NOT mirroring Snake's onHireDeferredCardId
+        // above: unlike Snake, Mongoose does not place the drawn card itself
+        // — it only "adds [it] to the top of your deck" — so the drawn card
+        // re-enters the deck and gets flipped/placed LATER by this loop's
+        // own ordinary draw, exactly like any other deck card. Card text
+        // reads onHire ("WHEN HIRED...") as a Market-hire-specific trigger;
+        // nothing in this card's text or the FAQ (unlike Snake's explicit
+        // "if the stacked card has a When-Hired ability, resolve it after
+        // the Flip phase" ruling) says a Mongoose-drawn card's onHire should
+        // fire when it's later placed via ordinary Flip. If a future FAQ/
+        // rulebook read says otherwise, this needs the same
+        // onHireDeferredCardId treatment as Snake's case — but gated on the
+        // drawn card actually reaching the grid this Flip (Mongoose can fill
+        // the last base slot with the drawn card still sitting undrawn on
+        // top of the deck), which Snake's placement-in-this-block doesn't
+        // need to worry about.
         if (remainingDeck.length > 0) {
           const bottomId = remainingDeck[remainingDeck.length - 1]
           const bottomCard = cardsById[bottomId]
@@ -483,6 +518,9 @@ function applyOnPlaceEffects(
           if (!bottomCard.immune?.includes('dismiss')) {
             remainingDeck.pop()
             dismissed.push(bottomId)
+            notes.push(`${card.name} dismissed ${bottomCard.name} from the bottom of your deck.`)
+          } else {
+            notes.push(`${card.name} could not dismiss ${bottomCard.name} (immune) — the draw still happens.`)
           }
           // else: "unless it cannot be dismissed" — skip, still draws below.
         }
@@ -490,6 +528,10 @@ function applyOnPlaceEffects(
           const drawn = toonDeck.shift()!
           remainingDeck.unshift(drawn) // "add ... to the TOP of your deck"
           if (toonDeck.length === 0) toonDeckEmptied = true
+          const drawnCard = cardsById[drawn]
+          notes.push(
+            `${card.name} drew ${drawnCard?.name ?? drawn} from the toon deck onto the top of your deck — it'll be the next card revealed and placed this Flip if a slot remains.`,
+          )
         }
         break
       }
@@ -528,6 +570,14 @@ function applyOnPlaceEffects(
 // a mechanism for yet; see this pass's report).
 const MAX_FLIP_ITERATIONS = 500
 
+function posLabel(pos: GridPos): string {
+  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
+}
+
+function samePos(a: GridPos, b: GridPos): boolean {
+  return a.section === b.section && a.row === b.row && a.col === b.col
+}
+
 export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContext: FlipContext): FlipResult {
   const grid = emptyGrid()
   const remainingDeck = deck.slice()
@@ -537,6 +587,11 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   const dismissed = flipContext.dismissed.slice()
   let toonDeckEmptiedDuringFlip = false
   const pendingOnHireCardIds: CardId[] = []
+  // Player-facing notes for events the post-Flip grid can't explain on its
+  // own — see applyOnPlaceEffects's `notes` param comment, and the
+  // stack-redirect push below (why a card lands on an already-occupied
+  // slot instead of the next empty one).
+  const flipNotes: string[] = []
 
   let pending: Pending = null
   let lastPlaced: CardPointer | null = null
@@ -604,6 +659,22 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       pending = null
     } else {
       targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck)
+      // Turkey/Panther-style redirect: the card landed on an ALREADY-
+      // OCCUPIED slot (the previously placed card's own position) instead
+      // of the next empty base slot — without this note, the grid/log
+      // shows the same position reporting a different card name with no
+      // explanation (the exact confusion a Mongoose-drawn Panther produces:
+      // it stacks onto Mongoose's own slot because Mongoose was the
+      // immediately-preceding placed card).
+      if (hasOnPlaceKind(card, 'stackOnPreviousPlaced') && lastPlaced && samePos(targetPos, lastPlaced.pos)) {
+        const prevCard = cardsById[lastPlaced.cardId]
+        flipNotes.push(`${card.name} stacks on top of ${prevCard?.name ?? lastPlaced.cardId} at ${posLabel(targetPos)} (stacks on the previously placed card).`)
+      } else if (hasOnPlaceKind(card, 'stackOnFirstMatchOrFaceDown')) {
+        const existing = getSlot(grid, targetPos)
+        if (existing && existing.cards.length > 0) {
+          flipNotes.push(`${card.name} stacks on top of the existing card(s) at ${posLabel(targetPos)}.`)
+        }
+      }
     }
 
     if (forceFaceDown) {
@@ -646,12 +717,21 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
         }
       }
 
-      const result = applyOnPlaceEffects(card, grid, remainingDeck, toonDeck, dismissed, cardsById, {
-        pos: targetPos,
-        index: slotNow.cards.length - 1,
-        previousPlaced,
-        selfPointer,
-      })
+      const result = applyOnPlaceEffects(
+        card,
+        grid,
+        remainingDeck,
+        toonDeck,
+        dismissed,
+        cardsById,
+        {
+          pos: targetPos,
+          index: slotNow.cards.length - 1,
+          previousPlaced,
+          selfPointer,
+        },
+        flipNotes,
+      )
       pending = result.pending
       lastPlaced = result.lastPlaced
       if (result.toonDeckEmptied) toonDeckEmptiedDuringFlip = true
@@ -659,7 +739,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
     }
   }
 
-  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds }
+  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds, flipNotes }
 }
 
 // Target-determination for a card's OWN placement — i.e. deciding which

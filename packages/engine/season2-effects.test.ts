@@ -512,3 +512,28 @@ describe('toonDeckDepleted regression: a Flip-phase-only draw (Snake/Mongoose) d
     expect(result.toonDeckEmptiedDuringFlip).toBe(false)
   })
 })
+
+describe('Mongoose drawing a stackOnPreviousPlaced card (Panther/Turkey) — reported playtest confusion', () => {
+  test('Panther drawn by Mongoose stacks onto Mongoose\'s OWN slot, not the next empty one, and both events are explained in flipNotes', () => {
+    // Same shape as the main-line test above, but the toon deck's top card
+    // is Panther (stackOnPreviousPlaced) instead of a plain card like Mole.
+    // determineTarget redirects Panther's placement onto the previously
+    // placed card's slot — which is Mongoose's own slot, since Mongoose was
+    // the last card placed before Panther is drawn/placed — so base[0][0]
+    // ends up holding BOTH cards, and no card lands at base[0][1] from this
+    // draw. This is the exact "same position, different card, no
+    // explanation" confusion from the playtest log.
+    const deck = buildExplicitDeck(['mongoose', 'mosquito', 'grasshopper', 'ladybug', 'spider'], cards)
+    const toonDeck = buildExplicitDeck(['panther'], cards)
+    const result = flipDeck(deck, cards, { toonDeck, dismissed: [] })
+
+    expect(result.grid.base[0][0]!.cards).toEqual(['mongoose', 'panther']) // stacked, not base[0][1]
+    expect(result.dismissed).toEqual(['spider'])
+
+    expect(result.flipNotes).toContain('Mongoose dismissed Spider from the bottom of your deck.')
+    expect(result.flipNotes).toContain(
+      "Mongoose drew Panther from the toon deck onto the top of your deck — it'll be the next card revealed and placed this Flip if a slot remains.",
+    )
+    expect(result.flipNotes).toContain('Panther stacks on top of Mongoose at row 0, col 0 (stacks on the previously placed card).')
+  })
+})

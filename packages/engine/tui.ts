@@ -385,7 +385,9 @@ export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out }
       const preview = shuffleWithState(state.deck, state.rng).result
       out(`Flip order: ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
 
-      state = runFlip(state)
+      const flipLogLines: string[] = []
+      state = runFlip(state, flipLogLines)
+      flipLogLines.forEach(out)
       out('')
       out(renderGridBoxes(state.grid, cards))
 

@@ -154,6 +154,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
               cards={cards}
               dismissEntries={listDismissEntries(state)}
               onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
+              fame={state.fame}
             />
           </div>
           <div className="round-view__market-pane">

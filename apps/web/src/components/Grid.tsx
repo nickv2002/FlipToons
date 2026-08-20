@@ -9,6 +9,7 @@ export type GridProps = {
   cards: Record<CardId, CardData>
   dismissEntries?: DismissEntry[]
   onDismiss?: (pos: GridPos, index: number) => void
+  fame?: number
   // See Slot.tsx's choice-picker mode.
   choiceOptions?: DismissTarget[]
   choiceCost?: number
@@ -19,7 +20,7 @@ export type GridProps = {
 // extraRows render ABOVE the base rows (grid.ts: "extraRows[0] sits directly
 // above base row 0, extraRows[1] above extraRows[0]"), so this maps them
 // top-to-bottom in reverse before the two base rows.
-export function Grid({ grid, cards, dismissEntries, onDismiss, choiceOptions, choiceCost, choiceDisabled, onChoice }: GridProps) {
+export function Grid({ grid, cards, dismissEntries, onDismiss, fame, choiceOptions, choiceCost, choiceDisabled, onChoice }: GridProps) {
   const cols = (grid.extraRows[0] ?? grid.base[0] ?? []).length
   return (
     <div className="grid">
@@ -35,6 +36,7 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, choiceOptions, ch
                 cards={cards}
                 dismissEntries={dismissEntries}
                 onDismiss={onDismiss}
+                fame={fame}
                 slotIndex={rowIdx * cols + col}
                 choiceOptions={choiceOptions}
                 choiceCost={choiceCost}
@@ -55,6 +57,7 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, choiceOptions, ch
               cards={cards}
               dismissEntries={dismissEntries}
               onDismiss={onDismiss}
+              fame={fame}
               slotIndex={(grid.extraRows.length + rowIdx) * cols + col}
               choiceOptions={choiceOptions}
               choiceCost={choiceCost}

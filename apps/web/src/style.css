@@ -297,6 +297,10 @@ button {
   font-weight: 600;
 }
 
+.card__dismiss-cost--unaffordable {
+  color: var(--color-negative);
+}
+
 .card--empty {
   display: flex;
   align-items: center;

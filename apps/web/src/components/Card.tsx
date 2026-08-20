@@ -19,6 +19,11 @@ export type CardProps = {
   // `:disabled` opacity, so "can't afford this" reads at a glance instead
   // of looking identical to "not interactable for some reason".
   unaffordable?: boolean
+  // Same idea as `unaffordable` above but for `dismissCost` — dismiss isn't
+  // gated on affordability (Slot.tsx still lets the click through so the
+  // engine's try/catch surfaces the real error), so this only changes the
+  // badge's color to flag "can't afford this one" at a glance.
+  dismissUnaffordable?: boolean
   emptyLabel?: string // e.g. "(empty)" for a vacant market/grid slot
   // Tighter font-size/padding/line-clamping for narrow contexts (the
   // market's single-row layout) — same markup, no separate component.
@@ -77,7 +82,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, onClick, disabled, unaffordable, emptyLabel, compact, selected, dealDelayMs }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs }: CardProps) {
   const clickable = !!onClick && !disabled
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
@@ -133,7 +138,11 @@ export function Card({ card, faceUp = true, price, dismissCost, onClick, disable
         {card.fameUnencodable ? ' (needs ruling)' : ''}
       </div>
       {dismissCost !== undefined && (
-        <div className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}`}>dismiss: {dismissCost} fame</div>
+        <div
+          className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}${dismissUnaffordable ? ' card__dismiss-cost--unaffordable' : ''}`}
+        >
+          dismiss: {dismissCost} fame
+        </div>
       )}
       {bodyText && <div className="card__text">{bodyText}</div>}
       {warningText && <div className="card__warning">{warningText}</div>}

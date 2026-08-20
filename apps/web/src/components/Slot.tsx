@@ -13,6 +13,9 @@ export type SlotProps = {
   // clicked to dismiss it; absent elsewhere so the grid is inert outside Market.
   dismissEntries?: DismissEntry[]
   onDismiss?: (pos: GridPos, index: number) => void
+  // Current player fame — only used to color an unaffordable dismiss cost
+  // red (see NOTE below); dismiss stays clickable either way.
+  fame?: number
   // Flat position across the whole grid (extra rows above base rows), used
   // only to stagger this slot's deal-in animation.
   slotIndex?: number
@@ -30,10 +33,11 @@ export type SlotProps = {
 // NOTE: dismiss cost is NOT gated on affordability the way Market.tsx gates
 // hire — the badge below shows each entry's real cost (DismissEntry.cost,
 // computed via phases.ts's dismissCostFor, including Ladybug-adjacency and
-// Rat-in-stack discounts), but an unaffordable dismiss is still only caught
-// by actions.ts's try/catch and surfaced in the log, same as tui.ts's
-// playerFacingMessage path — no client-side affordability gate here.
-export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, choiceOptions, choiceCost, choiceDisabled, onChoice }: SlotProps) {
+// Rat-in-stack discounts), and clicking one still goes through even if it's
+// unaffordable, caught by actions.ts's try/catch and surfaced in the log,
+// same as tui.ts's playerFacingMessage path — no client-side affordability
+// gate here. `fame` is only used to color the badge red as a heads-up.
+export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, choiceOptions, choiceCost, choiceDisabled, onChoice }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
   }
@@ -68,6 +72,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, c
               card={card}
               faceUp={faceUp}
               dismissCost={onDismiss ? dismissCost : undefined}
+              dismissUnaffordable={onDismiss && dismissCost !== undefined && fame !== undefined ? fame < dismissCost : undefined}
               onClick={dismissEntry && !immuneToDismiss && onDismiss ? () => onDismiss(pos, dismissEntry.stackIndex) : undefined}
               disabled={faceUp && onDismiss !== undefined && (immuneToDismiss || !dismissEntry)}
               dealDelayMs={slotIndex !== undefined ? slotIndex * DEAL_STAGGER_MS : undefined}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { GameState } from '../../../packages/engine/state'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
 import type { Action } from '../../../packages/engine/actions'
-import { advanceThroughPassthroughPhases, applyAction, buildNewGameState } from '../../../packages/engine/actions'
+import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
 
 const STORAGE_KEY = 'fliptoons-solo-save-v1'
 
@@ -75,6 +75,23 @@ export function useGame() {
     },
     [state],
   )
+
+  // Auto-end the Market phase once nothing is left to decide — no
+  // affordable market slot, no affordable (non-immune) grid card to
+  // dismiss. Routed through the same `dispatch` the "End Market phase"
+  // button uses, so it fully cascades to the next round's Market phase (or
+  // 'ended') exactly like a manual click — this effect only fires again once
+  // that lands, it doesn't loop on itself.
+  useEffect(() => {
+    // A truthy pendingPostMarketChoice means endMarketPhase already paused
+    // mid-sequence waiting on Alligator's stack-target pick (RoundView
+    // renders a prompt for it) — dispatching 'endMarket' again here would
+    // just re-hit the same pause every render, an infinite loop, since phase
+    // stays 'market' and hasAnyLegalMarketAction is already false while paused.
+    if (state?.phase === 'market' && !state.pendingPostMarketChoice && !hasAnyLegalMarketAction(state)) {
+      dispatch({ kind: 'endMarket' })
+    }
+  }, [state, dispatch])
 
   const startNewGame = useCallback((seed: number, difficulty: SoloDifficulty, season: 1 | 2) => {
     const initial = buildNewGameState(seed, difficulty, season)

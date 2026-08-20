@@ -47,7 +47,7 @@ import { cardRuleLines, renderGridBoxes } from './cli'
 import type { Card, CardId, EffectChoices } from './cards/types'
 import { occupiedSlots } from './grid'
 import { hireCost } from './market'
-import { dismiss, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks } from './phases'
+import { dismiss, dismissCostFor, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks } from './phases'
 import { makeRng, shuffleWithState } from './rng'
 import { formatBreakdown } from './score'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
@@ -161,15 +161,16 @@ function printUnencodableNotice(card: Card, out: Out, context: string): void {
 // the grid (stacks expanded). The number shown to the player IS the number
 // `dismiss:<n>` selects — same list, same order, every time it's printed.
 // ---------------------------------------------------------------------------
-type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId }
+type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId; cost: number }
 
-function listDismissEntries(state: GameState): DismissEntry[] {
+function listDismissEntries(state: GameState, cards: Record<CardId, Card>): DismissEntry[] {
   const entries: DismissEntry[] = []
   let i = 0
   for (const { pos, slot } of occupiedSlots(state.grid)) {
     slot.cards.forEach((cardId, stackIndex) => {
       if (!slot.faceUp[stackIndex]) return
-      entries.push({ index: i, pos, stackIndex, cardId })
+      const cost = dismissCostFor(state.grid, pos, stackIndex, cards)
+      entries.push({ index: i, pos, stackIndex, cardId, cost })
       i++
     })
   }
@@ -258,12 +259,12 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
       out(affordable ? line : dim(line))
     })
 
-    const dismissable = listDismissEntries(state)
+    const dismissable = listDismissEntries(state, cards)
     if (dismissable.length > 0) {
       out('Your grid (dismissable face-up cards):')
       for (const e of dismissable) {
         const card = cards[e.cardId]
-        const cost = card.dismissCost ?? 5
+        const cost = e.cost
         const immune = card.immune?.includes('dismiss') ? '  [immune to dismiss]' : ''
         const ability = abilitySummary(card)
         const n = e.index + 1 // displayed numbering is 1-based; see parseAction
@@ -279,7 +280,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
     // has no real choice about; note it in the log so it's clear this wasn't
     // a manual `end`.
     const anyHireAffordable = state.market.slots.some((cardId, i) => cardId !== null && state.fame >= hireCost(state.market, i))
-    const anyDismissAffordable = dismissable.some((e) => state.fame >= (cards[e.cardId].dismissCost ?? 5))
+    const anyDismissAffordable = dismissable.some((e) => state.fame >= e.cost)
     if (!anyHireAffordable && !anyDismissAffordable) {
       out('No affordable actions remain — auto-ending Market phase.')
       state = endMarketPhase(state)
@@ -345,7 +346,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
       try {
         const card = cards[entry.cardId]
         state = dismiss(state, entry.pos, entry.stackIndex)
-        out(`Dismissed ${card.name}.`)
+        out(`Dismissed ${card.name} for ${entry.cost} fame.`)
         if (card.unencodable) printUnencodableNotice(card, out, 'dismissed')
       } catch (err) {
         rethrowIfEngineBug(err)

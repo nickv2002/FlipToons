@@ -28,13 +28,11 @@ export type SlotProps = {
 }
 
 // NOTE: dismiss cost is NOT gated on affordability the way Market.tsx gates
-// hire — phases.ts's actual cost function (dismissCostFor, unexported) can
-// diverge from the `card.dismissCost ?? 5` shown here (Ladybug-adjacency and
-// Rat-in-stack modifiers), so a client-side affordability gate built on this
-// approximation could wrongly disable a legal dismiss with no way to retry.
-// The badge below is the same approximate display tui.ts itself uses; an
-// actually-unaffordable dismiss is caught by actions.ts's try/catch
-// and surfaced in the log, same as tui.ts's playerFacingMessage path.
+// hire — the badge below shows each entry's real cost (DismissEntry.cost,
+// computed via phases.ts's dismissCostFor, including Ladybug-adjacency and
+// Rat-in-stack discounts), but an unaffordable dismiss is still only caught
+// by actions.ts's try/catch and surfaced in the log, same as tui.ts's
+// playerFacingMessage path — no client-side affordability gate here.
 export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, choiceOptions, choiceCost, choiceDisabled, onChoice }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
@@ -62,7 +60,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, c
           )
         }
         const dismissEntry = faceUp ? dismissEntries?.find((e) => e.pos.section === pos.section && e.pos.row === pos.row && e.pos.col === pos.col && e.stackIndex === i) : undefined
-        const dismissCost = faceUp ? card.dismissCost ?? 5 : undefined
+        const dismissCost = dismissEntry?.cost
         const immuneToDismiss = faceUp && card.immune?.includes('dismiss')
         return (
           <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={`${i}-${cardId ?? 'empty'}`}>

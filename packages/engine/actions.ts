@@ -57,7 +57,7 @@ export function buildNewGameState(seed: number, difficulty: SoloDifficulty, seas
 // every FACE-UP card in the grid, stacks expanded. Both the display and the
 // dismiss action must use the SAME order, or the number shown wouldn't
 // match what gets dismissed.
-export type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId }
+export type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId; cost: number }
 
 export function listDismissEntries(state: GameState): DismissEntry[] {
   const entries: DismissEntry[] = []
@@ -65,7 +65,8 @@ export function listDismissEntries(state: GameState): DismissEntry[] {
   for (const { pos, slot } of occupiedSlots(state.grid)) {
     slot.cards.forEach((cardId, stackIndex) => {
       if (!slot.faceUp[stackIndex]) return
-      entries.push({ index: i, pos, stackIndex, cardId })
+      const cost = dismissCostFor(state.grid, pos, stackIndex, cards)
+      entries.push({ index: i, pos, stackIndex, cardId, cost })
       i++
     })
   }
@@ -89,9 +90,9 @@ export function hasAnyLegalMarketAction(state: GameState): boolean {
   )
   if (canHire) return true
 
-  return listDismissEntries(state).some(({ pos, stackIndex, cardId }) => {
+  return listDismissEntries(state).some(({ cardId, cost }) => {
     if (cards[cardId].immune?.includes('dismiss')) return false
-    return state.fame >= dismissCostFor(state.grid, pos, stackIndex, cards)
+    return state.fame >= cost
   })
 }
 
@@ -248,9 +249,10 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     const slot = action.pos.section === 'base' ? state.grid.base[action.pos.row]?.[action.pos.col] : state.grid.extraRows[action.pos.row]?.[action.pos.col]
     const cardId = slot?.cards[action.index]
     try {
+      const cost = dismissCostFor(state.grid, action.pos, action.index, cards)
       let next = dismiss(state, action.pos, action.index, action.choices)
       const card = cardId ? cards[cardId] : undefined
-      logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)}.`)
+      logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
       if (card?.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
       next = closeMarketIfExhausted(next, logLines)
       return { state: next, logLines }

@@ -22,6 +22,7 @@ function classify(text: string): LineKind {
   if (text.startsWith('New game')) return 'new-game'
   if (/^Round \d+ complete\./.test(text)) return 'round-complete'
   if (/^Round \d+: flip order/.test(text)) return 'flip-order'
+  if (/^\d+ card\(s\) left in your deck\.$/.test(text)) return 'note'
   if (text.startsWith('Ended the Market phase') || text.startsWith('No Market actions remaining')) return 'phase-end'
   if (text.startsWith('  Note:')) return 'note'
   // formatBreakdown() (score.ts) joins its rows with '\n' into a single

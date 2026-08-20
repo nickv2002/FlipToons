@@ -1,12 +1,12 @@
 import type { GameState } from '../../../../packages/engine/state'
 
-// Market-phase action controls only. tui.ts's runMarketPhase never threads
-// EffectChoices (Panther/Butterfly/Raccoon/Crow/Horse-style player choices)
-// through hire()/dismiss() — it calls them with no `choices` argument, so
-// mandatory choice effects (Panther) throw and get caught as a rejected
-// action, and optional ones (Butterfly/Raccoon/Crow/Horse) silently
-// decline. This client matches that exactly rather than building choice UI
-// tui.ts itself doesn't have — see the task report for the full note.
+// Market-phase action controls only (Market actions remaining / End Market).
+// Effect-specific player choices (Panther/Butterfly/Raccoon/Crow/Horse) are
+// handled separately, by EffectChoicePrompt.tsx — RoundView.tsx swaps this
+// out for that when a hire/dismiss needs one. tui.ts (the CLI client) still
+// never threads EffectChoices through hire()/dismiss(), so mandatory choice
+// effects (Panther) throw there and optional ones silently decline — that
+// gap is CLI-only now.
 export type ChoicePromptProps = {
   state: GameState
   onEndMarket: () => void

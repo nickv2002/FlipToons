@@ -14,6 +14,7 @@ export type GridProps = {
 // above base row 0, extraRows[1] above extraRows[0]"), so this maps them
 // top-to-bottom in reverse before the two base rows.
 export function Grid({ grid, cards, dismissEntries, onDismiss }: GridProps) {
+  const cols = (grid.extraRows[0] ?? grid.base[0] ?? []).length
   return (
     <div className="grid">
       {[...grid.extraRows].reverse().map((row, reversedIdx) => {
@@ -21,7 +22,15 @@ export function Grid({ grid, cards, dismissEntries, onDismiss }: GridProps) {
         return (
           <div className="grid__row grid__row--extra" key={`extra-${rowIdx}`}>
             {row.map((slot, col) => (
-              <Slot key={col} pos={{ section: 'extra', row: rowIdx, col }} slot={slot} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} />
+              <Slot
+                key={col}
+                pos={{ section: 'extra', row: rowIdx, col }}
+                slot={slot}
+                cards={cards}
+                dismissEntries={dismissEntries}
+                onDismiss={onDismiss}
+                slotIndex={rowIdx * cols + col}
+              />
             ))}
           </div>
         )
@@ -29,7 +38,15 @@ export function Grid({ grid, cards, dismissEntries, onDismiss }: GridProps) {
       {grid.base.map((row, rowIdx) => (
         <div className="grid__row" key={`base-${rowIdx}`}>
           {row.map((slot, col) => (
-            <Slot key={col} pos={{ section: 'base', row: rowIdx, col }} slot={slot} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} />
+            <Slot
+              key={col}
+              pos={{ section: 'base', row: rowIdx, col }}
+              slot={slot}
+              cards={cards}
+              dismissEntries={dismissEntries}
+              onDismiss={onDismiss}
+              slotIndex={(grid.extraRows.length + rowIdx) * cols + col}
+            />
           ))}
         </div>
       ))}

@@ -7,6 +7,7 @@ import type { GameState } from '../../../../packages/engine/state'
 import type { Action } from '../../../../packages/engine/actions'
 import { evaluateMarketCandidates } from '../../../../packages/engine/ai'
 import { Card } from './Card'
+import { DEAL_STAGGER_MS } from '../dealAnimation'
 
 export type MarketProps = {
   market: MarketData
@@ -60,7 +61,7 @@ export function Market({ market, cards, fame, onHire, state }: MarketProps) {
           const affordable = fame >= price
           return (
             <Card
-              key={i}
+              key={`${i}-${cardId ?? 'empty'}`}
               card={card}
               price={price}
               emptyLabel={`${price} fame`}
@@ -68,6 +69,7 @@ export function Market({ market, cards, fame, onHire, state }: MarketProps) {
               disabled={!card || !affordable}
               unaffordable={!!card && !affordable}
               compact
+              dealDelayMs={card ? i * DEAL_STAGGER_MS : undefined}
             />
           )
         })}

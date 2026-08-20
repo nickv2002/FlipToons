@@ -2,6 +2,7 @@ import type { Card as CardData, CardId } from '../../../../packages/engine/cards
 import type { GridPos, Slot as SlotData } from '../../../../packages/engine/types'
 import { Card } from './Card'
 import type { DismissEntry } from '../../../../packages/engine/actions'
+import { DEAL_STAGGER_MS } from '../dealAnimation'
 
 export type SlotProps = {
   pos: GridPos
@@ -11,6 +12,9 @@ export type SlotProps = {
   // clicked to dismiss it; absent elsewhere so the grid is inert outside Market.
   dismissEntries?: DismissEntry[]
   onDismiss?: (pos: GridPos, index: number) => void
+  // Flat position across the whole grid (extra rows above base rows), used
+  // only to stagger this slot's deal-in animation.
+  slotIndex?: number
 }
 
 // NOTE: dismiss cost is NOT gated on affordability the way Market.tsx gates
@@ -21,7 +25,7 @@ export type SlotProps = {
 // The badge below is the same approximate display tui.ts itself uses; an
 // actually-unaffordable dismiss is caught by actions.ts's try/catch
 // and surfaced in the log, same as tui.ts's playerFacingMessage path.
-export function Slot({ pos, slot, cards, dismissEntries, onDismiss }: SlotProps) {
+export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
   }
@@ -35,13 +39,14 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss }: SlotProps)
         const dismissCost = faceUp ? card.dismissCost ?? 5 : undefined
         const immuneToDismiss = faceUp && card.immune?.includes('dismiss')
         return (
-          <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={i}>
+          <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={`${i}-${cardId ?? 'empty'}`}>
             <Card
               card={card}
               faceUp={faceUp}
               dismissCost={onDismiss ? dismissCost : undefined}
               onClick={dismissEntry && !immuneToDismiss && onDismiss ? () => onDismiss(pos, dismissEntry.stackIndex) : undefined}
               disabled={faceUp && onDismiss !== undefined && (immuneToDismiss || !dismissEntry)}
+              dealDelayMs={slotIndex !== undefined ? slotIndex * DEAL_STAGGER_MS : undefined}
             />
             {faceUp && immuneToDismiss && <div className="slot__immune-note">immune to dismiss</div>}
           </div>

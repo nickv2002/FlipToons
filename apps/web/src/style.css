@@ -138,6 +138,22 @@ button {
   transition: width 0.3s ease;
 }
 
+.round-view__grid-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.round-view__deck-count {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.round-view__deck-count strong {
+  color: var(--color-accent);
+}
+
 .round-view__primary {
   font-size: 1.1rem;
   padding: 0.6rem 1.5rem;
@@ -203,7 +219,7 @@ button {
 }
 
 .slot__member--stacked {
-  margin-top: -60%;
+  margin-top: -35%;
   margin-left: 10px;
   box-shadow: -4px -4px 6px -2px rgba(0, 0, 0, 0.35);
   border-radius: 6px;
@@ -230,6 +246,22 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+@keyframes card-deal-flip {
+  from {
+    transform: rotateY(90deg);
+    opacity: 0;
+  }
+  to {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+.card--dealt {
+  animation: card-deal-flip 0.3s ease-out both;
+  animation-delay: var(--deal-delay, 0ms);
 }
 
 .card--clickable {
@@ -294,8 +326,9 @@ button {
 
 .card__name-row {
   display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
   min-width: 0;
 }
 
@@ -348,6 +381,18 @@ img.card__icon {
 
 .card--unencodable {
   border-color: var(--color-warning);
+}
+
+.card--selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, canvas);
+}
+
+.card__selected-mark {
+  margin-left: auto;
+  color: var(--color-accent);
+  font-weight: 700;
 }
 
 /* Narrow-context variant (currently: the market's single-row layout) —
@@ -427,8 +472,12 @@ img.card__icon {
 
   .market__slots > .card {
     /* flex: 1 1 0 never wraps (zero basis can't overflow a line) — give
-       cards a real basis here so two-per-row wrapping actually kicks in. */
-    flex: 1 1 calc(50% - 0.2rem);
+       cards a real basis here so two-per-row wrapping actually kicks in.
+       flex-grow must stay 0: with 5 cards wrapping 2-per-row, the 5th card
+       lands alone on the last row, and a nonzero grow would stretch it to
+       fill that whole row (double the width of every other card) instead
+       of matching them. */
+    flex: 0 1 calc(50% - 0.2rem);
   }
 }
 
@@ -491,6 +540,38 @@ img.card__icon {
 
 .choice-prompt__currency {
   color: var(--color-positive);
+}
+
+/* ---------- Effect choice prompt ---------- */
+
+.effect-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid #8883;
+  border-radius: 6px;
+}
+
+.effect-choice__prompt {
+  margin: 0;
+  font-weight: 600;
+}
+
+.effect-choice__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.effect-choice__cards > .card {
+  flex: 1 1 140px;
+  max-width: 200px;
+}
+
+.effect-choice__skip {
+  align-self: flex-start;
+  opacity: 0.8;
 }
 
 /* ---------- Resolve log ---------- */

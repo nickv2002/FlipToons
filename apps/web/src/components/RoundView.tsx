@@ -125,6 +125,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           cards={cards}
           fame={state.fame}
           market={state.market.slots}
+          grid={state.grid}
           onResolve={resolveAlligatorChoice}
         />
       )}
@@ -135,6 +136,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           cards={cards}
           fame={state.fame}
           market={state.market.slots}
+          grid={state.grid}
           onResolve={resolvePending}
         />
       )}

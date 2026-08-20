@@ -6,7 +6,7 @@ import { DEFAULT_PORT } from '../../server/protocol'
 import type { ClientMessage, ServerMessage } from '../../server/protocol'
 import type { LogEntry } from './useGame'
 
-const SERVER_URL = `ws://localhost:${DEFAULT_PORT}`
+const SERVER_URL = `ws://${window.location.hostname}:${DEFAULT_PORT}`
 
 // Remote counterpart to useGame.ts's local mode — same return shape
 // ({state, log, dispatch, startNewGame, abandonGame}) so App.tsx can swap

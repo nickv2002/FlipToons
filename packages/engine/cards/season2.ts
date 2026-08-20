@@ -71,6 +71,7 @@ export const season2Cards: Card[] = [
     id: 'rat', name: 'Rat', season: 2, rank: 3, copies: 4,
     fame: { base: 1 },
     rawBannerText: "CARDS IN RAT'S STACK COST 1 FEWER TO DISMISS",
+    rawBodyText: 'Stack this card on the last card placed',
     onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     // Fully encodable now — see phases.ts's dismissCostFor. FAQ: ignored if
     // Rat is face-down or no longer in the grid (covered for free by

@@ -15,15 +15,23 @@
 // Season-agnostic (§10) — every function here takes a GameState built from
 // data and never branches on Card.season.
 
-import type { Card, CardId, Effect, EffectChoices, PostMarketHook } from './cards/types'
+import type { Card, CardId, Effect, EffectChoices } from './cards/types'
 import { adjacentFaceUpCardIds, cloneGrid, emptyGrid, findLowestRankFaceUpCard, getSlot, occupiedSlots, setSlot } from './grid'
 import { flipDeck } from './flip'
 import { hireCost, refillMarket, soloMarketDecay } from './market'
 import { shuffleWithState } from './rng'
 import { scoreGrid } from './score'
 import { cardsById } from './setup'
-import type { GameState } from './state'
+import type { GameState, PendingPostMarketChoice, PostMarketCandidate } from './state'
 import type { Grid, GridPos } from './types'
+
+function posLabel(pos: GridPos): string {
+  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
+}
+
+function samePos(a: GridPos, b: GridPos): boolean {
+  return a.section === b.section && a.row === b.row && a.col === b.col
+}
 
 const DEFAULT_DISMISS_COST = 5
 const MARKET_ACTIONS_PER_ROUND = 2
@@ -204,6 +212,7 @@ function applyRefillResult<T extends GameState>(
 // case below (which also covers Horse's own vacated slot — see its comment).
 export function hire(state: GameState, slotIndex: number, choices?: EffectChoices): GameState {
   assertPhase(state, 'market', 'hire')
+  if (state.pendingPostMarketChoice) throw new Error('phases.ts: hire — a pending post-Market choice must be resolved first')
   if (state.actionsRemaining <= 0) throw new Error('phases.ts: hire — no Market actions remaining this round')
   if (slotIndex < 0 || slotIndex >= state.market.slots.length) {
     throw new Error(`phases.ts: hire — slot index ${slotIndex} out of range`)
@@ -465,7 +474,7 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
 //     Ladybug): Ladybug's replacement is applied FIRST (5 -> 3), THEN Rat's
 //     -1, THEN floor at 0 — also UNCONFIRMED, since no source composes the
 //     two abilities; this is the plan's own documented reading.
-function dismissCostFor(grid: Grid, pos: GridPos, index: number, cardsById: Record<CardId, Card>): number {
+export function dismissCostFor(grid: Grid, pos: GridPos, index: number, cardsById: Record<CardId, Card>): number {
   const slot = getSlot(grid, pos)
   if (!slot) throw new Error(`phases.ts: dismissCostFor — no slot at ${JSON.stringify(pos)}`)
   const card = cardsById[slot.cards[index]]
@@ -489,6 +498,7 @@ function dismissCostFor(grid: Grid, pos: GridPos, index: number, cardsById: Reco
 // ONCE, at the end of the Market phase, not per action.
 export function dismiss(state: GameState, pos: GridPos, index?: number, choices?: EffectChoices): GameState {
   assertPhase(state, 'market', 'dismiss')
+  if (state.pendingPostMarketChoice) throw new Error('phases.ts: dismiss — a pending post-Market choice must be resolved first')
   if (state.actionsRemaining <= 0) throw new Error('phases.ts: dismiss — no Market actions remaining this round')
 
   const slot = getSlot(state.grid, pos)
@@ -557,21 +567,18 @@ function adjacentRightPos(grid: Grid, pos: GridPos): GridPos | null {
 // left the grid by then"), a missing/relocated owner is skipped silently —
 // applied uniformly to Donkey/Groundhog too, for consistency, even though
 // their own FAQ text doesn't spell out the interaction case explicitly.
-export function runPostMarketHooks(state: GameState): GameState {
-  const cards = cardsById()
-
-  type Candidate = { pos: GridPos; index: number; cardId: CardId; hook: PostMarketHook }
-  const candidates: Candidate[] = []
-  for (const { pos, slot } of occupiedSlots(state.grid)) {
-    slot.cards.forEach((cardId, i) => {
-      if (!slot.faceUp[i]) return
-      const hook = cards[cardId].postMarketHook
-      if (hook) candidates.push({ pos, index: i, cardId, hook })
-    })
-  }
-
+// Shared candidate-processing loop, used both for a fresh
+// runPostMarketHooks pass and for resuming one after resolvePostMarketChoice
+// answers an Alligator stack-target prompt. Returns early — with
+// pendingPostMarketChoice set and the remaining candidates stashed for later
+// — the moment a dismissAdjacentRight target has 2+ eligible cards; every
+// other candidate before that point has already been applied to the
+// returned state.
+function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandidate[], cards: Record<CardId, Card>, logLines?: string[]): GameState {
   let next = state
-  for (const c of candidates) {
+
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i]
     const slot = getSlot(next.grid, c.pos)
     if (!slot || slot.cards[c.index] !== c.cardId || !slot.faceUp[c.index]) continue // owner gone by the time its turn comes — skip silently
 
@@ -584,18 +591,45 @@ export function runPostMarketHooks(state: GameState): GameState {
       const grid = cloneGrid(next.grid)
       const removedId = removeCardRaw(grid, c.pos, c.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
+      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(c.pos)} (${cards[c.cardId].name}).`)
     } else if (c.hook.kind === 'dismissAdjacentRight') {
       const rightPos = adjacentRightPos(next.grid, c.pos)
       if (!rightPos) continue
       const rightSlot = getSlot(next.grid, rightPos)
       if (!rightSlot || rightSlot.cards.length === 0) continue
-      const idx = rightSlot.cards.length - 1 // "if the target is a stack, dismiss any one card in the stack" (FAQ) — top of stack, same convention as dismiss()'s own default index
-      if (!rightSlot.faceUp[idx]) continue // a face-down card cannot be dismissed
-      const targetId = rightSlot.cards[idx]
-      if (cards[targetId].immune?.includes('dismiss')) continue
+      // Eligible = every face-up, non-immune card ANYWHERE in the stack, not
+      // just the top — the FAQ's "if the target is a stack, dismiss any one
+      // card in the stack" means (a) a face-down top no longer blocks a
+      // dismissible face-up card underneath it, and (b) an immune top (e.g.
+      // Cat) no longer blocks a dismissible face-up card underneath it
+      // either — immunity protects the immune card itself, not the whole
+      // stack it happens to sit atop. Both are rules changes from the old
+      // top-of-stack-only behavior, which no-op'd the entire hook on either
+      // condition regardless of what else was in the stack.
+      const eligible: { pos: GridPos; index: number; cardId: CardId }[] = []
+      rightSlot.cards.forEach((cardId, idx) => {
+        if (!rightSlot.faceUp[idx]) return
+        if (cards[cardId].immune?.includes('dismiss')) return
+        eligible.push({ pos: rightPos, index: idx, cardId })
+      })
+      if (eligible.length === 0) continue
+      if (eligible.length > 1) {
+        return {
+          ...next,
+          pendingPostMarketChoice: {
+            ownerCardId: c.cardId,
+            ownerPos: c.pos,
+            targetPos: rightPos,
+            options: eligible,
+            remainingCandidates: candidates.slice(i + 1),
+          },
+        }
+      }
+      const target = eligible[0]
       const grid = cloneGrid(next.grid)
-      const removedId = removeCardRaw(grid, rightPos, idx)
+      const removedId = removeCardRaw(grid, target.pos, target.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
+      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name} at ${posLabel(c.pos)}).`)
     } else if (c.hook.kind === 'dismissLowestRankInGrid') {
       // Plain reading (per this pass's plan): find the lowest-rank face-up
       // card GRID-WIDE first, THEN no-op if it turns out to be immune — NOT
@@ -608,28 +642,41 @@ export function runPostMarketHooks(state: GameState): GameState {
       const grid = cloneGrid(next.grid)
       const removedId = removeCardRaw(grid, target.pos, target.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
+      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name}).`)
     }
   }
 
-  return next
+  return { ...next, pendingPostMarketChoice: null }
 }
 
-export function endMarketPhase(state: GameState): GameState {
-  assertPhase(state, 'market', 'endMarketPhase')
-  const afterHooks = runPostMarketHooks(state)
+export function runPostMarketHooks(state: GameState, logLines?: string[]): GameState {
   const cards = cardsById()
 
-  // CONFIRMED rulebook text ("Once a player has completed their actions...
-  // reveal cards... until there are five available and rearrange... by
-  // rank"): THIS is the standard once-per-turn refill — the one place any
-  // gaps hire()/dismiss() left mid-turn (every hire but Horse leaves one;
-  // dismiss never touches the market) actually get filled. Must run BEFORE
-  // the decay step below: soloMarketDecay reads literal positions 0 and
-  // length-1 as "leftmost"/"rightmost" (market.ts's own comment), which
-  // only means what it says once the market is full/right-justified — an
-  // interior gap from an un-refilled mid-turn hire would corrupt that.
-  const standardRefill = refillMarket(afterHooks.market, afterHooks.toonDeck, cards, afterHooks.nextInsertionSeq)
-  const afterStandardRefill = { ...afterHooks, ...applyRefillResult(afterHooks, standardRefill) }
+  const candidates: PostMarketCandidate[] = []
+  for (const { pos, slot } of occupiedSlots(state.grid)) {
+    slot.cards.forEach((cardId, i) => {
+      if (!slot.faceUp[i]) return
+      const hook = cards[cardId].postMarketHook
+      if (hook) candidates.push({ pos, index: i, cardId, hook })
+    })
+  }
+
+  return applyPostMarketCandidates(state, candidates, cards, logLines)
+}
+
+// CONFIRMED rulebook text ("Once a player has completed their actions...
+// reveal cards... until there are five available and rearrange... by
+// rank"): THIS is the standard once-per-turn refill — the one place any
+// gaps hire()/dismiss() left mid-turn (every hire but Horse leaves one;
+// dismiss never touches the market) actually get filled. Must run BEFORE
+// the decay step below: soloMarketDecay reads literal positions 0 and
+// length-1 as "leftmost"/"rightmost" (market.ts's own comment), which
+// only means what it says once the market is full/right-justified — an
+// interior gap from an un-refilled mid-turn hire would corrupt that.
+function finishEndMarketPhase(state: GameState): GameState {
+  const cards = cardsById()
+  const standardRefill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
+  const afterStandardRefill = { ...state, ...applyRefillResult(state, standardRefill) }
 
   const decay = soloMarketDecay(afterStandardRefill.market, afterStandardRefill.toonDeck, cards, afterStandardRefill.nextInsertionSeq)
 
@@ -639,6 +686,45 @@ export function endMarketPhase(state: GameState): GameState {
     actionsRemaining: 0,
     phase: 'cleanup',
   }
+}
+
+export function endMarketPhase(state: GameState, logLines?: string[]): GameState {
+  assertPhase(state, 'market', 'endMarketPhase')
+  if (state.pendingPostMarketChoice) {
+    throw new Error('phases.ts: endMarketPhase — a pending post-Market choice must be resolved first (call resolvePostMarketChoice)')
+  }
+  const afterHooks = runPostMarketHooks(state, logLines)
+  if (afterHooks.pendingPostMarketChoice) return afterHooks // paused — waiting on Alligator's stack-target choice, still phase 'market'
+  return finishEndMarketPhase(afterHooks)
+}
+
+// Resolves a pending Alligator stack-target choice (GameState.
+// pendingPostMarketChoice), then resumes the rest of that endMarketPhase
+// pass — any later postMarketHook candidates, then the standard refill/decay/
+// phase transition, exactly as if the whole sequence had run uninterrupted.
+export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
+  const pending = state.pendingPostMarketChoice
+  if (!pending) throw new Error('phases.ts: resolvePostMarketChoice — this state has no pending post-Market choice')
+
+  const target = pending.options.find((o) => o.index === choice.index && samePos(o.pos, choice.pos))
+  if (!target) {
+    throw new Error(`phases.ts: resolvePostMarketChoice — ${JSON.stringify(choice)} is not one of the ${pending.options.length} legal option(s)`)
+  }
+
+  const cards = cardsById()
+  const grid = cloneGrid(state.grid)
+  const removedId = removeCardRaw(grid, target.pos, target.index)
+  const next: GameState = {
+    ...state,
+    grid,
+    dismissed: [...state.dismissed, removedId],
+    pendingPostMarketChoice: null,
+  }
+  logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[pending.ownerCardId].name} at ${posLabel(pending.ownerPos)}).`)
+
+  const afterHooks = applyPostMarketCandidates(next, pending.remainingCandidates, cards, logLines)
+  if (afterHooks.pendingPostMarketChoice) return afterHooks // another Alligator needs a choice too
+  return finishEndMarketPhase(afterHooks)
 }
 
 // ---------------------------------------------------------------------------

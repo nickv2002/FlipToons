@@ -132,6 +132,17 @@ function posLabel(pos: GridPos): string {
   return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
 }
 
+// The TUI has no interactive machinery for Alligator's stack-target choice
+// (same situation phases.ts's runPostFameHooks already documents and throws
+// for) — rather than silently defaulting to some card, fail loudly.
+function assertNoPendingPostMarketChoice(state: GameState): void {
+  if (state.pendingPostMarketChoice) {
+    throw new Error(
+      `tui.ts: Alligator's stack-target choice (at ${posLabel(state.pendingPostMarketChoice.targetPos)}) isn't supported in the TUI — resolve it manually or play this in the web UI`,
+    )
+  }
+}
+
 function printUnencodableNotice(card: Card, out: Out, context: string): void {
   out(`  ⚠ ${card.name} (${context}) — effect NOT implemented by the engine:`)
   if (card.rawBannerText) out(`      ${card.rawBannerText}`)
@@ -272,6 +283,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
     if (!anyHireAffordable && !anyDismissAffordable) {
       out('No affordable actions remain — auto-ending Market phase.')
       state = endMarketPhase(state)
+      assertNoPendingPostMarketChoice(state)
       break
     }
 
@@ -285,6 +297,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
 
     if (action.kind === 'end') {
       state = endMarketPhase(state)
+      assertNoPendingPostMarketChoice(state)
       break
     }
 
@@ -347,6 +360,7 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
   // "no Market actions remaining this round".
   if (state.phase === 'market') {
     state = endMarketPhase(state)
+    assertNoPendingPostMarketChoice(state)
   }
   return state
 }

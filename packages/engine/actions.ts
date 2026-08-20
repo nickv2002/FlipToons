@@ -5,13 +5,15 @@
 // this SAME module instead of each re-deriving the action vocabulary (see
 // flip-toonz-structure-plan.md §6's client/server split, and §8's original
 // key-files list, which named this file here from the start).
-import type { CardId } from './cards/types'
+import type { CardId, EffectChoices } from './cards/types'
 import { occupiedSlots } from './grid'
 import { hireCost } from './market'
 import {
   dismiss,
+  dismissCostFor,
   endMarketPhase,
   hire,
+  resolvePostMarketChoice,
   runCheckFame,
   runCleanup,
   runFlip,
@@ -30,9 +32,10 @@ export type Action =
   | { kind: 'flip' }
   | { kind: 'checkFame' } // flip -> checkFame is already done by runFlip; this runs the actual scoring (plan §5: "this is the single view that teaches the game" — kept as its own step so the breakdown has a moment on screen before Market)
   | { kind: 'continueToMarket' } // postFameHooks (a pass-through in solo — see phases.ts's header comment) -> market
-  | { kind: 'hire'; slotIndex: number }
-  | { kind: 'dismiss'; pos: GridPos; index: number }
+  | { kind: 'hire'; slotIndex: number; choices?: EffectChoices } // choices resolves the hired card's own onHire prompt, if any — see hireChoices.ts
+  | { kind: 'dismiss'; pos: GridPos; index: number; choices?: EffectChoices } // choices resolves the dismissed card's own onDismiss prompt (Crow), if any
   | { kind: 'endMarket' }
+  | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
   | { kind: 'advanceCleanup' }
 
 export type ApplyResult = { state: GameState; logLines: string[] }
@@ -67,6 +70,29 @@ export function listDismissEntries(state: GameState): DismissEntry[] {
     })
   }
   return entries
+}
+
+// Whether the player has ANY legal Market action left — a hireable slot
+// they can afford, or a dismissible (non-immune) grid card they can afford.
+// Drives the web UI's auto-end (useGame.ts): once this goes false there's
+// nothing left to decide, so sitting in the Market phase waiting for a
+// manual "End Market phase" click is pure friction, not a real choice.
+export function hasAnyLegalMarketAction(state: GameState): boolean {
+  // A pending post-Market choice (Alligator's stack-target pick) means
+  // hire()/dismiss() are already refusing to run (phases.ts) until it's
+  // resolved — false here regardless of actionsRemaining/affordability.
+  if (state.pendingPostMarketChoice) return false
+  if (state.phase !== 'market' || state.actionsRemaining <= 0) return false
+
+  const canHire = state.market.slots.some(
+    (cardId, slotIndex) => cardId !== null && state.fame >= hireCost(state.market, slotIndex),
+  )
+  if (canHire) return true
+
+  return listDismissEntries(state).some(({ pos, stackIndex, cardId }) => {
+    if (cards[cardId].immune?.includes('dismiss')) return false
+    return state.fame >= dismissCostFor(state.grid, pos, stackIndex, cards)
+  })
 }
 
 // Same message-cleanup tui.ts applies before showing a rejected action to
@@ -125,6 +151,7 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     const preview = shuffleWithState(next.deck, next.rng).result
     logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
     next = runFlip(next)
+    logLines.push(`${next.deck.length} card(s) left in your deck.`)
   }
 
   if (next.phase === 'checkFame') {
@@ -148,14 +175,34 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
 function closeMarketIfExhausted(state: GameState, logLines: string[]): GameState {
   if (state.phase === 'market' && state.actionsRemaining <= 0) {
     logLines.push('No Market actions remaining — ending the Market phase.')
-    let next = endMarketPhase(state)
+    let next = endMarketPhase(state, logLines)
+    if (next.pendingPostMarketChoice) return next // paused — waiting on Alligator's stack-target choice
     if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
     return next
   }
   return state
 }
 
+// House rule, explicitly requested: the physical rulebook's documented
+// timing (flip-toonz-structure-plan.md line ~716 — "reaching the fame
+// threshold still allows that round's full Market phase," trigger evaluated
+// at Cleanup) is deliberately overridden here. The instant a player's
+// spendable `fame` reaches the threshold — at Check Fame, or mid-Market via
+// a gainFame effect like Peacock's — the game ends right there instead of
+// waiting for that round's Market phase (or Cleanup) to run.
+function checkInstantWin(state: GameState): GameState {
+  if (state.phase === 'ended' || state.fame < state.fameToTriggerEndgame) return state
+  return { ...state, phase: 'ended', result: 'win' }
+}
+
 export function applyAction(state: GameState, action: Action): ApplyResult {
+  const result = applyActionRaw(state, action)
+  const won = checkInstantWin(result.state)
+  if (won === result.state) return result
+  return { state: won, logLines: [...result.logLines, `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`] }
+}
+
+function applyActionRaw(state: GameState, action: Action): ApplyResult {
   const logLines: string[] = []
 
   if (action.kind === 'flip') {
@@ -184,7 +231,7 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
     const cardId = state.market.slots[action.slotIndex]
     const price = action.slotIndex >= 0 && action.slotIndex < state.market.prices.length ? hireCost(state.market, action.slotIndex) : undefined
     try {
-      let next = hire(state, action.slotIndex)
+      let next = hire(state, action.slotIndex, action.choices)
       const card = cards[cardId!]
       logLines.push(`Hired ${card.name} for ${price} fame.`)
       if (card.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
@@ -201,7 +248,7 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
     const slot = action.pos.section === 'base' ? state.grid.base[action.pos.row]?.[action.pos.col] : state.grid.extraRows[action.pos.row]?.[action.pos.col]
     const cardId = slot?.cards[action.index]
     try {
-      let next = dismiss(state, action.pos, action.index)
+      let next = dismiss(state, action.pos, action.index, action.choices)
       const card = cardId ? cards[cardId] : undefined
       logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)}.`)
       if (card?.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
@@ -215,10 +262,33 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
   }
 
   if (action.kind === 'endMarket') {
-    let next = endMarketPhase(state)
+    if (state.pendingPostMarketChoice) {
+      logLines.push(`Can't do that: resolve the pending Alligator choice first.`)
+      return { state, logLines }
+    }
+    let next = endMarketPhase(state, logLines)
+    if (next.pendingPostMarketChoice) return { state: next, logLines } // paused — waiting on Alligator's stack-target choice
     logLines.push('Ended the Market phase.')
     if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
     return { state: next, logLines }
+  }
+
+  if (action.kind === 'resolvePostMarketChoice') {
+    if (!state.pendingPostMarketChoice) {
+      logLines.push(`Can't do that: there's no pending choice to resolve.`)
+      return { state, logLines }
+    }
+    try {
+      let next = resolvePostMarketChoice(state, { pos: action.pos, index: action.index }, logLines)
+      if (next.pendingPostMarketChoice) return { state: next, logLines } // another Alligator needs a choice too
+      logLines.push('Ended the Market phase.')
+      if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
+      return { state: next, logLines }
+    } catch (err) {
+      if (isEngineBug(err)) throw err
+      logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
+      return { state, logLines }
+    }
   }
 
   if (action.kind === 'advanceCleanup') {

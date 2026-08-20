@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { emptyGrid, getSlot, occupiedSlots, placeCardFaceUp } from './grid'
-import { dismiss, endMarketPhase, hire, runCheckFame, runCleanup, runFlip, runPostFameHooks, runPostMarketHooks } from './phases'
+import { dismiss, endMarketPhase, hire, resolvePostMarketChoice, runCheckFame, runCleanup, runFlip, runPostFameHooks, runPostMarketHooks } from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
 import type { GameState } from './state'
@@ -11,6 +11,20 @@ const cards = cardsById()
 // must always equal (starting deck size + total hired this game). One line
 // per §10/the task's verification list — catches a dropped card from a
 // mis-indexed dismiss, a lost Return, etc.
+// endMarketPhase can now pause mid-sequence when Alligator's target is a
+// stack of 2+ eligible cards (GameState.pendingPostMarketChoice) — fuzz/
+// invariant tests that just want to drive a full game to completion pick
+// the first option deterministically, same as this file's other "greedy,
+// not exhaustive" test choices (e.g. the fuzz test's most-expensive-hire).
+function endMarketPhaseAutoResolving(state: GameState): GameState {
+  let next = endMarketPhase(state)
+  while (next.pendingPostMarketChoice) {
+    const target = next.pendingPostMarketChoice.options[0]
+    next = resolvePostMarketChoice(next, { pos: target.pos, index: target.index })
+  }
+  return next
+}
+
 function totalPlayerCards(state: GameState): number {
   let gridCount = 0
   for (const { slot } of occupiedSlots(state.grid)) gridCount += slot.cards.length
@@ -410,7 +424,7 @@ describe('card conservation over a full game', () => {
         }
       }
 
-      state = endMarketPhase(state)
+      state = endMarketPhaseAutoResolving(state)
       state = runCleanup(state)
 
       const nowDismissedCounts = counts(state.dismissed)
@@ -458,7 +472,7 @@ describe('fuzz: many random full games', () => {
             state = hire(state, affordable.i)
           }
 
-          state = endMarketPhase(state)
+          state = endMarketPhaseAutoResolving(state)
           state = runCleanup(state)
         }
       }
@@ -551,6 +565,32 @@ describe('Group 1 — onHire/onDismiss firing (butterfly, horse, peacock, raccoo
       expect(state.market.slots).toContain('goat')
       expect(state.market.slots).not.toContain(null)
       expect(state.toonDeck.length).toBe(1) // only Horse's own single-slot refill drew a card
+    })
+
+    test("discarding a card with its own onDismiss effect (Crow) does NOT trigger that effect — a market discard is not a dismiss()", () => {
+      // market.ts's soloMarketDecay comment is explicit that market-discarded
+      // cards "leave the game entirely (not tracked in any pile this engine
+      // models)" — applyEffects's discardMarketAndRefill case (phases.ts)
+      // confirms this structurally: it nulls the slot directly and never
+      // calls dismiss()/applyEffects on the discarded card itself, so a
+      // discarded Crow's onDismiss (hireFromMarketAndRefill) can never fire,
+      // regardless of whether a legal target/choice for it would exist.
+      // Picked Crow specifically (the one onDismiss-bearing card) so a
+      // regression that started firing onDismiss on discard would show up
+      // as an extra free hire / an extra market refill, not just silence.
+      let state = marketState(220)
+      const market = { prices: [3, 4, 7], slots: ['horse', 'crow', 'goat'], insertionSeq: [0, 1, 2] }
+      const toonDeck = buildExplicitDeck(['sheep', 'rabbit'], cards)
+      state = { ...state, market, toonDeck, nextInsertionSeq: 3, dismissed: [] }
+      const deckBefore = state.deck.length
+      state = hire(state, 0, { discardMarketSlots: [1] }) // pre-refill index 1 = crow
+      expect(state.market.slots).not.toContain('crow')
+      // A real dismiss() unconditionally pushes onto `dismissed` (see
+      // removeCardRaw's own header comment: "every caller MUST do that
+      // regardless of cost/kind") — its absence here is the direct proof
+      // this was a discard, not a dismiss.
+      expect(state.dismissed).not.toContain('crow')
+      expect(state.deck.length).toBe(deckBefore + 1) // +1 for Horse itself only — no bonus hire from Crow's onDismiss
     })
   })
 
@@ -665,14 +705,16 @@ describe('Group 1 — onHire/onDismiss firing (butterfly, horse, peacock, raccoo
 
 describe('Group 2 — postMarket self/other-triggered hooks (donkey, alligator, groundhog, vulture)', () => {
   describe('Donkey — selfDismissIf inLowerRow', () => {
-    test('in the lower row, dismisses itself at end of Market phase', () => {
+    test('in the lower row, dismisses itself at end of Market phase, and logs it', () => {
       let state = marketState(301)
       const grid = emptyGrid()
       placeCardFaceUp(grid, { section: 'base', row: 1, col: 0 }, 'donkey')
       state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
-      state = endMarketPhase(state)
+      const logLines: string[] = []
+      state = endMarketPhase(state, logLines)
       expect(state.dismissed).toContain('donkey')
       expect(occupiedSlots(state.grid).length).toBe(0)
+      expect(logLines.some((l) => l.includes('Dismissed Donkey') && l.includes('Donkey'))).toBe(true)
     })
 
     test('in the upper row, is NOT dismissed', () => {
@@ -755,18 +797,111 @@ describe('Group 2 — postMarket self/other-triggered hooks (donkey, alligator, 
       state = endMarketPhase(state)
       expect(state.dismissed).not.toContain('bee') // no Alligator anywhere -> no hook fires at all
     })
+
+    test('a 2-card face-up stack to the right pauses with a pendingPostMarketChoice offering both cards', () => {
+      let state = marketState(320)
+      const grid = emptyGrid()
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'sheep') // stacked on top of bee, also face-up
+      state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
+      state = endMarketPhase(state)
+
+      expect(state.phase).toBe('market') // paused, not advanced to cleanup
+      expect(state.dismissed).toEqual([]) // nothing dismissed yet
+      expect(state.pendingPostMarketChoice).not.toBeNull()
+      expect(state.pendingPostMarketChoice?.ownerCardId).toBe('alligator')
+      expect(state.pendingPostMarketChoice?.options.map((o) => o.cardId).sort()).toEqual(['bee', 'sheep'])
+    })
+
+    test('resolving the stack choice dismisses the picked card and completes the Market phase', () => {
+      let state = marketState(321)
+      const grid = emptyGrid()
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'sheep')
+      state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
+      state = endMarketPhase(state)
+      const beeOption = state.pendingPostMarketChoice!.options.find((o) => o.cardId === 'bee')!
+
+      const logLines: string[] = []
+      state = resolvePostMarketChoice(state, { pos: beeOption.pos, index: beeOption.index }, logLines)
+
+      expect(state.pendingPostMarketChoice).toBeNull()
+      expect(state.phase).toBe('cleanup') // resumed and completed the rest of endMarketPhase
+      expect(state.dismissed).toContain('bee')
+      expect(state.dismissed).not.toContain('sheep')
+      expect(logLines.some((l) => l.includes('Dismissed Bee') && l.includes('Alligator'))).toBe(true)
+    })
+
+    test('regression: a dismissible face-up card under a face-down top card is now auto-dismissed, not skipped', () => {
+      let state = marketState(322)
+      const grid = emptyGrid()
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+      const targetSlot = getSlot(grid, { section: 'base', row: 0, col: 1 })!
+      targetSlot.cards.push('sheep')
+      targetSlot.faceUp.push(false) // face-down top — bee underneath is still the sole eligible card
+      state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
+      state = endMarketPhase(state)
+
+      expect(state.pendingPostMarketChoice).toBeNull() // exactly 1 eligible card — auto-dismissed, no prompt
+      expect(state.dismissed).toContain('bee')
+      expect(state.dismissed).not.toContain('sheep')
+    })
+
+    test('regression: an immune card on top no longer blocks a dismissible face-up card underneath it', () => {
+      let state = marketState(324)
+      const grid = emptyGrid()
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'cat') // immune, on top — protects itself, not the stack
+      state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
+      state = endMarketPhase(state)
+
+      expect(state.pendingPostMarketChoice).toBeNull() // exactly 1 eligible card (bee) — auto-dismissed, no prompt
+      expect(state.dismissed).toContain('bee')
+      expect(state.dismissed).not.toContain('cat')
+    })
+
+    test('two Alligators each facing a 2+ stack prompt sequentially, not simultaneously', () => {
+      let state = marketState(323)
+      const grid = emptyGrid()
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+      placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'sheep')
+      placeCardFaceUp(grid, { section: 'base', row: 1, col: 0 }, 'alligator')
+      placeCardFaceUp(grid, { section: 'base', row: 1, col: 1 }, 'goat')
+      placeCardFaceUp(grid, { section: 'base', row: 1, col: 1 }, 'dragonfly')
+      state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
+
+      state = endMarketPhase(state)
+      expect(state.pendingPostMarketChoice?.ownerPos).toEqual({ section: 'base', row: 0, col: 0 })
+      const firstOption = state.pendingPostMarketChoice!.options[0]
+      state = resolvePostMarketChoice(state, { pos: firstOption.pos, index: firstOption.index })
+
+      expect(state.pendingPostMarketChoice).not.toBeNull() // second Alligator's stack now pending
+      expect(state.pendingPostMarketChoice?.ownerPos).toEqual({ section: 'base', row: 1, col: 0 })
+      const secondOption = state.pendingPostMarketChoice!.options[0]
+      state = resolvePostMarketChoice(state, { pos: secondOption.pos, index: secondOption.index })
+
+      expect(state.pendingPostMarketChoice).toBeNull()
+      expect(state.phase).toBe('cleanup')
+    })
   })
 
   describe('Vulture — dismissLowestRankInGrid', () => {
-    test('dismisses the lowest-rank face-up card in the grid', () => {
+    test('dismisses the lowest-rank face-up card in the grid, and logs it', () => {
       let state = marketState(310)
       const grid = emptyGrid()
       placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'vulture') // rank 20
       placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee') // rank 0 — lowest
       state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
-      state = endMarketPhase(state)
+      const logLines: string[] = []
+      state = endMarketPhase(state, logLines)
       expect(state.dismissed).toContain('bee')
       expect(state.dismissed).not.toContain('vulture')
+      expect(logLines.some((l) => l.includes('Dismissed Bee') && l.includes('Vulture'))).toBe(true)
     })
 
     test('an immune lowest-rank card means no-op (does NOT fall back to the next-lowest)', () => {

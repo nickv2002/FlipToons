@@ -6,7 +6,7 @@
 // never branches on Card.season; setup.ts is the season-aware layer that
 // builds a Setup/GameState for a particular season (§4.6).
 
-import type { CardId } from './cards/types'
+import type { CardId, PostMarketHook } from './cards/types'
 import { emptyGrid } from './grid'
 import type { Market } from './market'
 import { emptyMarket, refillMarket } from './market'
@@ -14,11 +14,31 @@ import type { RngState } from './rng'
 import { initRngState } from './rng'
 import { cardsById } from './setup'
 import type { FameBreakdown } from './score'
-import type { Grid } from './types'
+import type { Grid, GridPos } from './types'
 
 export type Phase = 'flip' | 'checkFame' | 'postFameHooks' | 'market' | 'cleanup' | 'ended'
 
 export type GameResult = 'win' | 'loss' | null
+
+// A postMarketHook candidate snapshotted at the start of a runPostMarketHooks
+// pass (phases.ts) — kept here, not phases.ts, so GameState can reference it
+// without a circular import. Plain data, so it round-trips through the web
+// client's JSON.stringify save (useGame.ts).
+export type PostMarketCandidate = { pos: GridPos; index: number; cardId: CardId; hook: PostMarketHook }
+
+// Set by phases.ts's runPostMarketHooks/resolvePostMarketChoice when
+// Alligator's dismissAdjacentRight hook targets a stack with 2+ eligible
+// (face-up, non-immune) cards — its own FAQ note says the player picks which
+// one. While this is set, endMarketPhase has paused mid-sequence: `phase`
+// stays 'market' and the remaining postMarketHook candidates wait in
+// `remainingCandidates` until resolvePostMarketChoice is called.
+export type PendingPostMarketChoice = {
+  ownerCardId: CardId
+  ownerPos: GridPos
+  targetPos: GridPos
+  options: { pos: GridPos; index: number; cardId: CardId }[]
+  remainingCandidates: PostMarketCandidate[]
+}
 
 export type GameState = {
   phase: Phase
@@ -66,6 +86,10 @@ export type GameState = {
 
   fameToTriggerEndgame: number // §3.7's solo win condition: 30, but tunable (§3.0)
   result: GameResult // null until phase === 'ended'
+
+  // Non-null only while endMarketPhase is paused mid-sequence waiting on
+  // Alligator's stack-target choice — see PendingPostMarketChoice's comment.
+  pendingPostMarketChoice: PendingPostMarketChoice | null
 
   // --- Deliberately NOT here — see the task report for the full reasoning ---
   //
@@ -124,5 +148,6 @@ export function createSoloGameState(params: {
     nextInsertionSeq: initialRefill.nextInsertionSeq,
     fameToTriggerEndgame: params.fameToTriggerEndgame,
     result: null,
+    pendingPostMarketChoice: null,
   }
 }

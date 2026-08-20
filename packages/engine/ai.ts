@@ -31,7 +31,19 @@ const DEFAULT_MAX_ROUNDS_PER_PLAYOUT = 30
 // affordability up front rather than letting applyAction's rejection path
 // handle it — cheaper, and keeps the candidate list meaningful (a candidate
 // you can't afford isn't a real choice).
+//
+// GameState.pendingPostMarketChoice (Alligator's stack-target pick) is a
+// SEPARATE decision point from the ones above — endMarketPhase has already
+// paused mid-sequence, phase is still 'market', but hire/dismiss/endMarket
+// are all illegal until it's resolved (phases.ts's hire()/dismiss()/
+// endMarketPhase now throw if called with one pending). The AI has no
+// preference among options here (there's no fame/strategy signal to weigh a
+// stack pick on), so every option is offered as its own candidate and
+// evaluateAction picks among them the same as any other decision.
 function marketCandidates(state: GameState): Action[] {
+  if (state.pendingPostMarketChoice) {
+    return state.pendingPostMarketChoice.options.map((o) => ({ kind: 'resolvePostMarketChoice', pos: o.pos, index: o.index }) as const)
+  }
   const candidates: Action[] = [{ kind: 'endMarket' }]
   if (state.phase !== 'market' || state.actionsRemaining <= 0) return candidates
 

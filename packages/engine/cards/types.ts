@@ -133,8 +133,12 @@ export type EffectChoices = {
 
 // Post-Market self/other-triggered hooks (Group 2 of this pass), fired by
 // phases.ts's runPostMarketHooks from endMarketPhase(), BEFORE the solo
-// decay step. Every variant is mandatory-and-free (no player choice, no
-// cost) per each card's own FAQ. The two `selfDismissIf` conditions check
+// decay step. Every variant is free (no cost) per each card's own FAQ, and
+// mandatory when it has a legal target — but `dismissAdjacentRight`
+// (Alligator) is NOT choice-free: its own FAQ note ("if the target is a
+// stack, dismiss any one card in the stack") means the player picks which
+// card whenever 2+ eligible cards sit in the target slot (see
+// GameState.pendingPostMarketChoice, phases.ts). The two `selfDismissIf` conditions check
 // the card's CURRENT grid position at apply time (this engine tracks no
 // placement history — a Donkey/Groundhog that got relocated by another
 // card's effect is judged on where it actually ended up, not where it was

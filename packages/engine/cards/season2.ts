@@ -17,7 +17,7 @@ export const season2Cards: Card[] = [
   // --- Starting deck (rank 0, 6 cards: 2x Mosquito, 1x Spider, 1x Grasshopper, 1x Ladybug, 1x Firefly) ---
   {
     id: 'grasshopper', name: 'Grasshopper', season: 2, rank: 0, copies: 1,
-    fame: { base: 1, bonuses: [{ kind: 'perQuery', query: 'cardAboveInStack', amount: 1 }] },
+    fame: { base: 1, bonuses: [{ kind: 'perQuery', query: 'cardAboveInColumn', amount: 1 }] },
   },
   {
     id: 'mosquito', name: 'Mosquito', season: 2, rank: 0, copies: 2,
@@ -34,7 +34,7 @@ export const season2Cards: Card[] = [
   },
   {
     id: 'spider', name: 'Spider', season: 2, rank: 0, copies: 1,
-    fame: { base: 1, bonuses: [{ kind: 'perQuery', query: 'cardBelowInStack', amount: 1 }] },
+    fame: { base: 1, bonuses: [{ kind: 'perQuery', query: 'cardBelowInColumn', amount: 1 }] },
   },
   {
     id: 'firefly', name: 'Firefly', season: 2, rank: 0, copies: 1,

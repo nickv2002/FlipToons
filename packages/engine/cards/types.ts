@@ -16,9 +16,8 @@ export type FameBonus =
 
 export type GridQuery =
   | 'uniqueAdjacentName' // Dragonfly
-  | 'cardAboveInStack' // Grasshopper
-  | 'cardBelowInStack' // Spider
-  | 'sameColumnCard' // Spider/Grasshopper-style column count (FAQ: stacked cards in the same stack as the card itself are excluded, but other stacked cards in the column count, including face-down ones)
+  | 'cardAboveInColumn' // Grasshopper — despite the name, a COLUMN count (ruled directly by user 2026-08-20), not a same-slot stack count; see score.ts's countCardsInColumn
+  | 'cardBelowInColumn' // Spider — column count, mirror of Grasshopper above
   | 'adjacentOddRankCard' // Rhinoceros
   | 'dismissedCard' // Tiger
   | 'dismissedStartingCard' // Cat

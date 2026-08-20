@@ -54,7 +54,7 @@
 // see evaluateBonus's 'noOneHasMoreCamelsThanYou' handler).
 
 import type { Card, CardId, FameBonus } from './cards/types'
-import { adjacentFaceUpCardIds, adjacentPositions, getSlot, occupiedSlots } from './grid'
+import { adjacentFaceUpCardIds, adjacentPositions, columnPositions, getSlot, occupiedSlots } from './grid'
 import type { Grid, GridPos } from './types'
 
 export type FameBonusLine = {
@@ -142,6 +142,24 @@ function allFaceUpGridEntries(grid: Grid): { pos: GridPos; cardId: CardId }[] {
     }
   }
   return entries
+}
+
+// Sum of slot.cards.length over every OTHER occupied slot in `pos`'s
+// column, strictly above or below `pos` (per `columnPositions`' top-to-bottom
+// order) — used by Grasshopper/Spider (§4.4). Counts every card in a
+// counted slot regardless of face-up/down state (ruled directly by user
+// 2026-08-20: this is a column count, not a same-slot stack count — a
+// slot's own cards, including `pos`'s own stack, never contribute).
+function countCardsInColumn(grid: Grid, pos: GridPos, direction: 'above' | 'below'): number {
+  const col = pos.col
+  const column = columnPositions(grid, col)
+  const ownIndex = column.findIndex((p) => p.section === pos.section && p.row === pos.row)
+  if (ownIndex === -1) throw new Error(`score.ts: countCardsInColumn — ${JSON.stringify(pos)} not found in its own column`)
+  const range = direction === 'above' ? column.slice(0, ownIndex) : column.slice(ownIndex + 1)
+  return range.reduce((sum, p) => {
+    const slot = getSlot(grid, p)
+    return sum + (slot ? slot.cards.length : 0)
+  }, 0)
 }
 
 // Evaluate a single FameBonus for one card at one grid position (`index`
@@ -477,31 +495,27 @@ function evaluateBonus(
     }
   }
 
-  if (bonus.kind === 'perQuery' && bonus.query === 'cardAboveInStack') {
-    // Grasshopper: "+1 PER card above this card" (own stack). A raw CARD
-    // COUNT ("this card" locates itself by stack `index`, not by face
-    // state) — per this function's header comment, counts every card
-    // above regardless of face-up/down, since "a face-down card ... is
-    // still a card." `index` is this Grasshopper's own bottom-to-top
-    // position in its slot (`Slot`'s doc comment); cards above it are
-    // those at higher indices.
-    const slot = getSlot(grid, pos)
-    if (!slot) throw new Error(`score.ts: cardAboveInStack — no slot at ${JSON.stringify(pos)}`)
-    const countAbove = slot.cards.length - 1 - index
+  if (bonus.kind === 'perQuery' && bonus.query === 'cardAboveInColumn') {
+    // Grasshopper: "+1 PER card above this card" — a COLUMN count, not a
+    // same-slot stack count (ruled directly by user 2026-08-20, overriding
+    // this file's earlier same-stack reading). Counts every card in every
+    // OTHER slot above this one in the same column (toward extraRows),
+    // regardless of face-up/down state — cards within Grasshopper's own
+    // slot are excluded, since those belong to the (separate) same-stack
+    // question, not the column one.
+    const countAbove = countCardsInColumn(grid, pos, 'above')
     return {
-      reason: `${countAbove} card(s) above in stack`,
+      reason: `${countAbove} card(s) above in column`,
       amount: countAbove * bonus.amount,
     }
   }
 
-  if (bonus.kind === 'perQuery' && bonus.query === 'cardBelowInStack') {
-    // Spider: "+1 PER card below this card" (own stack) — mirror of
-    // Grasshopper above; cards below `index` (0 is the bottom of the stack).
-    const slot = getSlot(grid, pos)
-    if (!slot) throw new Error(`score.ts: cardBelowInStack — no slot at ${JSON.stringify(pos)}`)
-    const countBelow = index
+  if (bonus.kind === 'perQuery' && bonus.query === 'cardBelowInColumn') {
+    // Spider: "+1 PER card below this card" — column count, mirror of
+    // Grasshopper above (ruled directly by user 2026-08-20).
+    const countBelow = countCardsInColumn(grid, pos, 'below')
     return {
-      reason: `${countBelow} card(s) below in stack`,
+      reason: `${countBelow} card(s) below in column`,
       amount: countBelow * bonus.amount,
     }
   }

@@ -107,6 +107,19 @@ export function extraRowSlotAbove(grid: Grid, col: number): GridPos {
   return { section: 'extra', row, col }
 }
 
+// Every position in column `col`, top to bottom: highest extra row first
+// (extraRows stack upward — extraRows[N-1] is the topmost), down through
+// extraRows[0], then base row 0, then base row 1 (the "lower row" per
+// Donkey's card text). Used by Grasshopper/Spider's column-count bonuses
+// (§4.4 GridQuery 'cardAboveInColumn'/'cardBelowInColumn') to walk the whole
+// column regardless of how many extra rows currently exist.
+export function columnPositions(grid: Grid, col: number): GridPos[] {
+  const result: GridPos[] = []
+  for (let row = grid.extraRows.length - 1; row >= 0; row--) result.push({ section: 'extra', row, col })
+  for (let row = 0; row < ROWS; row++) result.push({ section: 'base', row, col })
+  return result
+}
+
 // Places a single face-up card into a slot, creating the slot if empty or
 // stacking on top ("new stacked cards always go on top", §3.3a) if occupied.
 export function placeCardFaceUp(grid: Grid, pos: GridPos, cardId: CardId): void {

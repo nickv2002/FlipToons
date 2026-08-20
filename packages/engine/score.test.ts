@@ -453,18 +453,33 @@ describe('fame-audit: newly-implemented condition/query handlers', () => {
     expect(scoreGrid(grid, cards, 3).lines[0].total).toBe(2 + 4) // at least 3 — bonus
   })
 
-  test('Grasshopper — cardAboveInStack: counts every card above, regardless of face state', () => {
+  test('Grasshopper — cardAboveInColumn: counts cards in the column above it (extraRows + base row 0), not its own slot', () => {
     const grid = emptyGrid()
-    grid.base[0][0] = { cards: ['grasshopper', 'bee', 'snail'], faceUp: [true, true, false] }
+    grid.base[1][0] = { cards: ['grasshopper'], faceUp: [true] }
+    grid.base[0][0] = { cards: ['bee'], faceUp: [true] } // base row 0 — above base row 1
+    grid.extraRows.push([{ cards: ['snail', 'mosquito'], faceUp: [false, true] }, null, null]) // extraRows[0] — above base row 0; face-down still counts
     const grasshopper = scoreGrid(grid, cards).lines.find((l) => l.cardId === 'grasshopper')!
-    expect(grasshopper.total).toBe(1 + 1 * 2) // bee + snail above, snail's face-down state doesn't exempt it
+    expect(grasshopper.total).toBe(1 + 1 * 3) // bee (1) + snail/mosquito (2) above, regardless of face state
+
+    // Cards stacked in Grasshopper's own slot don't count — only the column does.
+    const gridSameSlot = emptyGrid()
+    gridSameSlot.base[1][0] = { cards: ['bee', 'grasshopper'], faceUp: [true, true] }
+    const gh2 = scoreGrid(gridSameSlot, cards).lines.find((l) => l.cardId === 'grasshopper')!
+    expect(gh2.total).toBe(1)
   })
 
-  test('Spider — cardBelowInStack: counts every card below, regardless of face state', () => {
+  test('Spider — cardBelowInColumn: counts cards in the column below it (base row 1), not its own slot', () => {
     const grid = emptyGrid()
-    grid.base[0][0] = { cards: ['bee', 'snail', 'spider'], faceUp: [true, false, true] }
+    grid.base[0][0] = { cards: ['spider'], faceUp: [true] }
+    grid.base[1][0] = { cards: ['bee', 'snail'], faceUp: [true, false] } // base row 1 — below base row 0
     const spider = scoreGrid(grid, cards).lines.find((l) => l.cardId === 'spider')!
-    expect(spider.total).toBe(1 + 1 * 2) // bee + snail below
+    expect(spider.total).toBe(1 + 1 * 2) // bee + snail below, regardless of face state
+
+    // Cards stacked in Spider's own slot don't count — only the column does.
+    const gridSameSlot = emptyGrid()
+    gridSameSlot.base[0][0] = { cards: ['spider', 'bee'], faceUp: [true, true] }
+    const spider2 = scoreGrid(gridSameSlot, cards).lines.find((l) => l.cardId === 'spider')!
+    expect(spider2.total).toBe(1)
   })
 })
 

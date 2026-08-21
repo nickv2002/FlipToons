@@ -598,20 +598,12 @@ function parseArgs(argv: string[]): {
   return { seed, difficulty, scriptTokens, deckOverride, season, ai, logLevel }
 }
 
-// Season 2's solo variant is a pattern-matched inference, not a confirmed
-// rule (see buildInitialState's header comment and setup.ts's
-// buildSeason2SoloStartingDeck). Printed once, before the first phase, so it
-// can never be mistaken for a settled rule mid-game.
-const SEASON_2_UNCONFIRMED_BANNER =
-  'Season 2 solo variant is an UNCONFIRMED best-available inference (see setup.ts) — playing this is how we find out if it\'s right.'
-
 // Only run when invoked directly, not when imported by tests — same
 // convention cli.ts already uses.
 if (import.meta.main) {
   const { seed, difficulty, scriptTokens, deckOverride, season, ai, logLevel } = parseArgs(process.argv.slice(2))
   const state = buildInitialState(seed, difficulty, deckOverride ?? undefined, season)
   const out: Out = (line) => console.log(line)
-  if (season === 2) out(SEASON_2_UNCONFIRMED_BANNER)
 
   if (ai) {
     // Same --seed also drives the AI's own decision rng (deliberately

@@ -8,13 +8,6 @@ export type NewGameFormProps = {
   remoteError: string | null
 }
 
-// Same framing tui.ts prints before play starts when --season=2 is passed —
-// copied verbatim rather than rewritten, per setup.ts's
-// buildSeason2SoloStartingDeck comment: this is a best-available inference,
-// not a confirmed rule.
-const SEASON_2_UNCONFIRMED_BANNER =
-  "Season 2 solo variant is an UNCONFIRMED best-available inference (see setup.ts) — playing this is how we find out if it's right."
-
 export function NewGameForm({ onStart, onHostOnline, onRejoin, remoteError }: NewGameFormProps) {
   const [seed, setSeed] = useState(() => String(Date.now() >>> 0))
   const [difficulty, setDifficulty] = useState<SoloDifficulty>('normal')
@@ -57,9 +50,7 @@ export function NewGameForm({ onStart, onHostOnline, onRejoin, remoteError }: Ne
         </select>
       </label>
 
-      {season === 2 && <p className="new-game-form__warning">{SEASON_2_UNCONFIRMED_BANNER}</p>}
-
-      <label className="new-game-form__host-online">
+<label className="new-game-form__host-online">
         <input type="checkbox" checked={hostOnline} onChange={(e) => setHostOnline(e.target.checked)} />
         Host online (server-hosted, survives a reload — connects to ws://localhost:8787)
       </label>

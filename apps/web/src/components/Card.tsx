@@ -11,6 +11,10 @@ export type CardProps = {
   faceUp?: boolean // false renders a face-down back; omitted/true renders the front
   price?: number // market hire cost, shown as a badge
   dismissCost?: number // market-phase dismiss cost, shown as a badge
+  // True when the card is immune to dismiss — replaces the dismissCost
+  // badge's "dismiss: N fame" with an "immune to dismiss" note instead of
+  // showing a cost that can never actually be paid.
+  dismissImmune?: boolean
   onClick?: () => void
   disabled?: boolean
   // True specifically when `disabled` is because the price exceeds current
@@ -82,7 +86,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs }: CardProps) {
   const clickable = !!onClick && !disabled
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
@@ -137,12 +141,16 @@ export function Card({ card, faceUp = true, price, dismissCost, onClick, disable
         fame: {card.fame.base === '=' ? 'varies' : card.fame.base}
         {card.fameUnencodable ? ' (needs ruling)' : ''}
       </div>
-      {dismissCost !== undefined && (
-        <div
-          className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}${dismissUnaffordable ? ' card__dismiss-cost--unaffordable' : ''}`}
-        >
-          dismiss: {dismissCost} fame
-        </div>
+      {dismissImmune ? (
+        <div className="card__dismiss-cost card__dismiss-cost--immune">immune to dismiss</div>
+      ) : (
+        dismissCost !== undefined && (
+          <div
+            className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}${dismissUnaffordable ? ' card__dismiss-cost--unaffordable' : ''}`}
+          >
+            dismiss: {dismissCost} fame
+          </div>
+        )
       )}
       {bodyText && <div className="card__text">{bodyText}</div>}
       {warningText && <div className="card__warning">{warningText}</div>}

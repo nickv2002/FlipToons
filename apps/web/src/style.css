@@ -282,12 +282,6 @@ button {
   border-radius: 6px;
 }
 
-.slot__immune-note {
-  font-size: 0.7rem;
-  opacity: 0.7;
-  text-align: center;
-}
-
 /* ---------- Card ---------- */
 
 .card {
@@ -356,6 +350,10 @@ button {
 
 .card__dismiss-cost--unaffordable {
   color: var(--color-negative);
+}
+
+.card__dismiss-cost--immune {
+  opacity: 0.7;
 }
 
 .card--empty {

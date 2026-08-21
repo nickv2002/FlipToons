@@ -154,6 +154,63 @@ button {
   color: var(--color-accent);
 }
 
+.round-view__card-list-buttons {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+/* ---------- Card list overlay ---------- */
+
+.card-list-overlay__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 100;
+}
+
+.card-list-overlay {
+  background: canvas;
+  color: canvastext;
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.card-list-overlay__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card-list-overlay__header h2 {
+  margin: 0;
+}
+
+.card-list-overlay__count {
+  font-weight: normal;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.card-list-overlay__empty {
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.card-list-overlay__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .round-view__primary {
   font-size: 1.1rem;
   padding: 0.6rem 1.5rem;

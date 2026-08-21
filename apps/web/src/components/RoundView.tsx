@@ -10,10 +10,12 @@ import { Grid } from './Grid'
 import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
+import { CardListOverlay } from './CardListOverlay'
 
 const cards = cardsById()
 
 type Pending = { trigger: 'hire'; slotIndex: number; cardName: string; choice: PendingChoice } | { trigger: 'dismiss'; pos: GridPos; index: number; cardName: string; choice: PendingChoice }
+type ListOverlay = 'dismissed' | 'deck' | null
 
 export type RoundViewProps = {
   state: GameState
@@ -38,6 +40,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
   // straight through, matching the fast, no-prompt path the UI already had
   // for every choice-free card.
   const [pending, setPending] = useState<Pending | null>(null)
+  const [listOverlay, setListOverlay] = useState<ListOverlay>(null)
 
   function handleHire(slotIndex: number) {
     const cardId = state.market.slots[slotIndex]
@@ -93,6 +96,14 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
             ? `Reached ${state.fameToTriggerEndgame} fame before the toon deck depleted.`
             : 'The toon deck depleted and the market could not refill.'}
         </p>
+        <div className="round-view__card-list-buttons">
+          <button type="button" onClick={() => setListOverlay('dismissed')}>
+            Dismissed cards ({state.dismissed.length})
+          </button>
+          <button type="button" onClick={() => setListOverlay('deck')}>
+            Remaining deck ({state.deck.length})
+          </button>
+        </div>
         <button type="button" onClick={onAbandon}>
           Start a new game
         </button>
@@ -106,10 +117,19 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Final market</h2>
+              <span className="round-view__deck-count" title="Cards left in the toon deck the market refills from">
+                Deck: <strong>{state.toonDeck.length}</strong> left
+              </span>
             </div>
             <Market market={state.market} cards={cards} fame={state.fame} />
           </div>
         </div>
+        {listOverlay === 'dismissed' && (
+          <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
+        )}
+        {listOverlay === 'deck' && (
+          <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
+        )}
       </div>
     )
   }
@@ -121,6 +141,12 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
         <span className="round-view__score">
           Score this round: <strong>{state.fameGeneratedThisRound}</strong> / {state.fameToTriggerEndgame} to win
         </span>
+        <button type="button" onClick={() => setListOverlay('dismissed')}>
+          Dismissed cards ({state.dismissed.length})
+        </button>
+        <button type="button" onClick={() => setListOverlay('deck')}>
+          Remaining deck ({state.deck.length})
+        </button>
         <button type="button" className="round-view__abandon" onClick={onAbandon}>
           Abandon game
         </button>
@@ -187,6 +213,12 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} />
           </div>
         </div>
+      )}
+      {listOverlay === 'dismissed' && (
+        <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
+      )}
+      {listOverlay === 'deck' && (
+        <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
       )}
     </div>
   )

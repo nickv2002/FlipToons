@@ -597,6 +597,15 @@ if (import.meta.main) {
     const result = playAutomatically(state, { rng: makeRng(seed) })
     for (const line of result.logLines) out(line)
     out('')
+    if (result.state.phase !== 'ended') {
+      // Hit the round or wall-clock cap without reaching a win/loss —
+      // ai.ts's own logLines entry above already explains which cap. This is
+      // a distinct outcome from a loss (the game didn't resolve, it was
+      // stopped), so it gets its own exit code rather than being folded into
+      // "YOU LOSE".
+      out('=== Autoplay stopped (no win/loss reached) ===')
+      process.exit(2)
+    }
     out('=== Game Over ===')
     if (result.state.result === 'win') {
       out(`YOU WIN — reached ${result.state.fameGeneratedThisRound}/${result.state.fameToTriggerEndgame} fame in round ${result.state.round}.`)

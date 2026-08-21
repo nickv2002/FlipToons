@@ -26,6 +26,16 @@ export type AiOptions = {
 const DEFAULT_SIMULATIONS = 24
 const DEFAULT_MAX_ROUNDS_PER_PLAYOUT = 30
 
+// playAutomatically's own maxRounds cap only bounds the number of ROUNDS
+// played — it says nothing about wall-clock time, and evaluateMarketCandidates'
+// per-decision cost scales with how many hire/dismiss candidates the grid
+// offers, which grows as the game goes on. A game that's merely expensive
+// late-game (not stuck) can still take a very long time to reach its round
+// cap. This is the wall-clock backstop: independent of round count, an
+// autoplay run that's been going this long is not behaving like a normal
+// game and should stop rather than run indefinitely.
+const DEFAULT_MAX_WALL_CLOCK_MS = 5 * 60 * 1000
+
 // Every action legal in the Market phase right now: each affordable hire
 // slot, each affordable dismissable card, and always `endMarket`. Filters on
 // affordability up front rather than letting applyAction's rejection path
@@ -138,14 +148,23 @@ export type AutoplayResult = { state: GameState; logLines: string[]; actionsTake
 // for every Market decision. This is the tui.ts --ai / apps/web "autoplay"
 // entry point: same actions.ts reducer the human-driven paths use, so its
 // log lines are the same shape a human's playthrough would produce.
-export function playAutomatically(state: GameState, opts: AiOptions & { maxRounds?: number } = {}): AutoplayResult {
+export function playAutomatically(
+  state: GameState,
+  opts: AiOptions & { maxRounds?: number; maxWallClockMs?: number } = {},
+): AutoplayResult {
   const maxRounds = opts.maxRounds ?? 200
+  const maxWallClockMs = opts.maxWallClockMs ?? DEFAULT_MAX_WALL_CLOCK_MS
+  const deadline = Date.now() + maxWallClockMs
   const startRound = state.round
   let s = state
   const logLines: string[] = []
   const actionsTaken: Action[] = []
 
   while (s.phase !== 'ended' && s.round - startRound < maxRounds) {
+    if (Date.now() > deadline) {
+      logLines.push(`ai.ts: playAutomatically — stopped after exceeding the ${maxWallClockMs}ms wall-clock cap (round ${s.round}, phase '${s.phase}')`)
+      break
+    }
     let action: Action
     if (s.phase === 'flip') action = { kind: 'flip' }
     else if (s.phase === 'checkFame') action = { kind: 'checkFame' }

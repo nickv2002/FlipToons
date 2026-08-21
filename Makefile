@@ -6,7 +6,7 @@
 #   make solo ARGS="--seed=1 --difficulty=hard"
 #   make solo-ai ARGS="--seed=1 --season=2"
 
-.PHONY: help solo solo-season2 solo-ai web server play test typecheck
+.PHONY: help solo solo-season2 solo-ai web server play stop test typecheck
 
 .DEFAULT_GOAL := help
 
@@ -37,6 +37,10 @@ server:
 ## GUI: web client + server together, for room-code hosted/resumable games
 play:
 	./scripts/play.sh
+
+## Stop anything this repo has running: web dev server, WS server, and any TUI solo/AI game process
+stop:
+	./scripts/stop.sh
 
 ## bun test, from repo root
 test:

@@ -5,39 +5,39 @@ description: Drive the FlipToons web client (make web) with headless Playwright 
 
 # Web UI check (Playwright)
 
-This project's CLAUDE.md requires frontend changes to be exercised in a real browser, not just typechecked. This skill is the repeatable script for that: boot the Vite dev server, drive it headlessly with Playwright, verify the golden path, and tear down cleanly.
+This project's CLAUDE.md requires frontend changes to be exercised in a real browser, not just typechecked. This skill bundles a reusable harness (`harness.mjs`, next to this file) that handles everything generic — booting the dev server, launching a headless browser, starting a solo game, advancing rounds, capturing console errors, tearing down cleanly. Only the actual check (exercising whatever you just changed) needs to be written per use.
 
-Playwright itself isn't a project dependency — run it via `bunx playwright` (downloads on first use; browsers cache under `~/Library/Caches/ms-playwright` so repeat runs are fast). No MCP Playwright server is configured for this project — write a throwaway Node/bun script instead.
+Playwright itself isn't a project dependency — the harness bootstraps it into `~/.cache/fliptoons-web-ui-check` on first use (`bun add playwright` + `playwright install chromium` there, outside the repo, so `package.json`/the lockfile never change). Repeat runs skip straight to importing it — no network, no reinstall.
 
-## Steps
+## Usage
 
-1. **Start the dev server in the background**, don't block on it:
-   ```bash
-   cd apps/web && bun run dev > /tmp/fliptoons-web.log 2>&1 &
-   ```
-   Poll `/tmp/fliptoons-web.log` for the printed `Local:` URL (Vite defaults to 5173 but falls back to the next free port if something else is already listening — don't hardcode it).
+Write a short script (scratchpad dir, not the repo) that imports `withGame` from the harness and does only the check-specific part:
 
-2. **Write a throwaway Playwright script** (e.g. to the scratchpad dir, not the repo) that:
-   - Launches `chromium.launch({ headless: true })`.
-   - Registers `page.on('console', ...)` and `page.on('pageerror', ...)` handlers up front — collect everything, don't just eyeball stdout.
-   - Navigates to the dev server URL.
-   - Starts a solo game: `page.getByLabel('Seed').fill(...)`, pick difficulty/season via `page.getByLabel(...).selectOption(...)` if the check needs a specific one, then `page.getByRole('button', { name: /Start game/i }).click()`.
-   - Advances rounds by clicking `page.getByRole('button', { name: /End Market phase/i })` repeatedly (skips every hire/dismiss decision, which is fine for UI verification — the auto-end effect already fires once nothing's affordable, so this button may not always be present; check before clicking) until enough rounds have accumulated for the log/UI state under test.
-   - Exercises whatever the actual change is (click the new button, fill the new field, whatever).
-   - Asserts on the result — for clipboard checks, grant permissions first: `context.grantPermissions(['clipboard-read', 'clipboard-write'])`, then read back with `page.evaluate(() => navigator.clipboard.readText())` rather than trusting on-screen state alone.
-   - Take a screenshot on any assertion failure (`page.screenshot({ path: ... })`) so a failure is diagnosable without re-running.
+```js
+import { withGame } from '/Users/nick/Documents/nick-scripts/boardgame-testing/.claude/skills/web-ui-check/harness.mjs'
 
-3. **Run it**: `bunx playwright <path-to-script>.mjs` (or `node` if bun's Playwright interop misbehaves — bun works fine as of this writing).
+await withGame({ seed: 1, difficulty: 'normal', season: 1, rounds: 2 }, async ({ page, consoleErrors, pageErrors }) => {
+  // exercise whatever the change actually is
+  const copyButton = page.getByRole('button', { name: /Copy full detail log/i })
+  await copyButton.click()
+  await page.getByRole('button', { name: /Copied!/i }).first().waitFor({ state: 'visible', timeout: 2000 })
 
-4. **Report**: what was verified, any console/page errors seen (these are real signal — don't discard them even if the visual check passed), and any layout issues from screenshots.
+  // clipboard reads are pre-granted permission by the harness
+  const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+  if (clipboardText.length === 0) throw new Error('clipboard was empty')
+  if (consoleErrors.length > 0) throw new Error(`console errors: ${consoleErrors.join('; ')}`)
+  console.log('OK')
+})
+```
 
-5. **Clean up**: `make stop` (kills anything this repo's Makefile started) — but check `make stop`'s output actually matched something; it only tracks processes it started itself, so a dev server left over from a previous manual `make web` (not started by this skill run) won't be touched by it. Kill the background job directly if `make stop` reports nothing:
-   ```bash
-   kill %1  # or: lsof -ti:PORT | xargs kill
-   ```
+Then run it: `bun run <path-to-script>.mjs`. `withGame` boots the dev server, opens the New Game form, starts a solo game with the given seed/difficulty/season, clicks "End Market phase" `rounds` times to fast-forward past every hire/dismiss decision, hands you a ready `page`, and — in a `finally`, even if your callback throws — closes the browser and kills the dev server (confirmed: killing just the `bun run dev` wrapper leaves its `vite` child running on the port, so the harness spawns it `detached` and kills the whole process group by negative PID; don't reimplement teardown by hand, use the harness).
+
+If the check needs to exercise Market-phase UI itself (a specific hire/dismiss button, not just post-round state), don't use `advanceRounds` for that round — click the actual buttons in your callback instead; `rounds` is only for skipping past *uninteresting* rounds to get to the state you actually want to check.
+
+`harness.mjs` also exports the individual pieces (`ensurePlaywright`, `startDevServer`, `stopDevServer`, `startSoloGame`, `advanceRounds`) if a check needs more control than `withGame` gives — e.g. multiple separate pages/contexts, or starting a game without immediately advancing rounds.
 
 ## Gotchas learned from prior runs
 
-- A 0ms readback right after `.click()` on something that updates state asynchronously (e.g. a "Copied!" label flip after `navigator.clipboard.writeText` resolves) can race React's state update and read the stale value — add a short wait (`page.waitForTimeout(100)`) or `expect(...).toHaveText(...)` (auto-retries) rather than an instant synchronous check.
-- Season 2 solo is an unconfirmed rules inference (see `setup.ts`) and the AI's internal search can hit a genuine pre-existing stall on some seeds (`flip.ts`'s `MAX_FLIP_ITERATIONS` guard) — if a scripted run throws there, don't assume your change caused it; reproduce on `main` first (`git stash`) before treating it as a regression.
-- `make web` alone (no server) is enough for anything in local solo mode — only reach for `make play` if the check specifically needs room-code/multiplayer behavior.
+- A 0ms readback right after `.click()` on something that updates state asynchronously (e.g. a "Copied!" label flip after `navigator.clipboard.writeText` resolves) can race React's state update and read the stale value — use `.waitFor(...)` or Playwright's auto-retrying `expect(...)` rather than an instant synchronous check.
+- Season 2 solo is an unconfirmed rules inference (see `setup.ts`) and the AI's internal search can hit a genuine pre-existing stall on some seeds (`flip.ts`'s `MAX_FLIP_ITERATIONS` guard) — if a run throws there, don't assume your change caused it; reproduce on `main` first (`git stash`) before treating it as a regression.
+- `make web` alone (no server) is enough for anything in local solo mode — only reach for multiplayer/room-code testing if the check specifically needs it (the harness doesn't cover that path yet).

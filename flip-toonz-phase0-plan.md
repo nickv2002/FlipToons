@@ -1,8 +1,8 @@
 # FlipToons Phase 0 — Rules Engine + Human-Oracle Test Loop
 
-> **Status:** approved, not started. Planning artifact only — no implementation yet.
+> **Status:** historical / superseded. Pass A and Pass B both happened, but not as this doc describes: there is no `bun oracle`/`bun verify`/`bun predict` CLI or JSON fixture corpus — instead, `scoreGrid`, `flip`, and the phase machine are covered directly by 267 inline `bun test` assertions in `packages/engine/*.test.ts`. The game is now playable end-to-end (web UI via `make play`, terminal UI via `make solo`/`make solo-ai`), all 62 cards are transcribed, and current work is fixing card-ability text/logic against real play rather than building out scoring. Keep this file for the reasoning behind the reachable/arbitrary grid-generation split and the per-card-itemization rationale; don't expect its command list or file layout to match the repo. See `CLAUDE.md` for the current layout.
 >
-> **Companion document:** `flip-toonz-structure-plan.md` holds the full rules model and overall architecture. Section references below (§3.5, §4.4, §4.5, §7, …) point there.
+> **Companion document:** `flip-toonz-structure-plan.md` holds the full rules model and overall architecture (also historical — see its own status note). Section references below (§3.5, §4.4, §4.5, §7, …) point there.
 
 ## Context
 

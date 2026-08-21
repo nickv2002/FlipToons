@@ -485,23 +485,6 @@ img.card__icon {
   }
 }
 
-.market__suggest {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
-}
-
-.market__suggest-button {
-  padding: 0.4rem 1rem;
-}
-
-.market__suggestion {
-  font-style: italic;
-  opacity: 0.85;
-  margin: 0;
-}
-
 /* ---------- Fame breakdown ---------- */
 
 .fame-breakdown {

@@ -96,6 +96,20 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
         <button type="button" onClick={onAbandon}>
           Start a new game
         </button>
+        <div className="round-view__phase round-view__phase--market">
+          <div className="round-view__grid-pane">
+            <div className="round-view__grid-heading">
+              <h2>Final grid</h2>
+            </div>
+            <Grid grid={state.grid} cards={cards} fame={state.fame} />
+          </div>
+          <div className="round-view__market-pane">
+            <div className="round-view__grid-heading">
+              <h2>Final market</h2>
+            </div>
+            <Market market={state.market} cards={cards} fame={state.fame} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -168,7 +182,6 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
               market={state.market}
               cards={cards}
               fame={state.fame}
-              state={state}
               onHire={(slotIndex) => handleHire(slotIndex)}
             />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} />

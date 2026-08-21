@@ -62,11 +62,12 @@ export function runFlip(state: GameState, logLines?: string[], debugLines?: stri
     toonDeck: flipResult.toonDeck,
     dismissed: flipResult.dismissed,
     pendingOnHireCardIds: [...state.pendingOnHireCardIds, ...flipResult.pendingOnHireCardIds],
-    // A Flip-phase toon-deck draw (Snake/Mongoose) counts toward the
-    // depletion endgame trigger exactly like a Market-phase refill does
-    // (§3.2.2) — OR'd, never cleared, same convention as
-    // applyRefillResult's toonDeckDepleted below.
-    toonDeckDepleted: state.toonDeckDepleted || flipResult.toonDeckEmptiedDuringFlip,
+    // Snake/Mongoose's toon-deck draws are bonus/optional (an empty toon
+    // deck there is explicitly not an error — see flip.ts), so they never
+    // count toward the depletion endgame trigger; toonDeckDepleted carries
+    // forward unchanged via the `...state` spread above. Only a Market-
+    // phase refill that actually comes up short (applyRefillResult below)
+    // can set it.
     phase: 'checkFame',
   }
 }
@@ -206,8 +207,12 @@ function applyRefillResult<T extends GameState>(
     market: refill.market,
     toonDeck: refill.toonDeck,
     nextInsertionSeq: refill.nextInsertionSeq,
-    // OR, never cleared — once depleted, always depleted (§3.2.2).
-    toonDeckDepleted: state.toonDeckDepleted || refill.toonDeckEmpty,
+    // OR, never cleared — once a refill actually comes up short (a slot
+    // needed a card and none was available), always depleted. The toon
+    // deck's count merely reaching zero on a refill that still filled every
+    // slot does NOT count (house rule — see state.ts's toonDeckDepleted
+    // comment).
+    toonDeckDepleted: state.toonDeckDepleted || refill.short,
   }
 }
 
@@ -763,8 +768,12 @@ function collectGridCards(grid: Grid): CardId[] {
 //   (a) fameGeneratedThisRound >= fameToTriggerEndgame  -> WIN (solo's own
 //       §3.7 condition; reached via a normal Check Fame, no Final Flip
 //       needed — see state.ts's GameState comment)
-//   (b) toonDeckDepleted (set by ANY refill this round, not re-derived
-//       here — §3.2.2)
+//   (b) toonDeckDepleted (set by any refill this round that actually came
+//       up short — a slot needed a card the toon deck didn't have — not
+//       re-derived here; a house rule loosening of §3.2.2's literal "the
+//       toon deck is ever depleted": the toon deck's count merely reaching
+//       zero on a refill that still filled every slot does not end the
+//       game — see state.ts's toonDeckDepleted comment)
 // (a) is checked first: reaching 30 fame in the very round that also
 // empties the toon deck should be a win, not a loss — the rules don't
 // speak to simultaneity directly, but "generate 30 fame BEFORE the toon

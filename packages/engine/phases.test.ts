@@ -173,6 +173,35 @@ describe('loss trigger: toon deck depletion', () => {
     if (affordable >= 0) state = hire(state, affordable)
     expect(state.toonDeckDepleted).toBe(false) // toon deck still had cards left — a short/no-op refill is not depletion
   })
+
+  test('the toon deck hitting exactly zero on a refill that still filled every slot does NOT trigger a loss — only an actual failed draw does', () => {
+    const setup = buildSoloSetup(4, 1, 'normal')
+    // Exactly enough for the initial market fill (5, per setup.prices) plus
+    // one round's solo decay refill (2 more) — the toon deck hits exactly
+    // zero at the end of round 1's Market phase, but every draw that round
+    // actually succeeded; nothing came up short.
+    const exactToonDeck = buildExplicitDeck(Array(7).fill('ostrich'), cards)
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['ostrich', 'butterfly', 'goat', 'sheep', 'horse', 'bee'], cards),
+      toonDeck: exactToonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    expect(state.toonDeckDepleted).toBe(false)
+
+    state = runCleanup(endMarketPhaseAutoResolving(runToMarket(state)))
+    expect(state.toonDeck.length).toBe(0) // fully drained by round 1's decay refill
+    expect(state.toonDeckDepleted).toBe(false) // every draw this round succeeded — not a loss
+    expect(state.phase).toBe('flip') // the game continues into round 2
+
+    // Round 2's decay needs 2 more replacement cards the now-empty toon
+    // deck can't supply — THIS is where the actual loss trigger fires.
+    state = runCleanup(endMarketPhaseAutoResolving(runToMarket(state)))
+    expect(state.phase).toBe('ended')
+    expect(state.result).toBe('loss')
+    expect(state.toonDeckDepleted).toBe(true)
+  })
 })
 
 // §10: "Unspent fame is zeroed at Cleanup, never carried." The existing

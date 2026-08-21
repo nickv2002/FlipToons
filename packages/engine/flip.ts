@@ -47,9 +47,13 @@ export type FlipResult = {
   toonDeck: CardId[]
   dismissed: CardId[]
   // Set true iff a Snake/Mongoose toon-deck draw DURING this Flip drained
-  // the toon deck to empty — callers (phases.ts's runFlip) OR this into
-  // GameState.toonDeckDepleted exactly like a Market-phase refill does
-  // (§3.2.2), since a Flip-phase draw is just as real a depletion trigger.
+  // the toon deck to empty. Diagnostic only — these draws are optional/
+  // bonus (an already-empty toon deck is explicitly not an error here, see
+  // the 'stackToonDeckDraw'/'dismissOwnDeckBottomAndDrawToonDeckTop' cases
+  // below), so unlike a Market-phase refill's `short`, this does NOT feed
+  // GameState.toonDeckDepleted — only an actual failed/needed draw
+  // (refillMarket's `short`) ends the game (house rule, see state.ts's
+  // toonDeckDepleted comment).
   toonDeckEmptiedDuringFlip: boolean
   // Cards drawn face-up onto the grid via Snake's toon-deck stack (below)
   // that themselves carry onHire effects — Peacock, currently the only

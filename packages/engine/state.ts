@@ -75,11 +75,16 @@ export type GameState = {
   pendingOnHireCardIds: CardId[]
 
   toonDeck: CardId[] // shared draw pile
-  // Set true the moment ANY refill (hire/dismiss/decay/Cleanup's own) finds
-  // the toon deck fully empty, and never cleared. Per §3.2.2's explicit
-  // instruction: "return that as a fact from the market refill rather than
-  // re-deriving it by inspecting toonDeck.length" later — Cleanup reads
-  // this flag, it does not re-check toonDeck.length itself.
+  // Set true the moment ANY refill (hire/dismiss/decay/Cleanup's own) comes
+  // up SHORT — a market slot needed a card and the toon deck had none left
+  // to give it — and never cleared. Deliberately NOT set just because the
+  // toon deck's count happens to reach exactly zero: a refill that drains
+  // the last card while still filling every slot isn't a failure (house
+  // rule — the player should keep playing as long as the market can still
+  // be kept full; only an actual failed draw ends the game). Per §3.2.2's
+  // instruction to return this as a fact from the market refill rather than
+  // re-deriving it later — Cleanup reads this flag, it does not re-check
+  // toonDeck.length itself.
   toonDeckDepleted: boolean
   market: Market
   nextInsertionSeq: number // monotonic counter for market.ts's insertion-order tiebreak (§3.6)
@@ -143,7 +148,7 @@ export function createSoloGameState(params: {
     actionsRemaining: 0,
     pendingOnHireCardIds: [],
     toonDeck: initialRefill.toonDeck,
-    toonDeckDepleted: initialRefill.toonDeckEmpty,
+    toonDeckDepleted: initialRefill.short,
     market: initialRefill.market,
     nextInsertionSeq: initialRefill.nextInsertionSeq,
     fameToTriggerEndgame: params.fameToTriggerEndgame,

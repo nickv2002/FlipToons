@@ -503,7 +503,10 @@ describe('fame-audit: cards marked fameUnencodable because required state does n
     // Camel is also no longer in this list — see the Camel describe block
     // below. It's fully encodable now via scoreGrid's
     // externalState.camelMarketCount parameter.
-    { id: 'fox', name: 'Fox' },
+    // Fox is also no longer in this list — see the Fox describe block
+    // below. It's fully encodable now via scoreGrid's
+    // externalState.henOrRoosterInMarket parameter (or its own grid alone,
+    // when a Hen/Rooster is already present there).
   ]
 
   for (const { id, name } of cases) {
@@ -698,6 +701,49 @@ describe('Camel — noOneHasMoreCamelsThanYou, resolved via scoreGrid externalSt
     const grid = emptyGrid()
     placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'camel')
     expect(() => scoreGrid(grid, cards)).toThrow(/camelMarketCount/)
+  })
+})
+
+describe('Fox — henOrRoosterInMarketOrAnyGrid, resolved via scoreGrid externalState.henOrRoosterInMarket (not fameUnencodable)', () => {
+  test('a Hen in Fox\'s own grid satisfies the condition — no externalState needed at all', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'fox')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'hen')
+    const breakdown = scoreGrid(grid, cards) // no externalState at all
+    const line = breakdown.lines.find((l) => l.cardId === 'fox')!
+    expect(line.needsRuling).toBeUndefined()
+    expect(line.total).toBe(3 + 3) // base 3 + bonus 3
+  })
+
+  test('a Rooster in Fox\'s own grid also satisfies it — same as Hen', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'fox')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'rooster')
+    const breakdown = scoreGrid(grid, cards)
+    const line = breakdown.lines.find((l) => l.cardId === 'fox')!
+    expect(line.total).toBe(3 + 3)
+  })
+
+  test('no Hen/Rooster in Fox\'s own grid, henOrRoosterInMarket: true — bonus applies', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'fox')
+    const breakdown = scoreGrid(grid, cards, undefined, { henOrRoosterInMarket: true })
+    const line = breakdown.lines.find((l) => l.cardId === 'fox')!
+    expect(line.total).toBe(3 + 3)
+  })
+
+  test('no Hen/Rooster in Fox\'s own grid, henOrRoosterInMarket: false — base fame only', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'fox')
+    const breakdown = scoreGrid(grid, cards, undefined, { henOrRoosterInMarket: false })
+    const line = breakdown.lines.find((l) => l.cardId === 'fox')!
+    expect(line.total).toBe(3)
+  })
+
+  test('no Hen/Rooster in own grid, externalState.henOrRoosterInMarket omitted — throws rather than silently scoring 0', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'fox')
+    expect(() => scoreGrid(grid, cards)).toThrow(/henOrRoosterInMarket/)
   })
 })
 

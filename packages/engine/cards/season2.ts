@@ -188,15 +188,19 @@ export const season2Cards: Card[] = [
   {
     id: 'fox', name: 'Fox', season: 2, rank: 16, copies: 2,
     fame: { base: 3, bonuses: [{ kind: 'ifCondition', condition: 'henOrRoosterInMarketOrAnyGrid', amount: 3 }] },
-    // FLAG-AUDIT FINDING (this pass): 'henOrRoosterInMarketOrAnyGrid' needs
-    // the shared market plus EVERY player's grid (not just the owner's,
-    // unlike Dog/Camel's "other player" phrasing) — none of which exist in
-    // this single-grid Step-0 engine. Previously unimplemented (throws,
-    // crashes scoreGrid for any grid with a Fox). fameUnencodable blanks
-    // the whole line, including the known base fame of 3.
-    fameUnencodable: true,
-    fameUnencodableReason:
-      "fame bonus condition 'henOrRoosterInMarketOrAnyGrid' needs the shared market and every player's grid, which don't exist in this single-grid engine — deliberately not faking that state",
+    faqNote: 'FAQ: Rooster is a Season 1 card; fame from this card is not affected by Market-phase changes (same locked-at-Check-Fame pattern as Dog/Capybara/Hippopotamus).',
+    // 'henOrRoosterInMarketOrAnyGrid' reads the shared market plus EVERY
+    // player's grid — unlike Dog's "any OTHER player's grid" (Dog excludes
+    // itself, since its condition is about other Dogs), Fox's text has no
+    // "other": it's a different card (Hen/Rooster) being checked, so Fox's
+    // own grid counts. That half is ordinary grid state scoreGrid already
+    // has, checked directly via allFaceUpGridEntries in score.ts's handler
+    // — a Hen or Rooster in this grid satisfies the condition with no
+    // external input at all. Only the shared market is genuinely missing,
+    // resolved via `externalState.henOrRoosterInMarket` (a Check-Fame-time
+    // snapshot, same convention as Dog's dogElsewhere and Camel's
+    // camelMarketCount — see score.ts's header comment and phases.ts's
+    // henOrRoosterInMarketFromMarket).
   },
   {
     id: 'crab', name: 'Crab', season: 2, rank: 17, copies: 2,

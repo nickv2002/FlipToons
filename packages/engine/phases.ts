@@ -100,6 +100,16 @@ function camelMarketCountFromMarket(state: GameState): number {
   return state.market.slots.filter((id) => id === 'camel').length
 }
 
+// Solo-specific resolution of the Fox's 'henOrRoosterInMarketOrAnyGrid'
+// condition (score.ts's evaluateBonus / cards/season2.ts's Fox entry): the
+// own-grid half is ordinary grid state score.ts checks directly, so only
+// the shared market needs a real, observable GameState input — same
+// reduction as Dog/Camel above, keyed on the literal ids 'hen'/'rooster'
+// for the same reason dogElsewhereFromMarket names 'dog' directly.
+function henOrRoosterInMarketFromMarket(state: GameState): boolean {
+  return state.market.slots.some((id) => id === 'hen' || id === 'rooster')
+}
+
 export function runCheckFame(state: GameState): GameState {
   assertPhase(state, 'checkFame', 'runCheckFame')
   const cards = cardsById()
@@ -107,6 +117,7 @@ export function runCheckFame(state: GameState): GameState {
     dogElsewhere: dogElsewhereFromMarket(state),
     dismissed: state.dismissed,
     camelMarketCount: camelMarketCountFromMarket(state),
+    henOrRoosterInMarket: henOrRoosterInMarketFromMarket(state),
   })
 
   return {

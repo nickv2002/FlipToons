@@ -96,15 +96,18 @@ export const season1Cards: Card[] = [
     // shared market and every OTHER player's grid — state a single-grid
     // scoreGrid call doesn't have on its own. Rather than block it behind
     // `fameUnencodable` (needsRuling/0 unconditionally, as it was before
-    // this pass — same precedent as the still-blocked Camel/Cat/Tiger/
-    // Opossum/Fox/Platypus), this is now a normal, fully-encodable fame
-    // rule that reads an EXPLICIT external parameter (`externalState.
-    // dogElsewhere` in scoreGrid) instead of grid state. When that
-    // parameter is omitted, scoreGrid computes and shows BOTH branches
-    // (see FameLine.dualBranch) rather than guessing or blanking. This is
-    // deliberately Dog-only — Camel/Cat/Tiger/Opossum/Fox/Platypus stay
-    // fameUnencodable; none of their conditions are a plain external
-    // boolean the way Dog's presence/absence check is.
+    // this pass), this is now a normal, fully-encodable fame rule that
+    // reads an EXPLICIT external parameter (`externalState.dogElsewhere`
+    // in scoreGrid) instead of grid state. When that parameter is omitted,
+    // scoreGrid computes and shows BOTH branches (see FameLine.dualBranch)
+    // rather than guessing or blanking. This dual-branch shape is
+    // deliberately Dog-only — its condition is the one case with zero
+    // local content (it can't check its own grid, since the condition is
+    // ABOUT other Dogs). Camel and Fox reach the same
+    // externalState.<field> pattern via a plain throw-when-missing
+    // parameter instead (see score.ts's Camel/Fox header comments); only
+    // Platypus (Big Button, a missing physical component) still stays
+    // fameUnencodable.
   },
   {
     id: 'goat', name: 'Goat', season: 1, rank: 6, copies: 2,

@@ -229,10 +229,11 @@ function runWithDeck(deck: CardId[], label: string, dogElsewhere: boolean | unde
   console.log()
 
   // A standalone flip (this CLI has no Market phase) genuinely has an empty
-  // dismissed pile and no market at all — `dismissed: []` and
-  // `camelMarketCount: 0` here are accurate, not a stand-in for missing
-  // state (see Cat/Tiger/Opossum's fame handlers in score.ts).
-  const breakdown = scoreGrid(grid, cards, remainingDeck.length, { dogElsewhere, dismissed: [], camelMarketCount: 0 })
+  // dismissed pile and no market at all — `dismissed: []`,
+  // `camelMarketCount: 0`, and `henOrRoosterInMarket: false` here are
+  // accurate, not a stand-in for missing state (see Cat/Tiger/Opossum's
+  // fame handlers in score.ts).
+  const breakdown = scoreGrid(grid, cards, remainingDeck.length, { dogElsewhere, dismissed: [], camelMarketCount: 0, henOrRoosterInMarket: false })
   console.log('Fame breakdown:')
   console.log(formatBreakdown(breakdown))
 

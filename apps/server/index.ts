@@ -33,7 +33,7 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     const { roomCode, room } = createRoom(message.seed, message.difficulty, message.season)
     room.sockets.add(ws)
     ws.data.roomCode = roomCode
-    send(ws, { type: 'joined', roomCode, state: room.state, log: room.log })
+    send(ws, { type: 'joined', roomCode, state: room.state, log: room.log, debugLog: room.debugLog })
     return
   }
 
@@ -45,7 +45,7 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     }
     room.sockets.add(ws)
     ws.data.roomCode = message.roomCode
-    send(ws, { type: 'joined', roomCode: message.roomCode, state: room.state, log: room.log })
+    send(ws, { type: 'joined', roomCode: message.roomCode, state: room.state, log: room.log, debugLog: room.debugLog })
     return
   }
 
@@ -56,8 +56,8 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       return
     }
     try {
-      const { logLines } = applyRoomAction(room, message.action)
-      broadcast(room, { type: 'state', state: room.state, logLines })
+      const { logLines, debugLines } = applyRoomAction(room, message.action)
+      broadcast(room, { type: 'state', state: room.state, logLines, debugLines })
     } catch (err) {
       // A genuine phase-machine bug (actions.ts's isEngineBug case) —
       // visible/logged loudly server-side, room state left untouched.

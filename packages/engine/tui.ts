@@ -15,6 +15,12 @@
 //   flip -> checkFame -> postFameHooks -> market (up to 2 actions) -> cleanup
 //     -> (loop back to flip, or ended)
 //
+// Every entry point below also accepts [--log=human|debug] (default human):
+// human is the curated per-round log; debug is the full per-card
+// target-determination/redirect trace (see flip.ts's flipNotes/debugNotes
+// comment) — useful when a card ends up somewhere unexpected after a
+// return/relocate chain (Coyote, Zebra, Mole, etc.).
+//
 // Entry points:
 //   bun run packages/engine/tui.ts [--seed=N] [--difficulty=easy|normal|hard]
 //     Interactive: prompts on stdin/stdout via readline.
@@ -58,6 +64,13 @@ import type { GridPos } from './types'
 
 export type Ask = (prompt: string) => Promise<string>
 export type Out = (line: string) => void
+// 'human' is the curated, player-facing log (what happened and why, in
+// plain language); 'debug' is the full mechanical trace — every card's
+// target-determination and redirect decision, unfiltered — for diagnosing
+// surprising card interactions (a card ending up in an unexpected stack
+// after a return/relocate chain). One or the other, not both, to keep the
+// normal play log readable — see flip.ts's flipNotes/debugNotes comment.
+export type LogLevel = 'human' | 'debug'
 
 // Visually de-prioritizes a listing the player can't currently afford —
 // terminal analogue of the web GUI's `.card:disabled { opacity: 0.5 }`
@@ -369,9 +382,10 @@ async function runMarketPhase(initial: GameState, cards: Record<CardId, Card>, a
 // ---------------------------------------------------------------------------
 // The one game loop (task's architecture note above).
 // ---------------------------------------------------------------------------
-export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out }): Promise<GameState> {
+export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out; logLevel?: LogLevel }): Promise<GameState> {
   let state = opts.state
   const { ask, out } = opts
+  const logLevel = opts.logLevel ?? 'human'
   const cards = cardsById()
 
   while (state.phase !== 'ended') {
@@ -386,8 +400,9 @@ export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out }
       out(`Flip order: ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
 
       const flipLogLines: string[] = []
-      state = runFlip(state, flipLogLines)
-      flipLogLines.forEach(out)
+      const flipDebugLines: string[] = []
+      state = runFlip(state, flipLogLines, flipDebugLines)
+      ;(logLevel === 'debug' ? flipDebugLines : flipLogLines).forEach(out)
       out('')
       out(renderGridBoxes(state.grid, cards))
 
@@ -524,6 +539,7 @@ function parseArgs(argv: string[]): {
   deckOverride: CardId[] | null
   season: 1 | 2
   ai: boolean
+  logLevel: LogLevel
 } {
   let seed = Date.now() >>> 0
   let difficulty: SoloDifficulty = 'normal'
@@ -531,10 +547,17 @@ function parseArgs(argv: string[]): {
   let deckOverride: CardId[] | null = null
   let season: 1 | 2 = 1
   let ai = false
+  let logLevel: LogLevel = 'human'
 
   for (const arg of argv) {
     if (arg === '--ai') {
       ai = true
+    } else if (arg.startsWith('--log=')) {
+      const v = arg.slice('--log='.length)
+      if (v !== 'human' && v !== 'debug') {
+        throw new Error(`tui.ts: invalid --log=${v} (expected human|debug)`)
+      }
+      logLevel = v
     } else if (arg.startsWith('--seed=')) {
       seed = Number(arg.slice('--seed='.length))
     } else if (arg.startsWith('--difficulty=')) {
@@ -572,7 +595,7 @@ function parseArgs(argv: string[]): {
   }
   if (!Number.isFinite(seed)) throw new Error('tui.ts: --seed must be a finite number')
   if (ai && scriptTokens) throw new Error('tui.ts: --ai is mutually exclusive with --script=/--script-file=')
-  return { seed, difficulty, scriptTokens, deckOverride, season, ai }
+  return { seed, difficulty, scriptTokens, deckOverride, season, ai, logLevel }
 }
 
 // Season 2's solo variant is a pattern-matched inference, not a confirmed
@@ -585,7 +608,7 @@ const SEASON_2_UNCONFIRMED_BANNER =
 // Only run when invoked directly, not when imported by tests — same
 // convention cli.ts already uses.
 if (import.meta.main) {
-  const { seed, difficulty, scriptTokens, deckOverride, season, ai } = parseArgs(process.argv.slice(2))
+  const { seed, difficulty, scriptTokens, deckOverride, season, ai, logLevel } = parseArgs(process.argv.slice(2))
   const state = buildInitialState(seed, difficulty, deckOverride ?? undefined, season)
   const out: Out = (line) => console.log(line)
   if (season === 2) out(SEASON_2_UNCONFIRMED_BANNER)
@@ -595,7 +618,7 @@ if (import.meta.main) {
     // separate from the game's own state.rng — see ai.ts's AiOptions
     // comment), so `--ai --seed=N` is fully reproducible run-to-run.
     const result = playAutomatically(state, { rng: makeRng(seed) })
-    for (const line of result.logLines) out(line)
+    for (const line of logLevel === 'debug' ? result.debugLines : result.logLines) out(line)
     out('')
     if (result.state.phase !== 'ended') {
       // Hit the round or wall-clock cap without reaching a win/loss —
@@ -614,7 +637,7 @@ if (import.meta.main) {
     }
     process.exit(result.state.result === 'loss' ? 1 : 0)
   } else if (scriptTokens) {
-    runSoloGame({ state, ask: makeScriptedAsk(scriptTokens), out })
+    runSoloGame({ state, ask: makeScriptedAsk(scriptTokens), out, logLevel })
       .then((final) => {
         process.exit(final.result === 'loss' ? 1 : 0)
       })
@@ -657,7 +680,7 @@ if (import.meta.main) {
       ])
       return result.kind === 'answer' ? result.answer : 'end'
     }
-    runSoloGame({ state, ask, out })
+    runSoloGame({ state, ask, out, logLevel })
       .then((final) => {
         rl.close()
         // Same exit-code convention as scripted mode (loss -> 1, win -> 0),

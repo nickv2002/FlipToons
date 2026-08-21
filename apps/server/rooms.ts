@@ -16,6 +16,7 @@ export type SocketData = { roomCode: string | null }
 export type Room = {
   state: GameState
   log: string[]
+  debugLog: string[]
   sockets: Set<ServerWebSocket<SocketData>>
 }
 
@@ -38,8 +39,8 @@ export function createRoom(seed: number, difficulty: SoloDifficulty, season: 1 |
   // advances flip -> checkFame -> postFameHooks -> market on its own), so a
   // freshly created room never sits in 'flip' — the web client no longer
   // renders that phase at all.
-  const { state, logLines } = applyAction(buildNewGameState(seed, difficulty, season), { kind: 'flip' })
-  const room: Room = { state, log: logLines, sockets: new Set() }
+  const { state, logLines, debugLines } = applyAction(buildNewGameState(seed, difficulty, season), { kind: 'flip' })
+  const room: Room = { state, log: logLines, debugLog: debugLines, sockets: new Set() }
   rooms.set(roomCode, room)
   return { roomCode, room }
 }
@@ -62,9 +63,10 @@ export function broadcast(room: Room, message: ServerMessage): void {
 // DOES still throw here; index.ts's message handler is what turns that into
 // a loud server-side log plus a client-facing error, without mutating the
 // room's state.
-export function applyRoomAction(room: Room, action: Action): { logLines: string[] } {
-  const { state: next, logLines } = applyAction(room.state, action)
+export function applyRoomAction(room: Room, action: Action): { logLines: string[]; debugLines: string[] } {
+  const { state: next, logLines, debugLines } = applyAction(room.state, action)
   room.state = next
   room.log.push(...logLines)
-  return { logLines }
+  room.debugLog.push(...debugLines)
+  return { logLines, debugLines }
 }

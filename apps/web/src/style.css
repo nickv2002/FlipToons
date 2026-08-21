@@ -582,13 +582,41 @@ img.card__icon {
   font-size: 1rem;
 }
 
-.resolve-log__toggle {
+.resolve-log__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.resolve-log__toggle,
+.resolve-log__copy {
   font-size: 0.75rem;
   padding: 0.25rem 0.7rem;
   border-radius: 4px;
   border: 1px solid #8886;
   background: canvas;
   color: canvastext;
+}
+
+.resolve-log__copy {
+  opacity: 0.75;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  white-space: nowrap;
+}
+
+.resolve-log__copy:hover {
+  opacity: 1;
+}
+
+.resolve-log__round-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.resolve-log__round-header-row .resolve-log__round-header {
+  flex: 1;
 }
 
 .resolve-log__body {

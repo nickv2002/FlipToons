@@ -45,7 +45,7 @@ export function App() {
               setMode('local')
             }}
           />
-          <ResolveLog log={active.log} />
+          <ResolveLog log={active.log} debugLog={active.debugLog} />
         </div>
       )}
     </div>

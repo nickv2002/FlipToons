@@ -20,6 +20,6 @@ export type ClientMessage =
   | { type: 'action'; roomCode: string; action: Action }
 
 export type ServerMessage =
-  | { type: 'joined'; roomCode: string; state: GameState; log: string[] }
-  | { type: 'state'; state: GameState; logLines: string[] }
+  | { type: 'joined'; roomCode: string; state: GameState; log: string[]; debugLog: string[] }
+  | { type: 'state'; state: GameState; logLines: string[]; debugLines: string[] }
   | { type: 'error'; message: string }

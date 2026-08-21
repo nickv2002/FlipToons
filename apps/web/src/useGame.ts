@@ -44,6 +44,7 @@ export type LogEntry = { round: number; text: string }
 export function useGame() {
   const [state, setState] = useState<GameState | null>(() => loadSavedState())
   const [log, setLog] = useState<LogEntry[]>([])
+  const [debugLog, setDebugLog] = useState<LogEntry[]>([])
 
   useEffect(() => {
     saveState(state)
@@ -56,7 +57,7 @@ export function useGame() {
   const dispatch = useCallback(
     (action: Action) => {
       if (!state) return
-      const { state: next, logLines } = applyAction(state, action)
+      const { state: next, logLines, debugLines } = applyAction(state, action)
       setState(next)
       if (logLines.length > 0) {
         // A single dispatch can now cascade across a round boundary (e.g.
@@ -71,6 +72,12 @@ export function useGame() {
           ...prevLog,
           ...logLines.map((text, i) => ({ round: boundary !== -1 && i >= boundary ? next.round : state.round, text })),
         ])
+      }
+      if (debugLines.length > 0) {
+        // debugLines only ever come from a single runFlip call within this
+        // dispatch (at most one flip per cascade) — no boundary-splitting
+        // needed, everything belongs to the round that flip just filled.
+        setDebugLog((prevLog) => [...prevLog, ...debugLines.map((text) => ({ round: next.round, text }))])
       }
     },
     [state],
@@ -99,15 +106,17 @@ export function useGame() {
     // first flip immediately so the very first screen shown is Market, with
     // zero clicks, same as every subsequent round (actions.ts's applyAction
     // 'flip' branch cascades all the way through checkFame/postFameHooks).
-    const { state: next, logLines } = applyAction(initial, { kind: 'flip' })
+    const { state: next, logLines, debugLines } = applyAction(initial, { kind: 'flip' })
     setLog([{ round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` }, ...logLines.map((text) => ({ round: next.round, text }))])
+    setDebugLog(debugLines.map((text) => ({ round: next.round, text })))
     setState(next)
   }, [])
 
   const abandonGame = useCallback(() => {
     setState(null)
     setLog([])
+    setDebugLog([])
   }, [])
 
-  return { state, log, dispatch, startNewGame, abandonGame }
+  return { state, log, debugLog, dispatch, startNewGame, abandonGame }
 }

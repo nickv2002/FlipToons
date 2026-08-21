@@ -17,6 +17,7 @@ const SERVER_URL = `ws://${window.location.hostname}:${DEFAULT_PORT}`
 export function useRemoteGame() {
   const [state, setState] = useState<GameState | null>(null)
   const [log, setLog] = useState<LogEntry[]>([])
+  const [debugLog, setDebugLog] = useState<LogEntry[]>([])
   const [roomCode, setRoomCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -37,11 +38,15 @@ export function useRemoteGame() {
         setRoomCode(message.roomCode)
         setState(message.state)
         setLog(message.log.map((text) => ({ round: message.state.round, text })))
+        setDebugLog(message.debugLog.map((text) => ({ round: message.state.round, text })))
         setError(null)
       } else if (message.type === 'state') {
         setState(message.state)
         if (message.logLines.length > 0) {
           setLog((prev) => [...prev, ...message.logLines.map((text) => ({ round: message.state.round, text }))])
+        }
+        if (message.debugLines.length > 0) {
+          setDebugLog((prev) => [...prev, ...message.debugLines.map((text) => ({ round: message.state.round, text }))])
         }
       } else if (message.type === 'error') {
         setError(message.message)
@@ -88,9 +93,10 @@ export function useRemoteGame() {
     wsRef.current = null
     setState(null)
     setLog([])
+    setDebugLog([])
     setRoomCode(null)
     setError(null)
   }, [])
 
-  return { state, log, dispatch, startNewGame, abandonGame, roomCode, error, rejoinRoom }
+  return { state, log, debugLog, dispatch, startNewGame, abandonGame, roomCode, error, rejoinRoom }
 }

@@ -141,7 +141,7 @@ export function chooseBestMarketAction(state: GameState, opts: AiOptions = {}): 
   return evaluateMarketCandidates(state, opts)[0]!.action
 }
 
-export type AutoplayResult = { state: GameState; logLines: string[]; actionsTaken: Action[] }
+export type AutoplayResult = { state: GameState; logLines: string[]; debugLines: string[]; actionsTaken: Action[] }
 
 // Drives an entire solo game to completion (or a round cap), using
 // chooseBestMarketAction — the real search, not the cheap rollout policy —
@@ -158,6 +158,7 @@ export function playAutomatically(
   const startRound = state.round
   let s = state
   const logLines: string[] = []
+  const debugLines: string[] = []
   const actionsTaken: Action[] = []
 
   while (s.phase !== 'ended' && s.round - startRound < maxRounds) {
@@ -176,8 +177,9 @@ export function playAutomatically(
     const result = applyAction(s, action)
     s = result.state
     logLines.push(...result.logLines)
+    debugLines.push(...result.debugLines)
     actionsTaken.push(action)
   }
 
-  return { state: s, logLines, actionsTaken }
+  return { state: s, logLines, debugLines, actionsTaken }
 }

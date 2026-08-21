@@ -38,7 +38,7 @@ export type Action =
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
   | { kind: 'advanceCleanup' }
 
-export type ApplyResult = { state: GameState; logLines: string[] }
+export type ApplyResult = { state: GameState; logLines: string[]; debugLines: string[] }
 
 const cards = cardsById()
 
@@ -125,7 +125,7 @@ function posLabel(pos: GridPos): string {
 // it drives forward phase-by-phase until landing on 'market' or 'ended',
 // appending the same log lines each individual action used to produce so no
 // information is lost by removing the intermediate screens.
-export function advanceThroughPassthroughPhases(state: GameState, logLines: string[]): GameState {
+export function advanceThroughPassthroughPhases(state: GameState, logLines: string[], debugLines: string[] = []): GameState {
   let next = state
 
   if (next.phase === 'cleanup') {
@@ -151,7 +151,7 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     // shuffle. Matches tui.ts's flip-order preview line.
     const preview = shuffleWithState(next.deck, next.rng).result
     logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
-    next = runFlip(next, logLines)
+    next = runFlip(next, logLines, debugLines)
     logLines.push(`${next.deck.length} card(s) left in your deck.`)
   }
 
@@ -173,12 +173,12 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
 // tui.ts's runMarketPhase: "actionsRemaining hit 0 without an explicit
 // `end` — auto-close the Market phase rather than offering an action that
 // would only throw." Same rule here, run after every successful hire/dismiss.
-function closeMarketIfExhausted(state: GameState, logLines: string[]): GameState {
+function closeMarketIfExhausted(state: GameState, logLines: string[], debugLines: string[]): GameState {
   if (state.phase === 'market' && state.actionsRemaining <= 0) {
     logLines.push('No Market actions remaining — ending the Market phase.')
     let next = endMarketPhase(state, logLines)
     if (next.pendingPostMarketChoice) return next // paused — waiting on Alligator's stack-target choice
-    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
+    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
     return next
   }
   return state
@@ -200,24 +200,25 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
   const result = applyActionRaw(state, action)
   const won = checkInstantWin(result.state)
   if (won === result.state) return result
-  return { state: won, logLines: [...result.logLines, `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`] }
+  return { state: won, logLines: [...result.logLines, `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`], debugLines: result.debugLines }
 }
 
 function applyActionRaw(state: GameState, action: Action): ApplyResult {
   const logLines: string[] = []
+  const debugLines: string[] = []
 
   if (action.kind === 'flip') {
     // Cascades all the way through checkFame and postFameHooks (both
     // no-decision pass-throughs) so the caller always lands on 'market' —
     // see advanceThroughPassthroughPhases above.
-    const next = advanceThroughPassthroughPhases(state, logLines)
-    return { state: next, logLines }
+    const next = advanceThroughPassthroughPhases(state, logLines, debugLines)
+    return { state: next, logLines, debugLines }
   }
 
   if (action.kind === 'checkFame') {
     const next = runCheckFame(state)
     if (next.lastCheckFame) logLines.push(formatBreakdown(next.lastCheckFame))
-    return { state: next, logLines }
+    return { state: next, logLines, debugLines }
   }
 
   if (action.kind === 'continueToMarket') {
@@ -225,7 +226,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     // header comment (Skunk/Firefly are both starting-deck-only and solo's
     // setup swaps the least-fame starter out).
     const next = runPostFameHooks(state)
-    return { state: next, logLines }
+    return { state: next, logLines, debugLines }
   }
 
   if (action.kind === 'hire') {
@@ -236,12 +237,12 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       const card = cards[cardId!]
       logLines.push(`Hired ${card.name} for ${price} fame.`)
       if (card.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
-      next = closeMarketIfExhausted(next, logLines)
-      return { state: next, logLines }
+      next = closeMarketIfExhausted(next, logLines, debugLines)
+      return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
       logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
-      return { state, logLines }
+      return { state, logLines, debugLines }
     }
   }
 
@@ -254,42 +255,42 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       const card = cardId ? cards[cardId] : undefined
       logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
       if (card?.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
-      next = closeMarketIfExhausted(next, logLines)
-      return { state: next, logLines }
+      next = closeMarketIfExhausted(next, logLines, debugLines)
+      return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
       logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
-      return { state, logLines }
+      return { state, logLines, debugLines }
     }
   }
 
   if (action.kind === 'endMarket') {
     if (state.pendingPostMarketChoice) {
       logLines.push(`Can't do that: resolve the pending Alligator choice first.`)
-      return { state, logLines }
+      return { state, logLines, debugLines }
     }
     let next = endMarketPhase(state, logLines)
-    if (next.pendingPostMarketChoice) return { state: next, logLines } // paused — waiting on Alligator's stack-target choice
+    if (next.pendingPostMarketChoice) return { state: next, logLines, debugLines } // paused — waiting on Alligator's stack-target choice
     logLines.push('Ended the Market phase.')
-    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
-    return { state: next, logLines }
+    if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
+    return { state: next, logLines, debugLines }
   }
 
   if (action.kind === 'resolvePostMarketChoice') {
     if (!state.pendingPostMarketChoice) {
       logLines.push(`Can't do that: there's no pending choice to resolve.`)
-      return { state, logLines }
+      return { state, logLines, debugLines }
     }
     try {
       let next = resolvePostMarketChoice(state, { pos: action.pos, index: action.index }, logLines)
-      if (next.pendingPostMarketChoice) return { state: next, logLines } // another Alligator needs a choice too
+      if (next.pendingPostMarketChoice) return { state: next, logLines, debugLines } // another Alligator needs a choice too
       logLines.push('Ended the Market phase.')
-      if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines)
-      return { state: next, logLines }
+      if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
+      return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
       logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
-      return { state, logLines }
+      return { state, logLines, debugLines }
     }
   }
 
@@ -307,7 +308,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     } else {
       logLines.push(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
     }
-    return { state: next, logLines }
+    return { state: next, logLines, debugLines }
   }
 
   throw new Error(`actions.ts: unhandled action kind`)

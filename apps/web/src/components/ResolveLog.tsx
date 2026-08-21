@@ -3,6 +3,7 @@ import type { LogEntry } from '../useGame'
 
 export type ResolveLogProps = {
   log: LogEntry[]
+  debugLog: LogEntry[]
 }
 
 // Presentation-only classification of actions.ts's/tui.ts-mirrored log
@@ -32,12 +33,49 @@ function classify(text: string): LineKind {
   return 'default'
 }
 
+function groupByRound(entries: LogEntry[]): { round: number; entries: LogEntry[] }[] {
+  const out: { round: number; entries: LogEntry[] }[] = []
+  for (const entry of entries) {
+    const last = out[out.length - 1]
+    if (last && last.round === entry.round) last.entries.push(entry)
+    else out.push({ round: entry.round, entries: [entry] })
+  }
+  return out
+}
+
+// Copies text to the clipboard for pasting into a bug report/chat — the
+// debug log's whole point is being shareable, not just readable on screen.
+// navigator.clipboard.writeText needs a secure context (https, or localhost
+// during dev); silently no-ops (button just won't flash "Copied") rather
+// than throwing if it's unavailable, since a failed copy shouldn't crash the log view.
+function CopyButton({ getText, label }: { getText: () => string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      className="resolve-log__copy"
+      onClick={async (e) => {
+        e.stopPropagation()
+        try {
+          await navigator.clipboard.writeText(getText())
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          // Clipboard API unavailable/denied — nothing sensible to do here.
+        }
+      }}
+    >
+      {copied ? 'Copied!' : label}
+    </button>
+  )
+}
+
 // Mirrors what tui.ts's `out` callback prints to the terminal — the same
 // running log of flips/scoring/hires/dismisses, now grouped into
 // collapsible per-round sections (a flat ever-growing list stopped being
 // scannable once a real game's worth of lines piled up) with color coding
 // by line kind so wins/losses/hires/errors read at a glance.
-export function ResolveLog({ log }: ResolveLogProps) {
+export function ResolveLog({ log, debugLog }: ResolveLogProps) {
   const [collapsed, setCollapsed] = useState(false)
   // Per-round expand/collapse overrides. Default (no override) is: the
   // latest round is expanded, every earlier round is collapsed — a fresh
@@ -50,15 +88,16 @@ export function ResolveLog({ log }: ResolveLogProps) {
   // boundary (see useGame.ts's dispatch comment) but never re-visits an
   // earlier round once it's moved on, so this only ever appends a new
   // group when the round number changes from the previous entry.
-  const groups = useMemo(() => {
-    const out: { round: number; entries: LogEntry[] }[] = []
-    for (const entry of log) {
-      const last = out[out.length - 1]
-      if (last && last.round === entry.round) last.entries.push(entry)
-      else out.push({ round: entry.round, entries: [entry] })
-    }
-    return out
-  }, [log])
+  const groups = useMemo(() => groupByRound(log), [log])
+  // debugLog is keyed the same way (one group per round) so a round's
+  // header can offer "copy this round's detail log" alongside the human log
+  // it's actually displaying — see useGame.ts's dispatch, which tags every
+  // debugLines entry with the round its flip just filled.
+  const debugByRound = useMemo(() => {
+    const map = new Map<number, LogEntry[]>()
+    for (const group of groupByRound(debugLog)) map.set(group.round, group.entries)
+    return map
+  }, [debugLog])
 
   const latestRound = groups.length > 0 ? groups[groups.length - 1].round : null
 
@@ -66,29 +105,40 @@ export function ResolveLog({ log }: ResolveLogProps) {
     <div className="resolve-log">
       <div className="resolve-log__header">
         <h2 className="resolve-log__title">Log</h2>
-        <button type="button" className="resolve-log__toggle" onClick={() => setCollapsed((c) => !c)}>
-          {collapsed ? 'Show' : 'Hide'}
-        </button>
+        <div className="resolve-log__header-actions">
+          {debugLog.length > 0 && (
+            <CopyButton label="Copy full detail log" getText={() => debugLog.map((e) => e.text).join('\n')} />
+          )}
+          <button type="button" className="resolve-log__toggle" onClick={() => setCollapsed((c) => !c)}>
+            {collapsed ? 'Show' : 'Hide'}
+          </button>
+        </div>
       </div>
       {!collapsed && (
         <div className="resolve-log__body">
           {groups.length === 0 && <p className="resolve-log__empty">No events yet.</p>}
           {groups.map((group, groupIndex) => {
             const expanded = expandOverrides[group.round] ?? group.round === latestRound
+            const roundDebugLines = debugByRound.get(group.round)
             return (
               <div className="resolve-log__group" key={groupIndex}>
-                <button
-                  type="button"
-                  className="resolve-log__round-header"
-                  onClick={() => setExpandOverrides((prev) => ({ ...prev, [group.round]: !expanded }))}
-                  aria-expanded={expanded}
-                >
-                  <span className={`resolve-log__caret${expanded ? ' resolve-log__caret--open' : ''}`} aria-hidden="true">
-                    ▶
-                  </span>
-                  <span>Round {group.round}</span>
-                  <span className="resolve-log__count">{group.entries.length}</span>
-                </button>
+                <div className="resolve-log__round-header-row">
+                  <button
+                    type="button"
+                    className="resolve-log__round-header"
+                    onClick={() => setExpandOverrides((prev) => ({ ...prev, [group.round]: !expanded }))}
+                    aria-expanded={expanded}
+                  >
+                    <span className={`resolve-log__caret${expanded ? ' resolve-log__caret--open' : ''}`} aria-hidden="true">
+                      ▶
+                    </span>
+                    <span>Round {group.round}</span>
+                    <span className="resolve-log__count">{group.entries.length}</span>
+                  </button>
+                  {roundDebugLines && roundDebugLines.length > 0 && (
+                    <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />
+                  )}
+                </div>
                 {expanded && (
                   <div className="resolve-log__entries">
                     {group.entries.map((entry, i) => (

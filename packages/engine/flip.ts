@@ -67,6 +67,12 @@ export type FlipResult = {
   // actions.ts's advanceThroughPassthroughPhases (and tui.ts's own Flip
   // section) right after the "flip order" preview line.
   flipNotes: string[]
+  // Verbose per-card trace of target-determination and redirect decisions —
+  // the same information flipNotes summarizes for the player, but complete
+  // and mechanical rather than curated, for diagnosing surprising card
+  // interactions (e.g. why a card ended up in an unexpected stack after a
+  // return/relocate chain). See flipDeck's debugNotes comment.
+  debugNotes: string[]
 }
 
 type CardPointer = { cardId: CardId; pos: GridPos; index: number }
@@ -182,14 +188,26 @@ function removeCardFromSlot(grid: Grid, pos: GridPos, index: number): void {
 // Returns the GridPos the acting card (Coyote/Zebra) should be placed at —
 // TARGET's slot either way, now-empty (returned) or still-occupied (stack
 // fallback, so placeCardFaceUp's default stack-on-top behavior takes over).
-function resolveGridReturnTarget(grid: Grid, cardsById: Record<CardId, Card>, remainingDeck: Deck, target: CardPointer): GridPos {
+function resolveGridReturnTarget(
+  grid: Grid,
+  cardsById: Record<CardId, Card>,
+  remainingDeck: Deck,
+  target: CardPointer,
+  actorCard: Card,
+  notes: string[],
+  debugNotes: string[],
+): GridPos {
   const targetCard = cardsById[target.cardId]
   if (!targetCard) throw new Error(`flip.ts: resolveGridReturnTarget — unknown card id ${target.cardId}`)
   if (targetCard.immune?.includes('return')) {
+    notes.push(`${actorCard.name} can't return ${targetCard.name} at ${posLabel(target.pos)} (immune) — stacks on it instead.`)
+    debugNotes.push(`${actorCard.name}: return target ${targetCard.name} at ${posLabel(target.pos)} is immune to return — falling back to stack`)
     return target.pos // "if it cannot be returned, stack ... on it instead" — leave the slot occupied, caller stacks on top
   }
   removeCardFromSlot(grid, target.pos, target.index)
   returnCardToDeckBottom(remainingDeck, target.cardId)
+  notes.push(`${actorCard.name} returns ${targetCard.name} to the bottom of the deck and takes its place at ${posLabel(target.pos)}.`)
+  debugNotes.push(`${actorCard.name}: returned ${targetCard.name} (was at ${posLabel(target.pos)}) to deck bottom, takes that slot`)
   return target.pos
 }
 
@@ -302,6 +320,7 @@ function applyOnPlaceEffects(
   // this stays narrowly scoped to these two rather than becoming a general
   // per-effect log — see actions.ts's advanceThroughPassthroughPhases.
   notes: string[],
+  debugNotes: string[],
 ): { pending: Pending; lastPlaced: CardPointer | null; toonDeckEmptied: boolean; onHireDeferredCardId: CardId | null } {
   let pending: Pending = null
   let lastPlaced: CardPointer | null = ctx.selfPointer
@@ -392,6 +411,13 @@ function applyOnPlaceEffects(
         // already occupied.
         if (ctx.pos.section === 'base' && ctx.pos.row === 1) {
           const above: GridPos = { section: 'base', row: 0, col: ctx.pos.col }
+          const aboveSlot = getSlot(grid, above)
+          const aboveCardId = aboveSlot?.cards[aboveSlot.cards.length - 1]
+          const aboveCard = aboveCardId ? cardsById[aboveCardId] : undefined
+          notes.push(
+            `${card.name} was placed in the lower row at ${posLabel(ctx.pos)} and moves up to stack on ${aboveCard?.name ?? 'the card'} at ${posLabel(above)}.`,
+          )
+          debugNotes.push(`${card.name}: stackOnAboveIfLowerRow — placed at ${posLabel(ctx.pos)}, relocating to ${posLabel(above)} (onto ${aboveCard?.name ?? aboveCardId ?? 'empty'})`)
           lastPlaced = relocateCard(grid, ctx.pos, ctx.index, above, card.id)
         }
         break
@@ -592,6 +618,13 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   // stack-redirect push below (why a card lands on an already-occupied
   // slot instead of the next empty one).
   const flipNotes: string[] = []
+  // Verbose per-card trace for debugging card-interaction surprises (e.g.
+  // "why did this card end up stacked where it did") — every card's
+  // initial target position, plus every pending/redirect branch taken to
+  // get there. Deliberately unconditional (cheap to build, opt-in to
+  // display) rather than gated behind a flag threaded through the whole
+  // engine — see actions.ts/tui.ts for the human-vs-debug display toggle.
+  const debugNotes: string[] = []
 
   let pending: Pending = null
   let lastPlaced: CardPointer | null = null
@@ -636,13 +669,15 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       // next-empty-slot) exactly as if Eagle had never been placed.
       pending = null
       if (isImmuneTo(card, 'flip')) {
-        targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck)
+        targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck, flipNotes, debugNotes)
+        debugNotes.push(`${card.name}: immune to Eagle's flip — falls through to its own target-determination -> ${posLabel(targetPos)}`)
       } else {
         const next = nextEmptyBaseSlot(grid)
         if (!next) break // grid filled up; nothing left to reveal (shouldn't happen — isFull() guards the loop — but keep the guard honest)
         targetPos = toBasePos(next)
         forceFaceDown = true
         suppressOwnOnPlace = true // "its ability does not activate" (Eagle's own text)
+        debugNotes.push(`${card.name}: Eagle's deferred flip forces face-down placement at ${posLabel(targetPos)}, own onPlace suppressed`)
       }
     } else if (pending?.kind === 'stack') {
       // Ostrich's deferred stack. Unlike Eagle, the stacked card's own
@@ -650,6 +685,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       // applyOnPlaceEffects's 'stackNextRevealed' case.
       targetPos = pending.pos
       pending = null
+      debugNotes.push(`${card.name}: redirected onto Ostrich's deferred stack target ${posLabel(targetPos)}`)
     } else if (pending?.kind === 'moveToExtraRow') {
       // Gorilla's deferred relocation of the next revealed card. Its own
       // onPlace effects still resolve afterward, same as Ostrich's stack —
@@ -657,8 +693,10 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       // 'moveNextRevealedToExtraRowIfUpperRow' case.
       targetPos = extraRowSlotAbove(grid, pending.col)
       pending = null
+      debugNotes.push(`${card.name}: redirected onto Gorilla's deferred extra-row target ${posLabel(targetPos)}`)
     } else {
-      targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck)
+      targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck, flipNotes, debugNotes)
+      debugNotes.push(`${card.name}: initial target ${posLabel(targetPos)}${lastPlaced ? ` (previous placed: ${cardsById[lastPlaced.cardId]?.name ?? lastPlaced.cardId} at ${posLabel(lastPlaced.pos)})` : ' (first card placed)'}`)
       // Turkey/Panther-style redirect: the card landed on an ALREADY-
       // OCCUPIED slot (the previously placed card's own position) instead
       // of the next empty base slot — without this note, the grid/log
@@ -731,6 +769,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
           selfPointer,
         },
         flipNotes,
+        debugNotes,
       )
       pending = result.pending
       lastPlaced = result.lastPlaced
@@ -739,7 +778,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
     }
   }
 
-  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds, flipNotes }
+  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds, flipNotes, debugNotes }
 }
 
 // Target-determination for a card's OWN placement — i.e. deciding which
@@ -756,6 +795,8 @@ function determineTarget(
   lastPlaced: CardPointer | null,
   cardsById: Record<CardId, Card>,
   remainingDeck: Deck,
+  notes: string[],
+  debugNotes: string[],
 ): GridPos {
   if (hasOnPlaceKind(card, 'stackOnPreviousPlaced')) {
     if (lastPlaced) return lastPlaced.pos
@@ -771,7 +812,7 @@ function determineTarget(
     // returned, stack the coyote on it instead." Falls back to default
     // placement if Coyote is the first card placed this Flip — same
     // precedent as Elephant/Turkey (no previous card to target).
-    if (lastPlaced) return resolveGridReturnTarget(grid, cardsById, remainingDeck, lastPlaced)
+    if (lastPlaced) return resolveGridReturnTarget(grid, cardsById, remainingDeck, lastPlaced, card, notes, debugNotes)
   } else if (hasOnPlaceKind(card, 'returnLowestRankOrStack')) {
     // Zebra: "Return the lowest rank card in your grid and place this card
     // in its space." FAQ: ignored if Zebra is the first card placed
@@ -780,7 +821,7 @@ function determineTarget(
     // target (also covered for free — see findLowestRankTarget), stacks
     // instead if the target can't be returned.
     const target = findLowestRankTarget(grid, cardsById)
-    if (target) return resolveGridReturnTarget(grid, cardsById, remainingDeck, target)
+    if (target) return resolveGridReturnTarget(grid, cardsById, remainingDeck, target, card, notes, debugNotes)
   }
 
   const next = nextEmptyBaseSlot(grid)

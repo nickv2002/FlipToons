@@ -46,12 +46,13 @@ function assertPhase(state: GameState, phase: GameState['phase'], fn: string): v
 // Flip
 // ---------------------------------------------------------------------------
 
-export function runFlip(state: GameState, logLines?: string[]): GameState {
+export function runFlip(state: GameState, logLines?: string[], debugLines?: string[]): GameState {
   assertPhase(state, 'flip', 'runFlip')
   const cards = cardsById()
   const shuffled = shuffleWithState(state.deck, state.rng)
   const flipResult = flipDeck(shuffled.result, cards, { toonDeck: state.toonDeck, dismissed: state.dismissed })
   logLines?.push(...flipResult.flipNotes)
+  debugLines?.push(...flipResult.debugNotes)
 
   return {
     ...state,

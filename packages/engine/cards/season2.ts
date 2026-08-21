@@ -120,8 +120,9 @@ export const season2Cards: Card[] = [
   {
     id: 'panther', name: 'Panther', season: 2, rank: 9, copies: 2,
     fame: { base: 2 },
-    onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     rawBannerText: 'WHEN HIRED, DISMISS A FACE-UP CARD IN YOUR GRID FOR 0',
+    rawBodyText: 'Stack this card on the last card placed',
+    onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     onHire: [{ kind: 'dismissChosenGridCard', cost: 0 }],
     // Panther's mandatory target is an EXISTING face-up grid card — Panther
     // itself isn't on the grid yet when its onHire fires (it's mid-transit

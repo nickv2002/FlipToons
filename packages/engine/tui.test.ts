@@ -161,7 +161,14 @@ describe('tui.ts scripted mode drives a real game end-to-end', () => {
     const state = createSoloGameState({
       seed: setup.seed,
       startingDeck: buildExplicitDeck(['bee', 'snail', 'bee', 'snail', 'bee', 'snail'], cards),
-      toonDeck: buildExplicitDeck(['butterfly', 'ostrich', 'goat', 'sheep', 'horse'], cards),
+      // 7 cards, not 5: the market only takes 5 at initial fill, leaving 2
+      // behind so the round-1 guaranteed-loss short-circuit (actions.ts's
+      // skipGuaranteedLossMarketPhase / tui.ts's mirrored check) doesn't fire
+      // before the player gets to hire Butterfly — a 5-card deck would be
+      // fully drained by the initial market fill, and solo's per-round
+      // decay (market.ts's soloMarketDecay) always needs 2 more toon-deck
+      // cards, which an already-empty deck can never supply.
+      toonDeck: buildExplicitDeck(['butterfly', 'ostrich', 'goat', 'sheep', 'horse', 'eagle', 'donkey'], cards),
       prices: setup.prices,
       fameToTriggerEndgame: setup.fameToTriggerEndgame,
     })

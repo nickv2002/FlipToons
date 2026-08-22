@@ -167,7 +167,64 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     next = runPostFameHooks(next)
   }
 
-  return next
+  return skipGuaranteedLossMarketPhase(next, logLines)
+}
+
+// Guaranteed-loss short-circuit. soloMarketDecay (market.ts) unconditionally
+// empties 2 market slots every round and needs 2 fresh toon-deck cards to
+// refill them; toonDeck only ever shrinks (refills draw from it, nothing ever
+// returns cards to it). So if this round hasn't already been won and either
+// toonDeckDepleted is already latched from an earlier round, or fewer than 2
+// toon-deck cards remain, this round's loss is locked in before any Market
+// action — no hire/dismiss choice can change it. Skip straight through
+// Market's end-of-phase hooks/refill/decay and Cleanup instead of offering
+// actions that can't matter (reported: a player hired a card as their "last
+// action" immediately before a toon-deck-depleted loss, with no way to have
+// avoided it). Called both from the 'flip' cascade above and from the
+// 'continueToMarket' action below (ai.ts's autoplay dispatches that action
+// directly, bypassing the cascade).
+// Shared predicate: is `state` a round that's already lost no matter what
+// Market actions happen from here — not won on fame, and the toon deck is
+// too thin (already latched `toonDeckDepleted`, or fewer than the 2 fresh
+// cards solo's per-round soloMarketDecay unconditionally needs) to avoid it?
+function isGuaranteedLoss(state: GameState): boolean {
+  return state.fameGeneratedThisRound < state.fameToTriggerEndgame && (state.toonDeckDepleted || state.toonDeck.length < 2)
+}
+
+function skipGuaranteedLossMarketPhase(next: GameState, logLines: string[]): GameState {
+  if (next.phase !== 'market' || next.pendingPostMarketChoice || !isGuaranteedLoss(next)) {
+    return next
+  }
+
+  const roundJustEnded = next.round
+  let result = endMarketPhase(next, logLines)
+  if (result.pendingPostMarketChoice) return result
+  if (result.phase === 'cleanup') result = runCleanup(result)
+  if (result.phase === 'ended' && result.result === 'loss') {
+    logLines.push(`YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`)
+  }
+  return result
+}
+
+// Web UI helper (RoundView.tsx): would hiring this card, with these choices,
+// leave the round guaranteed-lost per isGuaranteedLoss above — either
+// directly (a card whose onHire triggers its own immediate refill, like
+// Horse/Crow, can exhaust the toon deck right then) or by leaving fewer than
+// 2 toon-deck cards for the end-of-round decay to draw from? A plain hire
+// never touches the toon deck itself, so this is normally only "true" once
+// the deck was already this thin going in — but it's cheaper for the UI to
+// ask this than to duplicate isGuaranteedLoss's fields. Lets the player
+// confirm or cancel before an action they can't undo, instead of the round
+// just ending on them (reported: a player hired a card as their "last
+// action" immediately before a toon-deck-depleted loss, with no warning).
+export function wouldHireEndInGuaranteedLoss(state: GameState, slotIndex: number, choices?: EffectChoices): boolean {
+  let after: GameState
+  try {
+    after = hire(state, slotIndex, choices)
+  } catch {
+    return false // let the real hire() call surface the actual error
+  }
+  return isGuaranteedLoss(after)
 }
 
 // tui.ts's runMarketPhase: "actionsRemaining hit 0 without an explicit
@@ -225,7 +282,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     // Provably a pass-through in solo — see phases.ts's runPostFameHooks
     // header comment (Skunk/Firefly are both starting-deck-only and solo's
     // setup swaps the least-fame starter out).
-    const next = runPostFameHooks(state)
+    const next = skipGuaranteedLossMarketPhase(runPostFameHooks(state), logLines)
     return { state: next, logLines, debugLines }
   }
 

@@ -616,6 +616,31 @@ img.card__icon {
   opacity: 0.8;
 }
 
+/* ---------- Hire warning (guaranteed-loss confirm) ---------- */
+
+.hire-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid #c0392b88;
+  border-radius: 6px;
+}
+
+.hire-warning__prompt {
+  margin: 0;
+  font-weight: 600;
+}
+
+.hire-warning__actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.hire-warning__confirm {
+  color: #c0392b;
+}
+
 /* ---------- Resolve log ---------- */
 
 .resolve-log {

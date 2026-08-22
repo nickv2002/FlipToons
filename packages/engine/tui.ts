@@ -454,6 +454,26 @@ export async function runSoloGame(opts: { state: GameState; ask: Ask; out: Out; 
       // by reading runPostFameHooks's body, not assumed — no player input
       // needed here.
       state = runPostFameHooks(state)
+
+      // Guaranteed-loss short-circuit. soloMarketDecay (market.ts)
+      // unconditionally empties 2 market slots every round and needs 2 fresh
+      // toon-deck cards to refill them; toonDeck only ever shrinks (refills
+      // draw from it, nothing ever returns cards to it). So if this round
+      // hasn't already been won and either toonDeckDepleted is already
+      // latched from an earlier round, or fewer than 2 toon-deck cards
+      // remain, this round's loss is locked in before any Market action —
+      // no hire/dismiss choice can change it. Skip straight to Cleanup
+      // instead of prompting for Market actions that can't matter.
+      if (
+        state.phase === 'market' &&
+        !state.pendingPostMarketChoice &&
+        state.fameGeneratedThisRound < state.fameToTriggerEndgame &&
+        (state.toonDeckDepleted || state.toonDeck.length < 2)
+      ) {
+        out('')
+        out('The toon deck is too depleted for the Market phase to refill — this round is already lost.')
+        state = endMarketPhase(state)
+      }
       continue
     }
 

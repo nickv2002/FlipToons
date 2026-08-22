@@ -3,7 +3,8 @@ import type { GameState } from '../../../../packages/engine/state'
 import { cardsById } from '../../../../packages/engine/setup'
 import type { GridPos } from '../../../../packages/engine/types'
 import type { Action } from '../../../../packages/engine/actions'
-import { listDismissEntries } from '../../../../packages/engine/actions'
+import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../packages/engine/actions'
+import type { EffectChoices } from '../../../../packages/engine/cards/types'
 import { computePendingChoice, buildEffectChoices } from '../../../../packages/engine/hireChoices'
 import type { PendingChoice } from '../../../../packages/engine/hireChoices'
 import { Grid } from './Grid'
@@ -16,6 +17,10 @@ const cards = cardsById()
 
 type Pending = { trigger: 'hire'; slotIndex: number; cardName: string; choice: PendingChoice } | { trigger: 'dismiss'; pos: GridPos; index: number; cardName: string; choice: PendingChoice }
 type ListOverlay = 'dismissed' | 'deck' | null
+// A hire that's about to leave the round guaranteed-lost (actions.ts's
+// wouldHireEndInGuaranteedLoss) — held back from dispatch until the player
+// confirms, since the toon-deck-depleted loss it triggers can't be undone.
+type HireWarning = { slotIndex: number; cardName: string; choices?: EffectChoices }
 
 export type RoundViewProps = {
   state: GameState
@@ -41,13 +46,27 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
   // for every choice-free card.
   const [pending, setPending] = useState<Pending | null>(null)
   const [listOverlay, setListOverlay] = useState<ListOverlay>(null)
+  const [hireWarning, setHireWarning] = useState<HireWarning | null>(null)
+
+  // Dispatches the hire unless doing so would leave the round guaranteed
+  // lost (toon deck too depleted for solo's per-round decay to refill) — in
+  // that case, hold it behind a confirm/cancel warning instead, since a
+  // player reported hiring as their "last action" right before an
+  // unavoidable loss with no way to have seen it coming.
+  function dispatchOrWarnHire(slotIndex: number, cardName: string, choices?: EffectChoices) {
+    if (wouldHireEndInGuaranteedLoss(state, slotIndex, choices)) {
+      setHireWarning({ slotIndex, cardName, choices })
+      return
+    }
+    dispatch({ kind: 'hire', slotIndex, choices })
+  }
 
   function handleHire(slotIndex: number) {
     const cardId = state.market.slots[slotIndex]
     const card = cardId ? cards[cardId] : undefined
     const choice = card ? computePendingChoice(state, card.onHire, cards, slotIndex) : null
     if (!choice || !card) {
-      dispatch({ kind: 'hire', slotIndex })
+      dispatchOrWarnHire(slotIndex, card?.name ?? String(cardId))
       return
     }
     setPending({ trigger: 'hire', slotIndex, cardName: card.name, choice })
@@ -69,11 +88,17 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
     if (!pending) return
     const choices = buildEffectChoices(pending.choice, selection)
     if (pending.trigger === 'hire') {
-      dispatch({ kind: 'hire', slotIndex: pending.slotIndex, choices })
+      dispatchOrWarnHire(pending.slotIndex, pending.cardName, choices)
     } else {
       dispatch({ kind: 'dismiss', pos: pending.pos, index: pending.index, choices })
     }
     setPending(null)
+  }
+
+  function confirmHireWarning() {
+    if (!hireWarning) return
+    dispatch({ kind: 'hire', slotIndex: hireWarning.slotIndex, choices: hireWarning.choices })
+    setHireWarning(null)
   }
 
   // Alligator's stack-target choice — unlike `pending` above, this is
@@ -168,6 +193,22 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           grid={state.grid}
           onResolve={resolveAlligatorChoice}
         />
+      )}
+      {state.phase === 'market' && !alligatorChoice && !pending && hireWarning && (
+        <div className="hire-warning">
+          <p className="hire-warning__prompt">
+            Hiring {hireWarning.cardName} leaves too few cards in the toon deck for the market to refill this round — you'll lose as
+            soon as the Market phase ends, and nothing else you do this round can change that.
+          </p>
+          <div className="hire-warning__actions">
+            <button type="button" onClick={() => setHireWarning(null)}>
+              Cancel
+            </button>
+            <button type="button" className="hire-warning__confirm" onClick={confirmHireWarning}>
+              Hire anyway
+            </button>
+          </div>
+        </div>
       )}
       {state.phase === 'market' && !alligatorChoice && pending && (
         <EffectChoicePrompt

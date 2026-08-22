@@ -119,7 +119,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
         <p>
           {state.result === 'win'
             ? `Reached ${state.fameToTriggerEndgame} fame before the toon deck depleted.`
-            : 'The toon deck depleted and the market could not refill.'}
+            : `This round generated ${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action could have closed the gap.`}
         </p>
         <div className="round-view__card-list-buttons">
           <button type="button" onClick={() => setListOverlay('dismissed')}>

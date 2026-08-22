@@ -167,7 +167,25 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     next = runPostFameHooks(next)
   }
 
-  return skipGuaranteedLossMarketPhase(next, logLines)
+  return resolveEndOfRoundOutcome(next, logLines)
+}
+
+// Win check runs before the guaranteed-loss short circuit, not after.
+// runPostFameHooks can push spendable `fame` over the threshold (Skunk/
+// Firefly's least-fame bonus) without moving fameGeneratedThisRound, the
+// frozen Check-Fame snapshot isGuaranteedLoss reads below — so a round that
+// actually just won can still look "guaranteed lost" by that snapshot. If
+// skipGuaranteedLossMarketPhase ran first and latched phase 'ended'/'loss',
+// applyAction's own checkInstantWin call (which only fires pre-'ended')
+// would never get a chance to override it. Checking win here first closes
+// that gap.
+function resolveEndOfRoundOutcome(state: GameState, logLines: string[]): GameState {
+  const won = checkInstantWin(state)
+  if (won !== state) {
+    logLines.push(`YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`)
+    return won
+  }
+  return skipGuaranteedLossMarketPhase(state, logLines)
 }
 
 // Guaranteed-loss short-circuit. soloMarketDecay (market.ts) unconditionally
@@ -197,11 +215,15 @@ function skipGuaranteedLossMarketPhase(next: GameState, logLines: string[]): Gam
   }
 
   const roundJustEnded = next.round
+  const fameThisRound = next.fameGeneratedThisRound
+  const threshold = next.fameToTriggerEndgame
   let result = endMarketPhase(next, logLines)
   if (result.pendingPostMarketChoice) return result
   if (result.phase === 'cleanup') result = runCleanup(result)
   if (result.phase === 'ended' && result.result === 'loss') {
-    logLines.push(`YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`)
+    logLines.push(
+      `YOU LOSE — round ${roundJustEnded} generated ${fameThisRound}/${threshold} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action this round could have closed the gap.`,
+    )
   }
   return result
 }
@@ -282,7 +304,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     // Provably a pass-through in solo — see phases.ts's runPostFameHooks
     // header comment (Skunk/Firefly are both starting-deck-only and solo's
     // setup swaps the least-fame starter out).
-    const next = skipGuaranteedLossMarketPhase(runPostFameHooks(state), logLines)
+    const next = resolveEndOfRoundOutcome(runPostFameHooks(state), logLines)
     return { state: next, logLines, debugLines }
   }
 

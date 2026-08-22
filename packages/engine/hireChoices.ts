@@ -1,8 +1,8 @@
 // UI-facing helper for the small set of onHire/onDismiss effects that need
 // a player choice before applyEffects (phases.ts) can resolve them —
 // Butterfly/Panther/Raccoon/Crow/Horse (see cards/types.ts's Effect/
-// EffectChoices comments for the full list). Neither tui.ts nor the old web
-// client threaded EffectChoices through hire()/dismiss() at all (see
+// EffectChoices comments for the full list). The old web client didn't
+// thread EffectChoices through hire()/dismiss() at all (see
 // ChoicePrompt.tsx's former header comment) — this module is what lets a
 // real client compute "does this card need a prompt, and what are the legal
 // options" from a GameState alone, BEFORE calling hire()/dismiss(), so it

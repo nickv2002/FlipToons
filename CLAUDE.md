@@ -7,9 +7,10 @@ scoring engine). Both are now historical — implementation has passed well
 beyond what they describe. See their status notes at the top before trusting
 specifics; treat git log / current code as ground truth over plan prose.
 
-**Current state:** playable end-to-end. Web UI (`make play`) and terminal UI
-(`make solo`) both work — solo, AI-autoplay, and room-code hosted multiplayer
-via the WS server. Card transcription (`cards.csv` → `packages/engine/cards/`)
+**Current state:** playable end-to-end. Web UI (`make play`) works — solo and
+room-code hosted multiplayer via the WS server. (A terminal UI existed
+earlier in development and was retired in favor of the web UI as the sole
+interface.) Card transcription (`cards.csv` → `packages/engine/cards/`)
 is done for all 62 cards; a handful are still `unencodable: true` (verbatim
 text preserved, not yet expressible in the effect vocabulary — grep for it).
 Active work right now is *honing the rules engine against real play*: recent
@@ -29,11 +30,10 @@ packages/engine/     Pure TS, zero runtime deps. The rules engine.
   market.ts             market slots, pricing, refill/decay
   hireChoices.ts        player-resolved effect choices (which card to target, etc.)
   phases.ts             phase state machine: Flip -> Check Fame -> Market -> Cleanup
-  actions.ts            the action-dispatch surface used by both TUI and server
+  actions.ts            the action-dispatch surface used by both the web client and server
   setup.ts              new-game setup, solo starting-deck construction
   state.ts              GameState shape
-  ai.ts                 Monte-Carlo evaluator for AI autoplay
-  cli.ts / tui.ts        terminal entry points
+  ai.ts                 Monte-Carlo evaluator; self-contained, not yet wired into the web UI
 
 apps/server/          Bun WS server. Room-code hosted/resumable games.
   rooms.ts               in-memory room state, applies actions from actions.ts
@@ -55,13 +55,9 @@ Referance/*.HEIC        Photos of the physical rulebook/cards (transcription sou
 
 - `make play` — web client + WS server together (room-code hosted games)
 - `make web` — web client only, local solo, no server
-- `make solo` / `make solo-season2` — terminal UI, interactive
-- `make solo-ai` — full AI autoplay from the CLI, no human input
-- `make stop` — kill any repo process this Makefile started (web/server/TUI)
+- `make stop` — kill any repo process this Makefile started (web/server)
 - `make test` — `bun test` from repo root
 - `make typecheck` — `bunx tsc --noEmit -p .`
-
-Pass extra flags via `ARGS`, e.g. `make solo ARGS="--seed=1 --difficulty=hard"`.
 
 Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 
@@ -89,7 +85,7 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 
 ## Testing
 
-267 tests across 14 files, all engine-side (`packages/engine/*.test.ts`).
+259 tests across 13 files, all engine-side (`packages/engine/*.test.ts`).
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
 oracle/fixtures design was superseded; tests just assert expected values

@@ -114,7 +114,7 @@ export type FameBreakdown = {
 
 // Branch labels for Dog's dual-branch presentation — shared between the
 // per-line dualBranch entries and the grid-level totalBranches so the UI
-// (formatBreakdown / cli.ts) can pair them up by string equality if needed.
+// (formatBreakdown) can pair them up by string equality if needed.
 const DOG_ELSEWHERE_FALSE_LABEL = 'if no Dog elsewhere'
 const DOG_ELSEWHERE_TRUE_LABEL = 'if a Dog is present elsewhere'
 
@@ -462,7 +462,7 @@ function evaluateBonus(
     // deck" (base 2 otherwise). scoreGrid is a pure function of a
     // FINISHED grid (§4.1) and has no deck by default — `remainingDeckSize`
     // is an optional extra input threaded in by the caller (flipDeck's
-    // FlipResult.remainingDeck.length; see cli.ts). Throws rather than
+    // FlipResult.remainingDeck.length). Throws rather than
     // silently treating "no deck size given" as zero, since that would
     // score confidently wrong instead of visibly incomplete.
     if (remainingDeckSize === undefined) {
@@ -620,8 +620,8 @@ function adjacentFaceUpEntries(pos: GridPos, grid: Grid): { key: string; cardId:
 // reads deck state (Capybara/Hippopotamus — see evaluateBonus). scoreGrid
 // stays a pure function of "whatever's passed in," per §4.1 — this is an
 // extra INPUT, not a mutation or a lookup into hidden state; pass
-// `FlipResult.remainingDeck.length` from flipDeck's return value (see
-// cli.ts). Omitting it is fine for grids with no such card; a grid that
+// `FlipResult.remainingDeck.length` from flipDeck's return value. Omitting
+// it is fine for grids with no such card; a grid that
 // needs it and doesn't get it throws (see evaluateBonus), rather than
 // silently scoring 0.
 export function scoreGrid(

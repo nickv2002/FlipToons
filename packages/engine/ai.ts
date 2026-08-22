@@ -145,9 +145,9 @@ export type AutoplayResult = { state: GameState; logLines: string[]; debugLines:
 
 // Drives an entire solo game to completion (or a round cap), using
 // chooseBestMarketAction — the real search, not the cheap rollout policy —
-// for every Market decision. This is the tui.ts --ai / apps/web "autoplay"
-// entry point: same actions.ts reducer the human-driven paths use, so its
-// log lines are the same shape a human's playthrough would produce.
+// for every Market decision. Not currently wired into any UI; uses the same
+// actions.ts reducer the human-driven paths use, so its log lines are the
+// same shape a human's playthrough would produce.
 export function playAutomatically(
   state: GameState,
   opts: AiOptions & { maxRounds?: number; maxWallClockMs?: number } = {},

@@ -30,8 +30,8 @@ export function cardsById(): Record<CardId, Card> {
 // Axolotl) are starting cards — buildSeason1StartingDeck() can never
 // produce them, so there's no way to flip-test any of them through that
 // path. This builds a deck directly from a hand-picked list of card ids
-// instead, for manual/scripted testing (see cli.ts's --deck flag and
-// flip-effects.test.ts). Validates every id up front — a typo'd or
+// instead, for manual/scripted testing (see flip-effects.test.ts). Validates
+// every id up front — a typo'd or
 // cross-season id here should fail loudly, not silently place `undefined`.
 export function buildExplicitDeck(ids: CardId[], cards: Record<CardId, Card> = cardsById()): CardId[] {
   for (const id of ids) {

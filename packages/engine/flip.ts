@@ -68,8 +68,8 @@ export type FlipResult = {
   pendingOnHireCardIds: CardId[]
   // Player-facing log lines for events the post-Flip grid can't explain by
   // itself — see applyOnPlaceEffects's `notes` param comment. Consumed by
-  // actions.ts's advanceThroughPassthroughPhases (and tui.ts's own Flip
-  // section) right after the "flip order" preview line.
+  // actions.ts's advanceThroughPassthroughPhases right after the "flip
+  // order" preview line.
   flipNotes: string[]
   // Verbose per-card trace of target-determination and redirect decisions —
   // the same information flipNotes summarizes for the player, but complete
@@ -627,7 +627,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   // initial target position, plus every pending/redirect branch taken to
   // get there. Deliberately unconditional (cheap to build, opt-in to
   // display) rather than gated behind a flag threaded through the whole
-  // engine — see actions.ts/tui.ts for the human-vs-debug display toggle.
+  // engine — see actions.ts for the human-vs-debug display toggle.
   const debugNotes: string[] = []
 
   let pending: Pending = null

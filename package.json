@@ -5,8 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "flip": "bun run packages/engine/cli.ts",
-    "solo": "bun run packages/engine/tui.ts",
     "web": "cd apps/web && bun run dev",
     "server": "cd apps/server && bun run index.ts"
   },

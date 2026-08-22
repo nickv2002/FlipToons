@@ -53,8 +53,8 @@ export function buildNewGameState(seed: number, difficulty: SoloDifficulty, seas
   })
 }
 
-// Mirrors tui.ts's listDismissEntries exactly — reading-order index over
-// every FACE-UP card in the grid, stacks expanded. Both the display and the
+// Reading-order index over every FACE-UP card in the grid, stacks expanded.
+// Both the display and the
 // dismiss action must use the SAME order, or the number shown wouldn't
 // match what gets dismissed.
 export type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId; cost: number }
@@ -96,11 +96,10 @@ export function hasAnyLegalMarketAction(state: GameState): boolean {
   })
 }
 
-// Same message-cleanup tui.ts applies before showing a rejected action to
-// the player (strips the internal "phases.ts: fn — " prefix); a real
-// phase-machine bug (assertPhase's message shape) is rethrown instead of
-// being turned into a friendly log line, same split as tui.ts's
-// rethrowIfEngineBug/playerFacingMessage.
+// Message-cleanup applied before showing a rejected action to the player
+// (strips the internal "phases.ts: fn — " prefix); a real phase-machine bug
+// (assertPhase's message shape) is rethrown instead of being turned into a
+// friendly log line.
 function isEngineBug(err: unknown): boolean {
   return err instanceof Error && /^phases\.ts: \w+ called in phase/.test(err.message)
 }
@@ -148,7 +147,7 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     // Season 1 has no Return-to-deck effect, so the pre-flip shuffle order
     // IS the actual reveal order — a pure re-derivation of runFlip's own
     // internal shuffle (same deck, same rng state), not a second live
-    // shuffle. Matches tui.ts's flip-order preview line.
+    // shuffle.
     const preview = shuffleWithState(next.deck, next.rng).result
     logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
     next = runFlip(next, logLines, debugLines)
@@ -249,9 +248,9 @@ export function wouldHireEndInGuaranteedLoss(state: GameState, slotIndex: number
   return isGuaranteedLoss(after)
 }
 
-// tui.ts's runMarketPhase: "actionsRemaining hit 0 without an explicit
-// `end` — auto-close the Market phase rather than offering an action that
-// would only throw." Same rule here, run after every successful hire/dismiss.
+// actionsRemaining hit 0 without an explicit `end` — auto-close the Market
+// phase rather than offering an action that would only throw. Run after
+// every successful hire/dismiss.
 function closeMarketIfExhausted(state: GameState, logLines: string[], debugLines: string[]): GameState {
   if (state.phase === 'market' && state.actionsRemaining <= 0) {
     logLines.push('No Market actions remaining — ending the Market phase.')

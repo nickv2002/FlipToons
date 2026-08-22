@@ -26,6 +26,13 @@ export type RoundViewProps = {
   state: GameState
   dispatch: (action: Action) => void
   onAbandon: () => void
+  // Solo-only UX. The guaranteed-loss warning (actions.ts's
+  // wouldHireEndInGuaranteedLoss) is a solo shortcut: a round that's already
+  // lost for ONE player is not a lost game at a table, where the others still
+  // have real decisions to make. Off in multiplayer.
+  soloWarnings?: boolean
+  // "Abandon game" reads wrong when three other people are still playing.
+  leaveLabel?: string
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -34,7 +41,7 @@ export type RoundViewProps = {
 // cascades through automatically (see advanceThroughPassthroughPhases),
 // same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
 // just with zero intermediate screens shown in this UI.
-export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
+export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game' }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
   // hireChoices.ts). Rather than dispatching immediately, the click handlers
@@ -54,7 +61,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
   // player reported hiring as their "last action" right before an
   // unavoidable loss with no way to have seen it coming.
   function dispatchOrWarnHire(slotIndex: number, cardName: string, choices?: EffectChoices) {
-    if (wouldHireEndInGuaranteedLoss(state, slotIndex, choices)) {
+    if (soloWarnings && wouldHireEndInGuaranteedLoss(state, slotIndex, choices)) {
       setHireWarning({ slotIndex, cardName, choices })
       return
     }
@@ -173,7 +180,7 @@ export function RoundView({ state, dispatch, onAbandon }: RoundViewProps) {
           Remaining deck ({state.deck.length})
         </button>
         <button type="button" className="round-view__abandon" onClick={onAbandon}>
-          Abandon game
+          {leaveLabel}
         </button>
       </div>
       <div className="round-view__progress" title={`${state.fameGeneratedThisRound} of ${state.fameToTriggerEndgame} fame needed to win`}>

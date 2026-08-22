@@ -1,5 +1,7 @@
-import type { CardId } from '../../../../packages/engine/types'
-import type { Card as CardData } from '../../../../packages/engine/cards/types'
+// CardId lives in cards/types, not types — the old import here pointed at a
+// module that only re-uses the name locally, so `cd apps/web && tsc` had been
+// failing on it (pre-existing, unrelated to multiplayer).
+import type { Card as CardData, CardId } from '../../../../packages/engine/cards/types'
 import { Card } from './Card'
 
 export type CardListOverlayProps = {

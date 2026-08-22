@@ -38,6 +38,8 @@ import { emptyGrid, occupiedSlots } from './grid'
 import type { Match, PlayerId, PlayerView } from './state'
 import { commitView, createSoloGameState, makeMatch, viewOf } from './state'
 import { buildMultiplayerSetup } from './setup'
+import type { FameModifier, RoundFame } from './roundFame'
+import { roundFame } from './roundFame'
 import type { CardId } from './cards/types'
 import type { Grid, GridPos } from './types'
 
@@ -55,6 +57,9 @@ export function buildNewMatch(seed: number, playerCount: number, season: 1 | 2 =
     fameToTriggerEndgame: setup.fameToTriggerEndgame,
     playerId: 'p0',
   })
+  // createSoloGameState defaults to solo's reading of a failed refill (a
+  // loss); at 2+ seats it is an ordinary ending that goes to the Final Flip.
+  first.winCondition = setup.winCondition
   return makeMatch(
     first,
     setup.startingDecks.slice(1).map((deck, i) => ({
@@ -111,11 +116,28 @@ function withPlayer(match: Match, index: number, fn: (view: PlayerView) => Playe
 // stream (state.ts's makeMatch), so turn position never leaks into what a
 // player reveals.
 export function runMatchFlip(match: Match, logLines?: string[], debugLines?: string[]): Match {
-  if (match.shared.phase !== 'flip' && match.shared.phase !== 'finalFlip') {
-    throw new Error(`match.ts: runMatchFlip called in phase '${match.shared.phase}'`)
+  // The Final Flip has ONE entry point, runMatchFinalFlip, because it must not
+  // fall through into Check Fame -> post-fame hooks -> Market the way a normal
+  // round does. Routing it here instead would do exactly that: this function
+  // hands off by setting `phase: 'checkFame'`, which erases the only signal
+  // that a Final Flip was in progress.
+  if (match.shared.phase !== 'flip') {
+    throw new Error(`match.ts: runMatchFlip called in phase '${match.shared.phase}'` + (match.shared.phase === 'finalFlip' ? ' — use runMatchFinalFlip for the Final Flip' : ''))
   }
+  const next = flipSeats(match, allSeats(match), logLines, debugLines)
+  return { ...next, shared: { ...next.shared, phase: 'checkFame' } }
+}
+
+function allSeats(match: Match): number[] {
+  return match.players.map((_, i) => i)
+}
+
+// Flips a SUBSET of seats, leaving the shared phase alone. Split out of
+// runMatchFlip for the Final Flip's tiebreak, where only the tied players
+// re-flip and everyone else's PlayerState must be left exactly as it is.
+function flipSeats(match: Match, seats: number[], logLines?: string[], debugLines?: string[]): Match {
   let next = match
-  for (let i = 0; i < next.players.length; i++) {
+  for (const i of seats) {
     // Re-projected inside withPlayer on every iteration, so seat i+1 sees the
     // toon deck seat i actually left behind. Projecting all seats up front is
     // the bug commitView's epoch check exists to catch.
@@ -127,7 +149,7 @@ export function runMatchFlip(match: Match, logLines?: string[], debugLines?: str
       return { ...flipped, phase: view.phase }
     })
   }
-  return { ...next, shared: { ...next.shared, phase: 'checkFame' } }
+  return next
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +163,20 @@ export function runMatchCheckFame(match: Match): Match {
   if (match.shared.phase !== 'checkFame') {
     throw new Error(`match.ts: runMatchCheckFame called in phase '${match.shared.phase}'`)
   }
+  const next = checkFameSeats(match, allSeats(match))
+  return { ...next, shared: { ...next.shared, phase: 'postFameHooks' } }
+}
+
+// Scores a SUBSET of seats, leaving the shared phase alone.
+//
+// The subset chooses who gets SCORED, never who gets scored AGAINST: every
+// seat is always measured against every other grid on the table. That matters
+// in the Final Flip's tiebreak, where only the tied players re-flip — the
+// spectators' Final Flip boards are still laid out in front of them, so a
+// re-flipping player's Dog/Camel/Fox conditions must still see them. Reading
+// only the tied players' grids there would silently change what those cards
+// are worth partway through resolving one Final Flip.
+function checkFameSeats(match: Match, seats: number[]): Match {
   // Snapshot the grids BEFORE scoring anyone. Check Fame is simultaneous, so
   // every seat must be scored against the same board — and nothing here
   // mutates a grid anyway, but taking the snapshot up front makes that
@@ -148,14 +184,14 @@ export function runMatchCheckFame(match: Match): Match {
   const grids = match.players.map((p) => p.grid)
 
   let next = match
-  for (let i = 0; i < next.players.length; i++) {
+  for (const i of seats) {
     const others = grids.filter((_, j) => j !== i)
     next = withPlayer(next, i, (view) => {
       const scored = runCheckFame({ ...view, phase: 'checkFame' }, others)
       return { ...scored, phase: view.phase }
     })
   }
-  return { ...next, shared: { ...next.shared, phase: 'postFameHooks' } }
+  return next
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +237,11 @@ export function runMatchPostFameHooks(match: Match): Match {
 // Callers poll this after each resolvePostFameChoice.
 function openMarketPhaseIfReady(match: Match): Match {
   if (match.players.some((p) => p.pendingPostFameChoice)) return match
+  // Defense in depth: the Final Flip is Flip + Check Fame only (§3.2). Nothing
+  // should reach here during one, but if something ever does, refusing to open
+  // a Market phase is far better than silently granting everyone 2 more
+  // actions after the game was supposed to be over.
+  if (match.shared.endgameTriggered) return match
   // §3.0: the Market phase starts with the first player and goes clockwise.
   return {
     ...match,
@@ -389,3 +430,115 @@ function awardCriticsChoice(match: Match): PlayerId | null {
 // module's Cleanup is the multiplayer one. Re-exported so callers that only
 // import match.ts can still reach the per-player phase entry point.
 export { endMarketPhase }
+
+// ---------------------------------------------------------------------------
+// The Final Flip (§3.2)
+// ---------------------------------------------------------------------------
+//
+// "Flip and Check Fame ONLY" — no Market phase, no Cleanup, no post-fame
+// hooks. Whoever generates the most fame wins, counting the Critic's Choice
+// holder's +3 (roundFame.ts's seam, never scoreGrid).
+//
+// Note what this does NOT do: it never looks at anyone's accumulated score,
+// because there isn't one. Fame is a single per-round number that is
+// simultaneously your score, your spending power, and expiring (§4.2). The
+// Final Flip is the whole scoring event; the rounds before it only decided
+// who got to buy what.
+//
+// A safety cap on the tiebreak re-flip loop. Reaching it means many
+// consecutive exact ties, which is vanishingly unlikely but not impossible
+// with small decks. The behaviour at the cap is a SHARED win rather than a
+// throw: a thrown error mid-Final-Flip destroys a finished game, while a
+// co-win is a defensible answer to "these players genuinely could not be
+// separated."
+const MAX_TIEBREAK_ROUNDS = 100
+
+export type FinalFlipOutcome = {
+  match: Match
+  // Every seat's Final Flip fame, in seat order, including the +3.
+  scores: { playerId: PlayerId; total: number; modifiers: FameModifier[] }[]
+  winners: PlayerId[] // more than one only at MAX_TIEBREAK_ROUNDS
+  tiebreakRounds: number // 0 when the first flip settled it
+}
+
+// Runs the entire Final Flip, tiebreak loop included, to a decided winner.
+//
+// Synchronous and non-interactive on purpose: Flip and Check Fame are both
+// automatic, and the Final Flip skips the two phases that can pause on a
+// player choice (post-fame hooks and the Market phase). So unlike a normal
+// round, there is nothing here to hand back to a client mid-way.
+export function runMatchFinalFlip(match: Match, logLines?: string[], debugLines?: string[]): FinalFlipOutcome {
+  if (match.shared.phase !== 'finalFlip') {
+    throw new Error(`match.ts: runMatchFinalFlip called in phase '${match.shared.phase}', expected 'finalFlip'`)
+  }
+
+  // First flip: everyone.
+  let next = flipSeats(match, allSeats(match), logLines, debugLines)
+  next = checkFameSeats(next, allSeats(match))
+
+  let contenders = leaders(next)
+  let tiebreakRounds = 0
+
+  // §3.2: "if there is a tie, the tied players flip again." Only they do —
+  // every other seat's PlayerState is untouched, so their board stays on the
+  // table (and stays visible to the re-flippers' Dog/Camel/Fox — see
+  // checkFameSeats) and their score stands as already recorded.
+  while (contenders.length > 1 && tiebreakRounds < MAX_TIEBREAK_ROUNDS) {
+    tiebreakRounds++
+    const seats = contenders.map((id) => playerIndex(next, id))
+
+    // Collect grid + deck and reshuffle, exactly as Cleanup would — except
+    // scoped to the tied seats and with no fame reset, since the Final Flip's
+    // fame IS the result. runFlip does the reshuffle itself.
+    for (const i of seats) {
+      next = withPlayer(next, i, (view) => ({
+        ...view,
+        deck: [...view.deck, ...collectGridCards(view.grid)],
+        grid: emptyGrid(),
+      }))
+    }
+
+    next = flipSeats(next, seats, logLines, debugLines)
+    next = checkFameSeats(next, seats)
+
+    // Re-rank among the tied players only. A spectator who happened to score
+    // higher than the re-flip produced does NOT re-enter contention — they
+    // already lost the comparison that sent these two to a re-flip.
+    contenders = leaders(next, contenders)
+  }
+
+  const scores = next.players.map((p) => {
+    const rf = roundFame(p, next.shared)
+    return { playerId: p.playerId, total: rf.total, modifiers: rf.modifiers }
+  })
+
+  const winners = contenders
+  const ended: Match = {
+    ...next,
+    shared: {
+      ...next.shared,
+      phase: 'ended',
+      // One winner sets winnerId; an exhausted tiebreak leaves it null and
+      // reports the co-winners through `winners` instead.
+      winnerId: winners.length === 1 ? winners[0] : null,
+      result: 'win',
+    },
+  }
+
+  return { match: ended, scores, winners, tiebreakRounds }
+}
+
+// The seat(s) with the highest roundFame, optionally restricted to a candidate
+// set (the tiebreak's contenders).
+function leaders(match: Match, among?: PlayerId[]): PlayerId[] {
+  const pool = among ? match.players.filter((p) => among.includes(p.playerId)) : match.players
+  const totals = pool.map((p) => ({ playerId: p.playerId, total: roundFame(p, match.shared).total }))
+  const top = Math.max(...totals.map((t) => t.total))
+  return totals.filter((t) => t.total === top).map((t) => t.playerId)
+}
+
+// Every seat's Final Flip fame without advancing anything — for the UI's
+// scoreboard and for tests that want to inspect the +3 in isolation.
+export function matchRoundFame(match: Match): { playerId: PlayerId; fame: RoundFame }[] {
+  return match.players.map((p) => ({ playerId: p.playerId, fame: roundFame(p, match.shared) }))
+}

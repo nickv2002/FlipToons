@@ -6,6 +6,7 @@
 import { allCards, season1Cards, season2Cards } from './cards'
 import type { Card, CardId } from './cards/types'
 import { makeRng, shuffle } from './rng'
+import type { WinCondition } from './state'
 
 // Season 1 starting deck (§3.1, §4.5): 2x Caterpillar, 1x Skunk,
 // 1x Dragonfly, 1x Bee, 1x Snail — the six rank-0 season1Cards, expanded by
@@ -201,6 +202,9 @@ export type MultiplayerSetup = {
   fameToTriggerEndgame: number // 30 at every player count (§3.0)
   seed: number
   playerSeeds: number[] // one per seat — see state.ts's makeMatch on per-player RNG
+  // Multiplayer reads a failed market refill as an ordinary ending that
+  // proceeds to the Final Flip, not as solo's loss — see SharedState.winCondition.
+  winCondition: WinCondition
 }
 
 // §3.0: "The endgame threshold does not scale with player count — it is 30
@@ -224,6 +228,7 @@ export function buildMultiplayerSetup(seed: number, playerCount: number, season:
     toonDeck,
     prices: pricesForPlayerCount(playerCount),
     fameToTriggerEndgame: DEFAULT_FAME_TO_TRIGGER_ENDGAME,
+    winCondition: 'highestFinalFlip',
     seed,
     // Derived from the match seed so the whole match stays a pure function of
     // it, but distinct per seat so no two players share a shuffle stream.

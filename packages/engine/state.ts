@@ -23,6 +23,9 @@ import type { Grid, GridPos } from './types'
 // comparison that one player has no use for (§3.7).
 export type Phase = 'flip' | 'checkFame' | 'postFameHooks' | 'market' | 'cleanup' | 'finalFlip' | 'ended'
 
+// See SharedState.winCondition.
+export type WinCondition = 'soloFameTarget' | 'highestFinalFlip'
+
 export type GameResult = 'win' | 'loss' | null
 
 // A postMarketHook candidate snapshotted at the start of a runPostMarketHooks
@@ -180,6 +183,20 @@ export type SharedState = {
   // Set when the match ends. Solo leaves it null and uses `result` instead.
   winnerId: PlayerId | null
 
+  // §3.2.2 / §4.6: how the DEPLETION endgame trigger is INTERPRETED. Both
+  // player counts detect it identically — refillMarket came up short — but
+  // they draw opposite conclusions from it:
+  //
+  //   'soloFameTarget'    solo: running the toon deck dry is a LOSS. You were
+  //                       racing a clock and the clock won (actions.ts).
+  //   'highestFinalFlip'  multiplayer: it is an ordinary way for the game to
+  //                       end. Proceed to the Final Flip; most fame wins.
+  //
+  // A field rather than a `players.length === 1` branch at the point of use,
+  // so the two readings are named where they're decided (setup) instead of
+  // rediscovered at every consumer.
+  winCondition: WinCondition
+
   // criticsChoiceHolder (§3.2.1) and the Final Flip land here in Stage 2.
   // They were previously documented as deliberately-skipped solo omissions;
   // that reasoning (no Final Flip in solo -> the +3 can never apply) still
@@ -267,6 +284,7 @@ export function commitView(match: Match, index: number, view: PlayerView): Match
     endgameTriggered: view.endgameTriggered,
     criticsChoiceHolder: view.criticsChoiceHolder,
     winnerId: view.winnerId,
+    winCondition: view.winCondition,
     viewEpoch: match.shared.viewEpoch + 1,
   }
 
@@ -313,6 +331,8 @@ export function createSoloGameState(params: {
     endgameTriggered: false,
     criticsChoiceHolder: null,
     winnerId: null,
+    // Solo: a failed market refill is a loss, not a Final Flip.
+    winCondition: 'soloFameTarget',
     pendingPostMarketChoice: null,
     pendingPostFameChoice: null,
   }
@@ -342,6 +362,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
     endgameTriggered: view.endgameTriggered,
     criticsChoiceHolder: view.criticsChoiceHolder,
     winnerId: view.winnerId,
+    winCondition: view.winCondition,
     viewEpoch: 0,
   }
 

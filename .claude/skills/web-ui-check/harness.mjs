@@ -99,14 +99,17 @@ function stopDevServer(proc) {
   })
 }
 
-// Starts a solo game via the New Game form. Selectors are label-text based
-// (no test-ids in this app) — see components/NewGameForm.tsx if these ever
-// need updating.
+// Starts a solo game via the New Game form's two-step picker: a mode card
+// (`Solo · Season N`) opens a config panel with a difficulty segmented
+// control and a de-emphasized seed field at the bottom — see
+// components/NewGameForm.tsx if these ever need updating.
 async function startSoloGame(page, { seed = Date.now() >>> 0, difficulty = 'normal', season = 1 } = {}) {
+  await page.getByRole('button', { name: new RegExp(`Solo · Season ${season}`) }).click()
+  await page
+    .getByRole('button', { name: new RegExp(`^${difficulty}$`, 'i') })
+    .click()
   await page.getByLabel('Seed').fill(String(seed))
-  await page.getByLabel('Difficulty').selectOption(difficulty)
-  await page.getByLabel('Season').selectOption(String(season))
-  await page.getByRole('button', { name: /Start game/i }).click()
+  await page.getByRole('button', { name: /Start Game/i }).click()
 }
 
 // Advances N rounds the fast way: click "End Market phase" to skip every

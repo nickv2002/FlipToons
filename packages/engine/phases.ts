@@ -87,8 +87,27 @@ export function runFlip(state: GameState, logLines?: string[], debugLines?: stri
 // card's FAME depends on Dog-elsewhere, not which id COUNTS AS a Dog for
 // the census itself — there's no way to derive "what is a Dog" from the
 // condition string, so this has to name the id directly.
-function dogElsewhereFromMarket(state: GameState): boolean {
-  return state.market.slots.some((id) => id === 'dog')
+//
+// MULTIPLAYER: `otherGrids` carries every OTHER player's grid. Solo passes
+// none, which reduces this to the market-only check described above — the
+// exact behavior this had before the split, by construction rather than by a
+// separate code path.
+function countFaceUpInGrid(grid: Grid, ids: readonly CardId[]): number {
+  let n = 0
+  for (const { slot } of occupiedSlots(grid)) {
+    slot.cards.forEach((cardId, i) => {
+      if (slot.faceUp[i] && ids.includes(cardId)) n++
+    })
+  }
+  return n
+}
+
+function dogElsewhereFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
+  if (state.market.slots.some((id) => id === 'dog')) return true
+  // "any OTHER player's grid" — Dog excludes its own grid, because the
+  // condition is about OTHER Dogs. This is the one resolver of the three that
+  // is self-excluding; see Fox below for the contrast.
+  return otherGrids.some((g) => countFaceUpInGrid(g, ['dog']) > 0)
 }
 
 // Solo-specific resolution of the Camel's 'noOneHasMoreCamelsThanYou'
@@ -97,8 +116,15 @@ function dogElsewhereFromMarket(state: GameState): boolean {
 // (same reduction as Dog above) this reduces to "how many Camels are in
 // the shared market" — real, observable GameState the phase machine has
 // and scoreGrid itself does not.
-function camelMarketCountFromMarket(state: GameState): number {
-  return state.market.slots.filter((id) => id === 'camel').length
+//
+// MULTIPLAYER: score.ts compares `ownCamelCount >= camelMarketCount`, so what
+// this must return is the HIGHEST Camel count held by anyone else — the
+// market, or any other player's grid — not a sum. That makes the comparison
+// read exactly as the FAQ states it: "no one has STRICTLY MORE camels than
+// you," with ties still qualifying.
+function camelMarketCountFromMarket(state: GameState, otherGrids: Grid[] = []): number {
+  const marketCount = state.market.slots.filter((id) => id === 'camel').length
+  return Math.max(marketCount, ...otherGrids.map((g) => countFaceUpInGrid(g, ['camel'])), 0)
 }
 
 // Solo-specific resolution of the Fox's 'henOrRoosterInMarketOrAnyGrid'
@@ -107,18 +133,25 @@ function camelMarketCountFromMarket(state: GameState): number {
 // the shared market needs a real, observable GameState input — same
 // reduction as Dog/Camel above, keyed on the literal ids 'hen'/'rooster'
 // for the same reason dogElsewhereFromMarket names 'dog' directly.
-function henOrRoosterInMarketFromMarket(state: GameState): boolean {
-  return state.market.slots.some((id) => id === 'hen' || id === 'rooster')
+//
+// MULTIPLAYER: Fox's text is "in the market or ANY grid" — with no "other".
+// Unlike Dog, it is NOT self-excluding: it checks for a DIFFERENT card
+// (Hen/Rooster), so the Fox owner's own grid counts too. score.ts already
+// checks the own-grid half directly, so only the market plus every other
+// player's grid needs supplying here.
+function henOrRoosterInMarketFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
+  if (state.market.slots.some((id) => id === 'hen' || id === 'rooster')) return true
+  return otherGrids.some((g) => countFaceUpInGrid(g, ['hen', 'rooster']) > 0)
 }
 
-export function runCheckFame(state: GameState): GameState {
+export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameState {
   assertPhase(state, 'checkFame', 'runCheckFame')
   const cards = cardsById()
   const breakdown = scoreGrid(state.grid, cards, state.deck.length, {
-    dogElsewhere: dogElsewhereFromMarket(state),
+    dogElsewhere: dogElsewhereFromMarket(state, otherGrids),
     dismissed: state.dismissed,
-    camelMarketCount: camelMarketCountFromMarket(state),
-    henOrRoosterInMarket: henOrRoosterInMarketFromMarket(state),
+    camelMarketCount: camelMarketCountFromMarket(state, otherGrids),
+    henOrRoosterInMarket: henOrRoosterInMarketFromMarket(state, otherGrids),
   })
 
   return {
@@ -155,11 +188,18 @@ export function runCheckFame(state: GameState): GameState {
 // interactive input this engine-only pass deliberately doesn't build (task
 // scope: "Don't build any interactive/readline code") — it throws with a
 // clear message instead of guessing which card to dismiss.
-export function runPostFameHooks(state: GameState): GameState {
+// `isStrictlyLowestFame` defaults to true, which is solo's vacuous truth (one
+// player is trivially the lowest scorer). Multiplayer passes the real answer
+// — see match.ts's runMatchPostFameHooks. Skunk's FAQ is explicit about the
+// tie case: "Only one player can benefit from the skunk's ability each round.
+// In case of a tie, the skunk has no effect." Hence STRICTLY lowest: a tie
+// for last means the hook does not fire for anyone.
+export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true): GameState {
   assertPhase(state, 'postFameHooks', 'runPostFameHooks')
   const cards = cardsById()
 
   let fame = state.fame
+  let pendingPostFameChoice = state.pendingPostFameChoice
   for (const { slot } of occupiedSlots(state.grid)) {
     slot.cards.forEach((cardId, i) => {
       if (!slot.faceUp[i]) return
@@ -169,15 +209,34 @@ export function runPostFameHooks(state: GameState): GameState {
       if (hook.condition !== 'strictlyLowestFame') {
         throw new Error(`phases.ts: runPostFameHooks — unhandled postFameHook condition '${hook.condition}' on ${card.name}`)
       }
-      // Single player: vacuously "strictly lowest" (see header comment).
+      if (!isStrictlyLowestFame) return
       if (hook.effect.kind === 'gainFame') {
+        // Firefly — flat, no choice needed.
         fame += hook.effect.amount
-      } else {
-        throw new Error(
-          `phases.ts: runPostFameHooks — ${card.name}'s postFameHook needs a player choice (${hook.effect.kind}), which this engine-only pass has no interactive machinery to resolve; this should be unreachable given the current solo card table (see header comment) — investigate how it got here`,
-        )
+        return
       }
+      // Skunk — "dismiss a card of your choosing", mandatory and free
+      // (consumesAction: false, so it does NOT eat one of the two Market
+      // actions). Its own FAQ confirms the Skunk may dismiss ITSELF, so it is
+      // not excluded from its own option list. Immune cards are, as everywhere
+      // else. No legal target -> nothing to ask, so no prompt is raised.
+      const options: { pos: GridPos; index: number; cardId: CardId }[] = []
+      for (const { pos, slot: s } of occupiedSlots(state.grid)) {
+        s.cards.forEach((id, idx) => {
+          if (!s.faceUp[idx]) return
+          if (cards[id].immune?.includes('dismiss')) return
+          options.push({ pos, index: idx, cardId: id })
+        })
+      }
+      if (options.length === 0) return
+      pendingPostFameChoice = { ownerCardId: cardId, cost: hook.effect.cost, options }
     })
+  }
+
+  // A pending choice pauses the phase: the Market phase must not open for this
+  // seat until the mandatory dismissal is resolved.
+  if (pendingPostFameChoice) {
+    return { ...state, fame, pendingPostFameChoice }
   }
 
   let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [] }
@@ -192,6 +251,44 @@ export function runPostFameHooks(state: GameState): GameState {
     next = applyEffects(next, cards[cardId], cards[cardId].onHire)
   }
 
+  return next
+}
+
+// Answers a pending Skunk dismissal, then finishes the postFameHooks pass the
+// prompt interrupted. Free (cost 0 per the card data) and does NOT consume a
+// Market action — the FAQ is explicit that a player who benefits from the
+// Skunk "still take[s] up to two actions in the Market phase."
+export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; index: number }): GameState {
+  const pending = state.pendingPostFameChoice
+  if (!pending) throw new Error('phases.ts: resolvePostFameChoice — this state has no pending post-fame choice')
+
+  const target = pending.options.find((o) => o.index === choice.index && samePos(o.pos, choice.pos))
+  if (!target) {
+    throw new Error(`phases.ts: resolvePostFameChoice — ${JSON.stringify(choice)} is not one of the ${pending.options.length} legal option(s)`)
+  }
+  if (state.fame < pending.cost) {
+    throw new Error(`phases.ts: resolvePostFameChoice — cannot afford the ${pending.cost} fame cost`)
+  }
+
+  const grid = cloneGrid(state.grid)
+  const removedId = removeCardRaw(grid, target.pos, target.index)
+
+  // The hook has now fired, so re-running the pass would re-prompt off the
+  // same Skunk. Open the Market phase directly instead.
+  const cards = cardsById()
+  let next: GameState = {
+    ...state,
+    grid,
+    dismissed: [...state.dismissed, removedId],
+    fame: state.fame - pending.cost,
+    pendingPostFameChoice: null,
+    actionsRemaining: MARKET_ACTIONS_PER_ROUND,
+    phase: 'market',
+    pendingOnHireCardIds: [],
+  }
+  for (const cardId of state.pendingOnHireCardIds) {
+    next = applyEffects(next, cards[cardId], cards[cardId].onHire)
+  }
   return next
 }
 
@@ -713,6 +810,28 @@ function finishEndMarketPhase(state: GameState): GameState {
     actionsRemaining: 0,
     phase: 'cleanup',
   }
+}
+
+// The standard once-per-TURN refill, split out of finishEndMarketPhase so the
+// multiplayer turn machine can fire it after each seat's actions while the
+// decay and the phase transition stay once-per-ROUND (§3.2.2's "there are now
+// two places a refill happens"). Solo still reaches it via
+// finishEndMarketPhase, unchanged.
+export function runStandardRefill(state: GameState): GameState {
+  const cards = cardsById()
+  const refill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
+  return { ...state, ...applyRefillResult(state, refill) }
+}
+
+// The 1-2 player market decay (§3.6). Fires ONCE per round, after the LAST
+// seat's refill — never per turn, never at Cleanup. Must run after a standard
+// refill has closed any mid-turn gaps: it reads literal positions 0 and
+// length-1 as leftmost/rightmost, which only means what it says once the
+// market is full.
+export function runMarketDecay(state: GameState): GameState {
+  const cards = cardsById()
+  const decay = soloMarketDecay(state.market, state.toonDeck, cards, state.nextInsertionSeq)
+  return { ...state, ...applyRefillResult(state, decay) }
 }
 
 export function endMarketPhase(state: GameState, logLines?: string[]): GameState {

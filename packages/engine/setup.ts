@@ -119,6 +119,118 @@ export function buildSoloToonDeckUnshuffled(season: 1 | 2): CardId[] {
   return deck
 }
 
+// ---------------------------------------------------------------------------
+// Multiplayer setup (§3.0, §3.6, §4.6). Distinct from the solo variant below
+// in three specific ways, all of them setup-only:
+//   - starting deck: the MULTIPLAYER deck (Skunk included), not solo's
+//     3rd-Caterpillar swap
+//   - toon deck: the Pig STAYS in (solo removes it, §3.7); no difficulty trim
+//   - market width/prices key off PLAYER COUNT
+// ---------------------------------------------------------------------------
+
+// §3.6 / table row 13: market width and prices are a function of PLAYER COUNT
+// ALONE — never of how many seasons are in play. A combined-season 3-player
+// game still gets the 5-slot row. Kept as a table rather than an if/else so
+// the 5-8 row is a data change, not a redesign, when that scope lands.
+const PRICES_BY_PLAYER_COUNT: { maxPlayers: number; prices: number[] }[] = [
+  { maxPlayers: 4, prices: [3, 4, 7, 10, 15] },
+  { maxPlayers: 8, prices: [3, 3, 4, 7, 10, 15, 15] },
+]
+
+export function pricesForPlayerCount(playerCount: number): number[] {
+  const row = PRICES_BY_PLAYER_COUNT.find((r) => playerCount <= r.maxPlayers)
+  if (!row) throw new Error(`setup.ts: pricesForPlayerCount — unsupported player count ${playerCount}`)
+  return row.prices.slice()
+}
+
+// §3.1/§4.5, verbatim: "2x Caterpillar, 1x Skunk, 1x Dragonfly, 1x Bee,
+// 1x Snail" — the six rank-0 Season 1 cards expanded by `copies`. This is
+// exactly buildSeason1StartingDeck above; named separately so the
+// multiplayer call site reads intentionally and so a future divergence
+// doesn't silently change the sandbox helper too.
+export function buildSeason1MultiplayerStartingDeck(): CardId[] {
+  return buildSeason1StartingDeck()
+}
+
+// Season 2's equivalent: its six rank-0 cards expanded by `copies`. Unlike
+// buildSeason2SoloStartingDeck (which infers a Firefly-out/3rd-Mosquito-in
+// swap by pattern-matching Season 1's solo rule), this needs no inference —
+// it's just "that season's starting deck", the same rank-0 filter Season 1
+// uses.
+export function buildSeason2MultiplayerStartingDeck(): CardId[] {
+  const starters = season2Cards.filter((c) => c.rank === 0)
+  const deck: CardId[] = []
+  for (const card of starters) {
+    for (let i = 0; i < card.copies; i++) deck.push(card.id)
+  }
+  return deck
+}
+
+// The full market-card pool for one season, expanded by `copies`. No solo
+// exclusions: the Pig stays in (its removal is explicitly a solo-setup rule,
+// §3.7), and so does the season's Big-Button card — see
+// MULTIPLAYER_TOON_DECK_EXCLUSIONS.
+//
+// Axolotl (S1) and Platypus (S2) are still excluded, for the engine-capability
+// reason SOLO_TOON_DECK_EXCLUSIONS documents: both reference the Big Button
+// mini-expansion, which has no representation in the rules model, so their
+// effects (and Platypus's fame VALUE) would need a manual ruling every time.
+// That reason is player-count-independent, so it applies here too. This is
+// NOT the same kind of exclusion as the Pig's, which is rulebook-mandated for
+// solo only.
+const MULTIPLAYER_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
+  1: ['axolotl'],
+  2: ['platypus'],
+}
+
+export function buildMultiplayerToonDeckUnshuffled(season: 1 | 2): CardId[] {
+  const seasonCards = season === 1 ? season1Cards : season2Cards
+  const excluded = new Set(MULTIPLAYER_TOON_DECK_EXCLUSIONS[season])
+  const marketCards = seasonCards.filter((c) => c.rank > 0 && !excluded.has(c.id))
+  const deck: CardId[] = []
+  for (const card of marketCards) {
+    for (let i = 0; i < card.copies; i++) deck.push(card.id)
+  }
+  return deck
+}
+
+export type MultiplayerSetup = {
+  startingDecks: CardId[][] // one per seat, in seat order
+  toonDeck: CardId[] // shuffled; NO difficulty trim (that's solo-only, §3.7)
+  prices: number[]
+  fameToTriggerEndgame: number // 30 at every player count (§3.0)
+  seed: number
+  playerSeeds: number[] // one per seat — see state.ts's makeMatch on per-player RNG
+}
+
+// §3.0: "The endgame threshold does not scale with player count — it is 30
+// fame whether you're playing 2 or 8." Kept as a Setup field, not a constant,
+// because it's the single most useful playtesting knob.
+export const DEFAULT_FAME_TO_TRIGGER_ENDGAME = 30
+
+export function buildMultiplayerSetup(seed: number, playerCount: number, season: 1 | 2 = 1): MultiplayerSetup {
+  if (!Number.isInteger(playerCount) || playerCount < 2 || playerCount > 4) {
+    throw new Error(`setup.ts: buildMultiplayerSetup — playerCount must be an integer 2-4 (got ${playerCount}); 5-8 player support is not built yet`)
+  }
+  const rng = makeRng(seed)
+  const toonDeck = shuffle(buildMultiplayerToonDeckUnshuffled(season), rng)
+  const startingDeck = season === 1 ? buildSeason1MultiplayerStartingDeck() : buildSeason2MultiplayerStartingDeck()
+
+  return {
+    // Single-season game: every seat gets that season's deck. (Combined-season
+    // play randomly assigns each seat a Season 1 or Season 2 deck capped at 4
+    // copies each — §3.0 — and is deliberately out of this scope.)
+    startingDecks: Array.from({ length: playerCount }, () => startingDeck.slice()),
+    toonDeck,
+    prices: pricesForPlayerCount(playerCount),
+    fameToTriggerEndgame: DEFAULT_FAME_TO_TRIGGER_ENDGAME,
+    seed,
+    // Derived from the match seed so the whole match stays a pure function of
+    // it, but distinct per seat so no two players share a shuffle stream.
+    playerSeeds: Array.from({ length: playerCount }, (_, i) => seed + i * 0x9e3779b1),
+  }
+}
+
 export type SoloSetup = {
   startingDeck: CardId[]
   toonDeck: CardId[] // shuffled and trimmed for difficulty — ready to hand to state.ts's createSoloGameState

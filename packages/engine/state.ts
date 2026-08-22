@@ -16,7 +16,12 @@ import { cardsById } from './setup'
 import type { FameBreakdown } from './score'
 import type { Grid, GridPos } from './types'
 
-export type Phase = 'flip' | 'checkFame' | 'postFameHooks' | 'market' | 'cleanup' | 'ended'
+// 'finalFlip' is the multiplayer endgame's truncated round — Flip + Check
+// Fame only, no Market and no Cleanup (§3.2). A 1-player match never enters
+// it: solo resolves at a normal Cleanup off a normal Check Fame snapshot,
+// because the Final Flip exists to run a CROSS-PLAYER "most fame wins"
+// comparison that one player has no use for (§3.7).
+export type Phase = 'flip' | 'checkFame' | 'postFameHooks' | 'market' | 'cleanup' | 'finalFlip' | 'ended'
 
 export type GameResult = 'win' | 'loss' | null
 
@@ -38,6 +43,21 @@ export type PendingPostMarketChoice = {
   targetPos: GridPos
   options: { pos: GridPos; index: number; cardId: CardId }[]
   remainingCandidates: PostMarketCandidate[]
+}
+
+// Set by phases.ts's runPostFameHooks when a postFameHook whose effect needs
+// a player choice fires — Skunk's "dismiss a card of your choosing", the only
+// one in either season's card table.
+//
+// This is unreachable in SOLO, which is why it did not exist before
+// multiplayer: Skunk is a rank-0, starting-deck-only card, and solo's setup
+// swaps it out of the starting deck (setup.ts's buildSeason1SoloStartingDeck
+// puts a 3rd Caterpillar in its place). The MULTIPLAYER starting deck keeps
+// the Skunk, so this fires in round 1 of essentially every Season 1 match.
+export type PendingPostFameChoice = {
+  ownerCardId: CardId
+  cost: number
+  options: { pos: GridPos; index: number; cardId: CardId }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +129,10 @@ export type PlayerState = {
   // Per-player: it targets the acting player's OWN grid, so a hook pausing
   // player 2's turn must not block player 3.
   pendingPostMarketChoice: PendingPostMarketChoice | null
+
+  // Non-null while this seat owes a Skunk dismissal before the Market phase
+  // can open — see PendingPostFameChoice. Always null in solo.
+  pendingPostFameChoice: PendingPostFameChoice | null
 }
 
 export type SharedState = {
@@ -138,6 +162,23 @@ export type SharedState = {
   // it to convention — see commitView. Optional on the view type so the
   // engine's many hand-built test states stay valid literals.
   viewEpoch: number
+
+  // §3.2.2: latched at Cleanup when EITHER endgame trigger fires — any player
+  // generated >= fameToTriggerEndgame this round, or a market refill came up
+  // short. The two are OR'd and both firing in one round still produces
+  // exactly one Final Flip. Latching (rather than re-deriving) is what makes
+  // that guarantee hold.
+  endgameTriggered: boolean
+
+  // §3.2.1: awarded at Cleanup to the single highest scorer when the FAME
+  // trigger fires; null when unawarded, or when the leaders tied (the rules
+  // say the card is returned to the box in that case). Worth +3 during the
+  // Final Flip ONLY, via score.ts's separate playerFameModifiers seam — it
+  // must never become a scoreGrid bonus.
+  criticsChoiceHolder: PlayerId | null
+
+  // Set when the match ends. Solo leaves it null and uses `result` instead.
+  winnerId: PlayerId | null
 
   // criticsChoiceHolder (§3.2.1) and the Final Flip land here in Stage 2.
   // They were previously documented as deliberately-skipped solo omissions;
@@ -175,6 +216,7 @@ const PLAYER_FIELDS = [
   'actionsRemaining',
   'pendingOnHireCardIds',
   'pendingPostMarketChoice',
+  'pendingPostFameChoice',
 ] as const satisfies readonly (keyof PlayerState)[]
 
 // Project player `index`'s slice joined with the shared state. The result is
@@ -222,6 +264,9 @@ export function commitView(match: Match, index: number, view: PlayerView): Match
     nextInsertionSeq: view.nextInsertionSeq,
     fameToTriggerEndgame: view.fameToTriggerEndgame,
     result: view.result,
+    endgameTriggered: view.endgameTriggered,
+    criticsChoiceHolder: view.criticsChoiceHolder,
+    winnerId: view.winnerId,
     viewEpoch: match.shared.viewEpoch + 1,
   }
 
@@ -265,7 +310,11 @@ export function createSoloGameState(params: {
     nextInsertionSeq: initialRefill.nextInsertionSeq,
     fameToTriggerEndgame: params.fameToTriggerEndgame,
     result: null,
+    endgameTriggered: false,
+    criticsChoiceHolder: null,
+    winnerId: null,
     pendingPostMarketChoice: null,
+    pendingPostFameChoice: null,
   }
 }
 
@@ -290,6 +339,9 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
     nextInsertionSeq: view.nextInsertionSeq,
     fameToTriggerEndgame: view.fameToTriggerEndgame,
     result: view.result,
+    endgameTriggered: view.endgameTriggered,
+    criticsChoiceHolder: view.criticsChoiceHolder,
+    winnerId: view.winnerId,
     viewEpoch: 0,
   }
 
@@ -306,6 +358,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       actionsRemaining: view.actionsRemaining,
       pendingOnHireCardIds: view.pendingOnHireCardIds,
       pendingPostMarketChoice: view.pendingPostMarketChoice,
+      pendingPostFameChoice: view.pendingPostFameChoice,
     },
     ...others.map((o) => ({
       playerId: o.playerId,
@@ -319,6 +372,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       actionsRemaining: 0,
       pendingOnHireCardIds: [] as CardId[],
       pendingPostMarketChoice: null,
+      pendingPostFameChoice: null,
     })),
   ]
 

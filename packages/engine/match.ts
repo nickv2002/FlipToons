@@ -47,14 +47,23 @@ import type { Grid, GridPos } from './types'
 // the season's full toon deck (Pig included, no difficulty trim — both of
 // those are solo-only), prices keyed off player count, one starting deck and
 // one RNG stream per seat.
-export function buildNewMatch(seed: number, playerCount: number, season: 1 | 2 = 1): Match {
+// `fameToTriggerEndgame` is overridable because 30 fame is many rounds of
+// play. Tests and the browser end-to-end run set it low to reach a Final Flip
+// in a couple of rounds; it is also the single most useful playtesting knob
+// (setup.ts's DEFAULT_FAME_TO_TRIGGER_ENDGAME).
+export function buildNewMatch(
+  seed: number,
+  playerCount: number,
+  season: 1 | 2 = 1,
+  options: { fameToTriggerEndgame?: number } = {},
+): Match {
   const setup = buildMultiplayerSetup(seed, playerCount, season)
   const first = createSoloGameState({
     seed: setup.playerSeeds[0],
     startingDeck: setup.startingDecks[0],
     toonDeck: setup.toonDeck,
     prices: setup.prices,
-    fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    fameToTriggerEndgame: options.fameToTriggerEndgame ?? setup.fameToTriggerEndgame,
     playerId: 'p0',
   })
   // createSoloGameState defaults to solo's reading of a failed refill (a

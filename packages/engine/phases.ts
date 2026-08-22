@@ -497,6 +497,13 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
         break
       }
       case 'hireFromMarketAndRefill': {
+        // KNOWN GAP (pre-existing, not specific to any one card): this path
+        // appends the acquired card to `deck` WITHOUT firing its onHire the
+        // way hire() does. A card with a mandatory onHire acquired this way
+        // silently skips it — a Crow-hired Pig, for instance, never asks for
+        // a deck. Left as-is deliberately rather than widened here; fixing it
+        // means deciding how a nested prompt interleaves with Crow's own.
+        //
         // Crow: OPTIONAL — no-op if declined/no choice given. Only the
         // Market-phase-dismissal-triggered case is reachable in this engine
         // (see crow's card-data comment for the Flip-phase gap this leaves

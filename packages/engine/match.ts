@@ -413,6 +413,19 @@ export function runMatchCleanup(match: Match): Match {
     throw new Error(`match.ts: runMatchCleanup called in phase '${match.shared.phase}'`)
   }
 
+  // A card detached by placeSelfInAnyDeck (the Pig) and not yet given a
+  // destination is in NO zone. Cleanup collects grids back into decks, so
+  // reaching here with one outstanding would lose it silently and forever —
+  // the prompt is turn-gated, and its seat's turn is over. matchActions.ts
+  // guards every path a player can drive; this closes the CLASS, so any path
+  // nobody has enumerated yet fails loudly instead of eating a card.
+  const stranded = match.players.find((p) => p.pendingDeckPlacement !== null)
+  if (stranded) {
+    throw new Error(
+      `match.ts: runMatchCleanup — ${stranded.playerId} still owes a deck for ${stranded.pendingDeckPlacement!.cardId}; the card would be lost`,
+    )
+  }
+
   // (1) Both triggers, OR'd (§3.2.2). Latched, never re-derived, so that both
   // firing in the same round still produces exactly ONE endgame.
   const threshold = match.shared.fameToTriggerEndgame

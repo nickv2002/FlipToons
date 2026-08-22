@@ -10,7 +10,7 @@
 // player's deck.
 
 import { describe, expect, test } from 'bun:test'
-import { buildNewMatch, deckPlacementTargets, matchResolveDeckPlacement, playerIndex } from './match'
+import { buildNewMatch, deckPlacementTargets, matchResolveDeckPlacement, playerIndex, runMatchCleanup } from './match'
 import { applyMatchAction, IllegalActionError } from './matchActions'
 import { occupiedSlots } from './grid'
 import { cardsById, MULTIPLAYER_TOON_DECK_EXCLUSIONS, SOLO_TOON_DECK_EXCLUSIONS } from './setup'
@@ -294,4 +294,15 @@ describe('the pending prompt freezes the rest of the turn', () => {
     const { match, actor } = stuckMatch()
     expect(() => applyMatchAction(match, actor, { kind: 'endTurn' })).toThrow(/Pig/)
   })
+})
+
+test('Cleanup refuses to run while any seat still owes a deck', () => {
+  // The class-level guard: matchActions covers every path a player can drive,
+  // but Cleanup collects grids into decks, so a card stranded by some path
+  // nobody has enumerated would vanish silently. Fail loudly instead.
+  const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
+  const players = base.players.slice()
+  players[1] = { ...players[1], pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
+  const match: Match = { ...base, shared: { ...base.shared, phase: 'cleanup' }, players }
+  expect(() => runMatchCleanup(match)).toThrow(/still owes a deck/)
 })

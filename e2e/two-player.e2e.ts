@@ -133,6 +133,15 @@ async function playToEnd(players: Player[], maxSteps = 300): Promise<void> {
         break
       }
 
+      // A hired or dismissed Pig owes a deck, and holds its owner's turn open
+      // until it gets one. The loop's policy never hires, so this shouldn't
+      // fire today — it's here so that changing the policy doesn't silently
+      // deadlock the game instead of failing usefully.
+      if (await tryClick(page, 'deck-target-toonDeck')) {
+        acted = true
+        break
+      }
+
       // Market turn: only the active seat can do anything. Gate on the
       // button being ENABLED, not merely present — the waiting seat renders
       // the same button behind a disabled fieldset.

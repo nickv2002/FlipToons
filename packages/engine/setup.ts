@@ -99,7 +99,7 @@ export function buildSeason2SoloStartingDeck(): CardId[] {
 // entirely until Big Button state is actually simulated. This is a
 // deliberate engine-capability exclusion, not a rulebook-mandated one like
 // the Pig's — don't conflate the two reasons.
-const SOLO_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
+export const SOLO_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
   1: ['pig', 'axolotl'],
   2: ['platypus'], // no longer "UNCONFIRMED as genuinely none" — see Big Button note above
 }
@@ -179,7 +179,7 @@ export function buildSeason2MultiplayerStartingDeck(): CardId[] {
 // That reason is player-count-independent, so it applies here too. This is
 // NOT the same kind of exclusion as the Pig's, which is rulebook-mandated for
 // solo only.
-const MULTIPLAYER_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
+export const MULTIPLAYER_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
   1: ['axolotl'],
   2: ['platypus'],
 }

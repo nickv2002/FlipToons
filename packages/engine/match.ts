@@ -35,6 +35,7 @@ import {
   runStandardRefill,
 } from './phases'
 import { emptyGrid, occupiedSlots } from './grid'
+import { shuffleWithState } from './rng'
 import type { Match, PlayerId, PlayerView } from './state'
 import { commitView, createSoloGameState, makeMatch, viewOf } from './state'
 import { buildMultiplayerSetup } from './setup'
@@ -343,6 +344,48 @@ export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: strin
 function closeMarketPhase(match: Match): Match {
   const decayed = match.players.length <= 2 ? withPlayer(match, match.firstPlayerIndex, (view) => runMarketDecay(view)) : match
   return { ...decayed, shared: { ...decayed.shared, phase: 'cleanup' } }
+}
+
+// ---------------------------------------------------------------------------
+// Pig: "place this card in any deck"
+// ---------------------------------------------------------------------------
+//
+// The only card whose effect crosses seats. phases.ts has already detached it
+// (applyEffects' placeSelfInAnyDeck) and left a pendingDeckPlacement on the
+// acting player; this puts it where they said. Table-level because the
+// destination may be a deck the acting player's own view cannot reach.
+export type DeckPlacementTarget = { kind: 'player'; playerId: PlayerId } | { kind: 'toonDeck' }
+
+// Every legal destination, for a UI prompt: each seat's deck (your own
+// included — the FAQ says "any player's deck", not "another player's"), plus
+// the toon deck.
+export function deckPlacementTargets(match: Match): DeckPlacementTarget[] {
+  return [...match.players.map((p) => ({ kind: 'player' as const, playerId: p.playerId })), { kind: 'toonDeck' as const }]
+}
+
+export function matchResolveDeckPlacement(match: Match, playerId: PlayerId, target: DeckPlacementTarget): Match {
+  const index = playerIndex(match, playerId)
+  const pending = match.players[index].pendingDeckPlacement
+  if (!pending) throw new Error(`match.ts: matchResolveDeckPlacement — ${playerId} has no card waiting for a deck`)
+
+  const cleared = withPlayer(match, index, (view) => ({ ...view, pendingDeckPlacement: null }))
+
+  if (target.kind === 'toonDeck') {
+    // FAQ: "Shuffle the deck if placed in the toon deck." Shuffled with the
+    // ACTING player's stream — the placement is their action, and every seat
+    // has its own stream (state.ts's makeMatch), so it has to come from
+    // somewhere specific to stay reproducible.
+    return withPlayer(cleared, index, (view) => {
+      const shuffled = shuffleWithState([...view.toonDeck, pending.cardId], view.rng)
+      return { ...view, toonDeck: shuffled.result, rng: shuffled.next }
+    })
+  }
+
+  // Into a seat's deck. NOT shuffled: the FAQ calls for a shuffle only for
+  // the toon deck, and a player's deck is shuffled at the start of every Flip
+  // anyway (phases.ts's runFlip), so the position it goes in never matters.
+  const targetIndex = playerIndex(cleared, target.playerId)
+  return withPlayer(cleared, targetIndex, (view) => ({ ...view, deck: [...view.deck, pending.cardId] }))
 }
 
 // ---------------------------------------------------------------------------

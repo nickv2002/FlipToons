@@ -63,6 +63,18 @@ export type PendingPostFameChoice = {
   options: { pos: GridPos; index: number; cardId: CardId }[]
 }
 
+// Set while a Pig owes a destination deck. The card has already been detached
+// from wherever it landed (grid on hire, dismissed pile on dismiss) and is
+// held here until the player names a deck — any seat's, or the toon deck.
+//
+// It lives on PlayerState because the CHOICE belongs to the acting player,
+// even though the DESTINATION may be someone else's deck; resolving it is a
+// table-level operation (match.ts's matchResolveDeckPlacement).
+export type PendingDeckPlacement = {
+  cardId: CardId
+  source: 'hire' | 'dismiss'
+}
+
 // ---------------------------------------------------------------------------
 // The per-player / shared split (Stage 0 of the multiplayer work)
 // ---------------------------------------------------------------------------
@@ -136,6 +148,10 @@ export type PlayerState = {
   // Non-null while this seat owes a Skunk dismissal before the Market phase
   // can open — see PendingPostFameChoice. Always null in solo.
   pendingPostFameChoice: PendingPostFameChoice | null
+
+  // Non-null while a hired/dismissed Pig is waiting to be put into a deck.
+  // Always null in solo — the Pig is excluded from solo's toon deck.
+  pendingDeckPlacement: PendingDeckPlacement | null
 }
 
 export type SharedState = {
@@ -234,7 +250,21 @@ const PLAYER_FIELDS = [
   'pendingOnHireCardIds',
   'pendingPostMarketChoice',
   'pendingPostFameChoice',
+  'pendingDeckPlacement',
 ] as const satisfies readonly (keyof PlayerState)[]
+
+// `satisfies` only checks that every listed key EXISTS on PlayerState — it
+// does not check the reverse. Without the guard below, adding a field to
+// PlayerState and forgetting it here compiles cleanly and then silently drops
+// that field on every single commitView, which surfaces later as a value that
+// mysteriously resets to undefined. (Caught exactly that way while adding
+// pendingDeckPlacement.) This turns the omission into a compile error naming
+// the missing key.
+type MissingPlayerFields = Exclude<keyof PlayerState, (typeof PLAYER_FIELDS)[number]>
+const _playerFieldsAreExhaustive: MissingPlayerFields extends never
+  ? true
+  : ['state.ts: PLAYER_FIELDS is missing these PlayerState keys', MissingPlayerFields] = true
+void _playerFieldsAreExhaustive
 
 // Project player `index`'s slice joined with the shared state. The result is
 // a snapshot: mutating it does not touch `match`.
@@ -335,6 +365,7 @@ export function createSoloGameState(params: {
     winCondition: 'soloFameTarget',
     pendingPostMarketChoice: null,
     pendingPostFameChoice: null,
+    pendingDeckPlacement: null,
   }
 }
 
@@ -380,6 +411,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingOnHireCardIds: view.pendingOnHireCardIds,
       pendingPostMarketChoice: view.pendingPostMarketChoice,
       pendingPostFameChoice: view.pendingPostFameChoice,
+      pendingDeckPlacement: view.pendingDeckPlacement,
     },
     ...others.map((o) => ({
       playerId: o.playerId,
@@ -394,6 +426,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingOnHireCardIds: [] as CardId[],
       pendingPostMarketChoice: null,
       pendingPostFameChoice: null,
+      pendingDeckPlacement: null,
     })),
   ]
 

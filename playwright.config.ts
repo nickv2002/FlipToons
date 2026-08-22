@@ -8,6 +8,11 @@ import { defineConfig, devices } from '@playwright/test'
 // `bunx playwright test` needs no `make play` running first.
 export default defineConfig({
   testDir: './e2e',
+  // NOT *.spec.ts: `bun test` claims that suffix too, and would try to run
+  // these Playwright files as bun tests (they fail with "did not expect
+  // test.describe() to be called here"). The two runners stay out of each
+  // other's way by filename.
+  testMatch: '**/*.e2e.ts',
   // Serial. The two "players" in a test are two browser contexts driving ONE
   // shared server-side match, and the WS server holds rooms in process memory.
   workers: 1,

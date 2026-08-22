@@ -115,6 +115,12 @@ export type Effect =
   | { kind: 'hireFromDismissed'; cost: number } // Raccoon — OPTIONAL, targets a card in GameState.dismissed
   | { kind: 'hireFromMarketAndRefill'; cost: number } // Crow — OPTIONAL, targets a market slot
   | { kind: 'discardMarketAndRefill' } // Horse — OPTIONAL, targets any number of market slots
+  // Pig — MANDATORY, and the only effect in the vocabulary that reaches
+  // ACROSS players: its FAQ says the card goes into "any player's deck or
+  // back in the toon deck." A PlayerView can't see another seat's deck, so
+  // this effect only detaches the card and records that a placement is owed;
+  // match.ts resolves the target at the table level (matchResolveDeckPlacement).
+  | { kind: 'placeSelfInAnyDeck' }
   | { kind: 'other'; text: string }
 
 // Player-choice payloads for the Effect kinds above, threaded through

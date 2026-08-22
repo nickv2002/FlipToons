@@ -2,7 +2,7 @@
 # test/typecheck checks. Each target just execs a scripts/*.sh wrapper (see
 # that directory for what each mode actually is); this file is the index.
 
-.PHONY: help web server play stop test typecheck
+.PHONY: help web server play stop test typecheck e2e
 
 .DEFAULT_GOAL := help
 
@@ -33,3 +33,7 @@ test:
 ## bunx tsc --noEmit, from repo root
 typecheck:
 	bunx tsc --noEmit -p .
+
+## Browser end-to-end tests (Playwright starts both servers itself)
+e2e:
+	bunx playwright test

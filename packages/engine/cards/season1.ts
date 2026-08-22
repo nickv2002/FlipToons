@@ -212,8 +212,12 @@ export const season1Cards: Card[] = [
     id: 'pig', name: 'Pig', season: 1, rank: 18, copies: 1,
     fame: { base: -1 },
     rawBannerText: 'WHEN HIRED OR DISMISSED, PLACE THIS CARD IN ANY DECK',
-    unencodable: true,
-    unencodableReason: "effect lets the acting player place this card into *any* player's deck, not just their own — that's multiplayer-targeting text this single-grid solo engine has no cross-player state for; deliberately not faking one. Moot in practice: solo setup excludes Pig from the toon deck entirely (see its faqNote and setup.ts's SOLO_TOON_DECK_EXCLUSIONS), so this card can never actually enter a solo game to begin with.",
+    // Encodable as of the multiplayer work: 'placeSelfInAnyDeck' detaches the
+    // card and match.ts asks which deck it goes into (any seat's, or the toon
+    // deck — reshuffled if so, per the FAQ below). Still never comes up in
+    // solo, where setup excludes the Pig from the toon deck entirely.
+    onHire: [{ kind: 'placeSelfInAnyDeck' }],
+    onDismiss: [{ kind: 'placeSelfInAnyDeck' }],
     faqNote: 'FAQ: "The pig can be placed in any player\'s deck or back in the toon deck. Shuffle the deck if placed in the toon deck." Note: solo-play setup removes the Pig from the toon deck entirely (Referance rulebook photos) — this ability presumably doesn\'t come up in solo.',
   },
   {

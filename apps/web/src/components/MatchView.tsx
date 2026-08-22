@@ -1,5 +1,5 @@
 import { cardsById } from '../../../../packages/engine/setup'
-import { matchRoundFame } from '../../../../packages/engine/match'
+import { deckPlacementTargets, matchRoundFame } from '../../../../packages/engine/match'
 import { viewOf } from '../../../../packages/engine/state'
 import type { Match } from '../../../../packages/engine/state'
 import type { MatchAction } from '../../../../packages/engine/matchActions'
@@ -109,6 +109,35 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
 
       {phase === 'postFameHooks' && !me.pendingPostFameChoice && (
         <p className="match__waiting" data-testid="waiting-others">Waiting for the other players to resolve their abilities…</p>
+      )}
+
+      {/* Pig: "place this card in any deck." The one prompt that offers
+          another player's deck as a target. */}
+      {me.pendingDeckPlacement && (
+        <div className="match__prompt" data-testid="deck-placement-prompt">
+          <p>
+            <strong>{cards[me.pendingDeckPlacement.cardId].name}</strong>: put it into any deck.
+          </p>
+          <div className="match__prompt-options">
+            {deckPlacementTargets(match).map((target) => {
+              const key = target.kind === 'toonDeck' ? 'toonDeck' : target.playerId
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  data-testid={`deck-target-${key}`}
+                  onClick={() => onAct({ kind: 'resolveDeckPlacement', target })}
+                >
+                  {target.kind === 'toonDeck'
+                    ? 'Toon deck (reshuffled)'
+                    : target.playerId === myPlayerId
+                      ? 'Your deck'
+                      : `${nameOf(target.playerId)}'s deck`}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {phase === 'ended' && <EndScreen match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} />}

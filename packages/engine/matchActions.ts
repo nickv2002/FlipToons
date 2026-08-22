@@ -33,6 +33,7 @@ import {
   endMarketTurn,
   matchDismiss,
   matchHire,
+  matchResolveDeckPlacement,
   matchResolvePostFameChoice,
   matchResolvePostMarketChoice,
   playerIndex,
@@ -42,6 +43,7 @@ import {
   runMatchFlip,
   runMatchPostFameHooks,
 } from './match'
+import type { DeckPlacementTarget } from './match'
 import { hireCost } from './market'
 import { cardsById } from './setup'
 import type { Match, PlayerId } from './state'
@@ -62,6 +64,9 @@ export type MatchAction =
   | { kind: 'dismiss'; pos: GridPos; index: number; choices?: EffectChoices }
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number }
   | { kind: 'endTurn' }
+  // Pig's destination deck. Turn-gated: it can only ever arise from the
+  // acting player's own hire or dismiss.
+  | { kind: 'resolveDeckPlacement'; target: DeckPlacementTarget }
 
 // A log line that knows WHO did it. The solo log was a bare string[] because
 // there was only ever one actor; at N seats "Hired Elephant for 7 fame" is
@@ -164,6 +169,22 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       return afterTurnBoundary(next, logLines, debugLines)
     }
 
+    case 'resolveDeckPlacement': {
+      assertTurn(match, playerId, 'place that card')
+      const pending = match.players[playerIndex(match, playerId)].pendingDeckPlacement
+      if (!pending) throw new IllegalActionError('You have no card waiting for a deck.')
+      const next = matchResolveDeckPlacement(match, playerId, action.target)
+      const name = cards[pending.cardId].name
+      say(
+        action.target.kind === 'toonDeck'
+          ? `put ${name} back into the toon deck (reshuffled).`
+          : `put ${name} into ${action.target.playerId}'s deck.`,
+      )
+      // The placement may have been the last thing standing between this seat
+      // and the end of its turn.
+      return afterMarketAction(next, playerId, logLines, debugLines, say)
+    }
+
     case 'endTurn': {
       assertTurn(match, playerId, 'end your turn')
       const next = endMarketTurn(match, playerId)
@@ -224,6 +245,9 @@ function afterMarketAction(
   say: (text: string, who?: PlayerId | null) => void,
 ): MatchApplyResult {
   const me = match.players[playerIndex(match, playerId)]
+  // A Pig still owing a destination deck holds the turn open — ending it here
+  // would strand the card outside every zone in the game.
+  if (me.pendingDeckPlacement) return { match, logLines, debugLines }
   if (match.shared.phase === 'market' && me.actionsRemaining <= 0 && !me.pendingPostMarketChoice && activePlayerId(match) === playerId) {
     say('has no actions left — ending their turn.')
     return afterTurnBoundary(endMarketTurn(match, playerId), logLines, debugLines)

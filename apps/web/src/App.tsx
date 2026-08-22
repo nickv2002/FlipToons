@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useGame } from './useGame'
-import { useMatch, roomCodeFromUrl } from './useMatch'
+import { useMatch, roomCodeFromUrl, hasStoredSeat } from './useMatch'
 import { NewGameForm } from './components/NewGameForm'
 import { RoundView } from './components/RoundView'
 import { ResolveLog } from './components/ResolveLog'
@@ -20,7 +20,10 @@ export function App() {
   const local = useGame()
   const match = useMatch()
   const urlRoom = roomCodeFromUrl()
-  const [mode, setMode] = useState<'solo' | 'multiplayer'>(urlRoom ? 'multiplayer' : 'solo')
+  // A room link OR a remembered seat means the player was in a multiplayer
+  // game; open there rather than on the solo screen, or a reload silently
+  // abandons a game that is still running.
+  const [mode, setMode] = useState<'solo' | 'multiplayer'>(urlRoom || hasStoredSeat() ? 'multiplayer' : 'solo')
 
   // A room code in the URL or a stored seat means "get me back into that
   // game." The old remote hook persisted nothing, so a refresh lost the room

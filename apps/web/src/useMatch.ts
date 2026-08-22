@@ -33,6 +33,13 @@ function saveSeat(seat: StoredSeat | null): void {
   }
 }
 
+// Is there a seat remembered from a previous visit? App uses this to decide
+// which mode to open in — without it, a reload after joining a room lands you
+// back on the SOLO screen with a live game still running behind it.
+export function hasStoredSeat(): boolean {
+  return loadSeat() !== null
+}
+
 // The room code can also arrive in the URL (?room=ABCDE), which is what makes
 // a room shareable — you send someone a link rather than dictating five
 // characters.

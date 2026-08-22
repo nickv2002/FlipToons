@@ -131,6 +131,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
               // a lost round for you is not a lost game for anyone.
               soloWarnings={false}
               leaveLabel="Leave game"
+              endMarketLabel="End turn"
             />
           </fieldset>
         </section>

@@ -33,6 +33,8 @@ export type RoundViewProps = {
   soloWarnings?: boolean
   // "Abandon game" reads wrong when three other people are still playing.
   leaveLabel?: string
+  // See ChoicePrompt's endLabel.
+  endMarketLabel?: string
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -41,7 +43,7 @@ export type RoundViewProps = {
 // cascades through automatically (see advanceThroughPassthroughPhases),
 // same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
 // just with zero intermediate screens shown in this UI.
-export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game' }: RoundViewProps) {
+export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
   // hireChoices.ts). Rather than dispatching immediately, the click handlers
@@ -258,7 +260,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
               fame={state.fame}
               onHire={(slotIndex) => handleHire(slotIndex)}
             />
-            <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} />
+            <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} endLabel={endMarketLabel} />
           </div>
         </div>
       )}

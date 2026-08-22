@@ -10,9 +10,12 @@ import type { GameState } from '../../../../packages/engine/state'
 export type ChoicePromptProps = {
   state: GameState
   onEndMarket: () => void
+  // Solo ends the whole Market PHASE; a multiplayer seat only ends its own
+  // TURN — the phase closes when the turn order wraps.
+  endLabel?: string
 }
 
-export function ChoicePrompt({ state, onEndMarket }: ChoicePromptProps) {
+export function ChoicePrompt({ state, onEndMarket, endLabel = 'End Market phase' }: ChoicePromptProps) {
   return (
     <div className="choice-prompt">
       <div className="choice-prompt__summary">
@@ -20,8 +23,8 @@ export function ChoicePrompt({ state, onEndMarket }: ChoicePromptProps) {
         <strong className="choice-prompt__currency">{state.fame}</strong> (resets to 0 after this phase — spend it or
         lose it)
       </div>
-      <button type="button" className="choice-prompt__end" onClick={onEndMarket}>
-        End Market phase
+      <button type="button" className="choice-prompt__end" data-testid="end-turn" onClick={onEndMarket}>
+        {endLabel}
       </button>
     </div>
   )

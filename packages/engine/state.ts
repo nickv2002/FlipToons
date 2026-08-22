@@ -40,10 +40,40 @@ export type PendingPostMarketChoice = {
   remainingCandidates: PostMarketCandidate[]
 }
 
-export type GameState = {
-  phase: Phase
-  round: number
-  rng: RngState // pure numeric state, not a closure — see rng.ts's stepRng/shuffleWithState comment
+// ---------------------------------------------------------------------------
+// The per-player / shared split (Stage 0 of the multiplayer work)
+// ---------------------------------------------------------------------------
+//
+// GameState used to be one flat object holding BOTH one player's private
+// state and the state every player shares. Multiplayer needs those separated
+// so there is exactly ONE market/toon deck for the table, not N copies that
+// have to be kept in sync.
+//
+// The split is a clean partition — every field below lands in exactly one of
+// PlayerState or SharedState, never both — which is what makes
+//
+//     PlayerView = PlayerState & SharedState
+//
+// structurally identical to the old flat GameState. That's deliberate: every
+// function in phases.ts/flip.ts operates on a PlayerView and keeps its
+// original signature, so the 819 lines of interleaved per-player/shared
+// mutation in phases.ts (hire -> applyEffects -> refillMarket, all writing
+// `market`/`toonDeck` mid-transform) did not have to be restructured.
+//
+// This is NOT the rejected "N GameStates kept in sync" design. A PlayerView
+// is a TRANSIENT projection that exists for the duration of one action;
+// `match.shared` is the single durable copy of the shared state. There is no
+// fan-out and no sync step. The discipline is:
+//
+//     project (viewOf) -> mutate -> commit (commitView) -> project the next
+//
+// and it is enforced at runtime by `viewEpoch`, not left to convention — see
+// commitView below.
+export type PlayerId = string
+
+export type PlayerState = {
+  playerId: PlayerId
+  rng: RngState // per-player stream — see makeMatch for why it isn't shared
 
   deck: CardId[] // shuffled at each Flip; no discard pile (§3.2/§4.2)
   grid: Grid
@@ -74,6 +104,17 @@ export type GameState = {
   // it can't just fire immediately during Flip).
   pendingOnHireCardIds: CardId[]
 
+  // Non-null only while endMarketPhase is paused mid-sequence waiting on
+  // Alligator's stack-target choice — see PendingPostMarketChoice's comment.
+  // Per-player: it targets the acting player's OWN grid, so a hook pausing
+  // player 2's turn must not block player 3.
+  pendingPostMarketChoice: PendingPostMarketChoice | null
+}
+
+export type SharedState = {
+  phase: Phase
+  round: number
+
   toonDeck: CardId[] // shared draw pile
   // Set true the moment ANY refill (hire/dismiss/decay/Cleanup's own) comes
   // up SHORT — a market slot needed a card and the toon deck had none left
@@ -92,32 +133,101 @@ export type GameState = {
   fameToTriggerEndgame: number // §3.7's solo win condition: 30, but tunable (§3.0)
   result: GameResult // null until phase === 'ended'
 
-  // Non-null only while endMarketPhase is paused mid-sequence waiting on
-  // Alligator's stack-target choice — see PendingPostMarketChoice's comment.
-  pendingPostMarketChoice: PendingPostMarketChoice | null
+  // Stamped into every PlayerView by viewOf and checked by commitView. Guards
+  // the project -> mutate -> commit discipline at runtime rather than leaving
+  // it to convention — see commitView. Optional on the view type so the
+  // engine's many hand-built test states stay valid literals.
+  viewEpoch: number
 
-  // --- Deliberately NOT here — see the task report for the full reasoning ---
-  //
-  // criticsChoiceHolder (§3.2.1, §4.2): SKIPPED for solo, not merely
-  // unimplemented. Its only mechanical effect is +3 fame during the FINAL
-  // FLIP. Solo's own win condition (§3.7 — "generate 30 fame before the
-  // toon deck depletes") resolves at a normal Cleanup, off a normal Check
-  // Fame snapshot; solo has no Final Flip at all, because the Final Flip's
-  // entire purpose in the rules is a CROSS-PLAYER "most fame wins"
-  // comparison (§3.2's FinalFlip block) that a one-player game has no use
-  // for. No Final Flip -> the +3 bonus never has a phase to apply in ->
-  // the token can never affect a solo game's outcome. The award condition
-  // itself is also degenerate at one player ("the player with the most
-  // fame" is trivially the only player), and the tie-for-most removal
-  // branch is unreachable (a tie requires >= 2 players). Building
-  // criticsChoiceHolder here would be machinery with no path to ever
-  // matter, which the task explicitly says to skip rather than build.
-  //
-  // action log (§4.7): not built this pass — not in the task's "What to
-  // build" list (1-4), and every phase function below is already a pure
-  // GameState -> GameState transform, which is what an action-log replayer
-  // would call regardless; adding the log itself is a thin wrapper for a
-  // later pass, not a design decision this pass needs to make.
+  // criticsChoiceHolder (§3.2.1) and the Final Flip land here in Stage 2.
+  // They were previously documented as deliberately-skipped solo omissions;
+  // that reasoning (no Final Flip in solo -> the +3 can never apply) still
+  // holds for a 1-player match and is now expressed as a player-count
+  // condition rather than a missing field.
+}
+
+// One player's transient working view: their private slice joined with the
+// shared state. Structurally identical to the pre-split flat GameState, which
+// is why phases.ts/flip.ts operate on it unchanged.
+export type PlayerView = PlayerState & Omit<SharedState, 'viewEpoch'> & { viewEpoch?: number }
+
+// Back-compat alias. Solo is the 1-player case of the same machine, so
+// everything that used to take a GameState takes a PlayerView.
+export type GameState = PlayerView
+
+export type Match = {
+  shared: SharedState
+  players: PlayerState[]
+  turnOrder: PlayerId[] // seat order; index into `players`
+  firstPlayerIndex: number
+  activePlayerIndex: number // only meaningful during 'market'
+}
+
+const PLAYER_FIELDS = [
+  'playerId',
+  'rng',
+  'deck',
+  'grid',
+  'dismissed',
+  'fame',
+  'fameGeneratedThisRound',
+  'lastCheckFame',
+  'actionsRemaining',
+  'pendingOnHireCardIds',
+  'pendingPostMarketChoice',
+] as const satisfies readonly (keyof PlayerState)[]
+
+// Project player `index`'s slice joined with the shared state. The result is
+// a snapshot: mutating it does not touch `match`.
+export function viewOf(match: Match, index: number): PlayerView {
+  const player = match.players[index]
+  if (!player) throw new Error(`state.ts: viewOf — no player at index ${index}`)
+  return { ...match.shared, ...player }
+}
+
+// Fold a mutated view back into the match. Shared fields land in the single
+// `match.shared`; per-player fields land in `players[index]`.
+//
+// The epoch check is the teeth behind "one live view at a time". Without it,
+// the natural-looking parallel Flip loop
+//
+//     const a = viewOf(m, 0), b = viewOf(m, 1)
+//     m = commitView(commitView(m, 0, runFlip(a)), 1, runFlip(b))
+//
+// silently corrupts the game: `b` was projected off the pre-flip toon deck,
+// so committing it clobbers the cards player 0's flip drew, duplicating them
+// across two grids. Bumping the epoch on every commit turns that into a loud
+// throw instead of a scoring bug someone finds three rounds later.
+export function commitView(match: Match, index: number, view: PlayerView): Match {
+  if (!match.players[index]) throw new Error(`state.ts: commitView — no player at index ${index}`)
+  if (view.viewEpoch !== undefined && view.viewEpoch !== match.shared.viewEpoch) {
+    throw new Error(
+      `state.ts: commitView — stale view for player ${index} (view epoch ${view.viewEpoch}, match epoch ${match.shared.viewEpoch}). Views must be projected, mutated, and committed one at a time; re-project after every commit.`,
+    )
+  }
+
+  const player = {} as PlayerState
+  for (const key of PLAYER_FIELDS) {
+    // Each key is its own property of both types; the cast is a
+    // per-key-narrowing limitation, not a shape mismatch.
+    ;(player as Record<string, unknown>)[key] = view[key]
+  }
+
+  const shared: SharedState = {
+    phase: view.phase,
+    round: view.round,
+    toonDeck: view.toonDeck,
+    toonDeckDepleted: view.toonDeckDepleted,
+    market: view.market,
+    nextInsertionSeq: view.nextInsertionSeq,
+    fameToTriggerEndgame: view.fameToTriggerEndgame,
+    result: view.result,
+    viewEpoch: match.shared.viewEpoch + 1,
+  }
+
+  const players = match.players.slice()
+  players[index] = player
+  return { ...match, shared, players }
 }
 
 export function createSoloGameState(params: {
@@ -126,6 +236,7 @@ export function createSoloGameState(params: {
   toonDeck: CardId[] // already trimmed for difficulty (setup.ts's buildSoloToonDeck)
   prices: number[]
   fameToTriggerEndgame: number
+  playerId?: PlayerId
 }): GameState {
   const cards = cardsById()
   // §3.1: the market starts already filled — "reveal the top five cards of
@@ -138,6 +249,7 @@ export function createSoloGameState(params: {
   return {
     phase: 'flip',
     round: 1,
+    playerId: params.playerId ?? 'p0',
     rng: initRngState(params.seed),
     deck: params.startingDeck.slice(),
     grid: emptyGrid(),
@@ -155,4 +267,61 @@ export function createSoloGameState(params: {
     result: null,
     pendingPostMarketChoice: null,
   }
+}
+
+// Builds a Match from one already-constructed view plus each additional
+// player's own starting deck. The shared state is taken from `first` — there
+// is exactly one copy of it, which is the whole point of the split.
+//
+// Per-player RNG streams (not one shared stream consumed in turn order):
+// with a shared stream, player 3's flip order would depend on how many
+// toon-deck draws players 1-2's flips happened to trigger first, which makes
+// a single player's game impossible to reproduce in isolation and leaks turn
+// position into the shuffle. Each seat derives its own stream from the match
+// seed and its index instead.
+export function makeMatch(first: GameState, others: { playerId: PlayerId; startingDeck: CardId[]; seed: number }[] = []): Match {
+  const { viewEpoch: _ignored, ...view } = first
+  const shared: SharedState = {
+    phase: view.phase,
+    round: view.round,
+    toonDeck: view.toonDeck,
+    toonDeckDepleted: view.toonDeckDepleted,
+    market: view.market,
+    nextInsertionSeq: view.nextInsertionSeq,
+    fameToTriggerEndgame: view.fameToTriggerEndgame,
+    result: view.result,
+    viewEpoch: 0,
+  }
+
+  const players: PlayerState[] = [
+    {
+      playerId: view.playerId,
+      rng: view.rng,
+      deck: view.deck,
+      grid: view.grid,
+      dismissed: view.dismissed,
+      fame: view.fame,
+      fameGeneratedThisRound: view.fameGeneratedThisRound,
+      lastCheckFame: view.lastCheckFame,
+      actionsRemaining: view.actionsRemaining,
+      pendingOnHireCardIds: view.pendingOnHireCardIds,
+      pendingPostMarketChoice: view.pendingPostMarketChoice,
+    },
+    ...others.map((o) => ({
+      playerId: o.playerId,
+      rng: initRngState(o.seed),
+      deck: o.startingDeck.slice(),
+      grid: emptyGrid(),
+      dismissed: [] as CardId[],
+      fame: 0,
+      fameGeneratedThisRound: 0,
+      lastCheckFame: null,
+      actionsRemaining: 0,
+      pendingOnHireCardIds: [] as CardId[],
+      pendingPostMarketChoice: null,
+    })),
+  ]
+
+  const turnOrder = players.map((p) => p.playerId)
+  return { shared, players, turnOrder, firstPlayerIndex: 0, activePlayerIndex: 0 }
 }

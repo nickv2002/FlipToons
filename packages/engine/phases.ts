@@ -691,6 +691,15 @@ export function runPostMarketHooks(state: GameState, logLines?: string[]): GameS
 // length-1 as "leftmost"/"rightmost" (market.ts's own comment), which
 // only means what it says once the market is full/right-justified — an
 // interior gap from an un-refilled mid-turn hire would corrupt that.
+// STAGE 1 HAZARD (multiplayer), flagged here because the per-player/shared
+// split does NOT surface it in the signature: this function writes both
+// `actionsRemaining: 0` (per-player) and `phase: 'cleanup'` (SHARED) in one
+// return. Committed from one player's view, that ends the Market phase for
+// the whole table while the other seats still have turns to take. When the
+// turn machine lands, the phase transition has to move out of this per-player
+// function and fire only when activePlayerIndex wraps; the standard refill
+// stays per-turn and the 1-2 player decay fires once, after the last seat.
+// runCleanup's `phase`/`round` writes have the same shape.
 function finishEndMarketPhase(state: GameState): GameState {
   const cards = cardsById()
   const standardRefill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)

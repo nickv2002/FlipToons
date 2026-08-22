@@ -20,10 +20,9 @@ import type { CardId } from './cards/types'
 
 const cards = cardsById()
 
-// A 2-player match parked in the Market phase with the Pig sitting in the
-// acting seat's grid, as a hire would have left it just before its effect
-// fires.
-function matchWithPigInGrid(): { match: Match; playerId: string } {
+// A plain 2-player match parked in the Market phase, no Pig anywhere — the
+// base for the placement tests, which inject `pendingDeckPlacement` directly.
+function marketPhaseMatch(): { match: Match; playerId: string } {
   const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
   const match: Match = { ...base, shared: { ...base.shared, phase: 'market' } }
   return { match, playerId: match.turnOrder[0] }
@@ -46,23 +45,78 @@ describe('the Pig is no longer unencodable', () => {
   })
 })
 
-describe('detaching the card (phases.ts)', () => {
-  test('a hired Pig leaves the grid and records that a deck is owed', () => {
-    const { match, playerId } = matchWithPigInGrid()
-    const i = playerIndex(match, playerId)
-    // Put a Pig on the board, then fire its effect the way hire() would.
-    const view = { ...match.players[i], ...match.shared }
-    const withPig = { ...view, grid: gridWithCard(view.grid, 'pig') }
-    const after = applyEffects(withPig, cards['pig'], cards['pig'].onHire)
+// A 2-player match parked in the Market phase with the Pig sitting in market
+// slot 0 and the acting seat able to afford it — the real, unfaked setup for
+// a Pig hire.
+function matchWithPigInMarket(): { match: Match; playerId: string; slotIndex: number } {
+  const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
+  const slotIndex = 0
+  const market = {
+    prices: base.shared.market.prices,
+    slots: base.shared.market.slots.slice(),
+    insertionSeq: base.shared.market.insertionSeq.slice(),
+  }
+  market.slots[slotIndex] = 'pig' as CardId
+  // Multiplayer setup leaves the real Pig in the toon deck; pull it out so
+  // the one in the market is the ONLY copy and the zone census below is
+  // unambiguous.
+  const toonDeck = base.shared.toonDeck.filter((id) => id !== 'pig')
+  const players = base.players.slice()
+  const i = base.activePlayerIndex
+  players[i] = { ...players[i], fame: market.prices[slotIndex] + 5, actionsRemaining: 2 }
+  const match: Match = {
+    ...base,
+    shared: { ...base.shared, phase: 'market', market, toonDeck },
+    players,
+  }
+  return { match, playerId: match.turnOrder[i], slotIndex }
+}
 
-    expect(cardIdsInGrid(after.grid)).not.toContain('pig')
-    expect(after.pendingDeckPlacement).toEqual({ cardId: 'pig', source: 'hire' })
+// Every zone in the match that a card can legally sit in. The Pig's whole
+// problem is that it moves BETWEEN zones across seats, so "it is in exactly
+// one place" is the assertion that matters — `not.toContain` on a single
+// deck would have missed the bug this file was rewritten for.
+function zoneCensus(match: Match, cardId: CardId): string[] {
+  const found: string[] = []
+  match.players.forEach((p, i) => {
+    p.deck.forEach((id) => { if (id === cardId) found.push(`p${i}.deck`) })
+    p.dismissed.forEach((id) => { if (id === cardId) found.push(`p${i}.dismissed`) })
+    cardIdsInGrid(p.grid).forEach((id) => { if (id === cardId) found.push(`p${i}.grid`) })
+  })
+  match.shared.toonDeck.forEach((id) => { if (id === cardId) found.push('toonDeck') })
+  match.shared.market.slots.forEach((id) => { if (id === cardId) found.push('market') })
+  return found
+}
+
+describe('detaching the card (phases.ts)', () => {
+  test('a REAL hire takes the Pig straight back out of the deck it just entered', () => {
+    // hire() appends the purchased card to the player's DECK (phases.ts:
+    // `deck: [...state.deck, cardId]`) — it never touches the grid. An
+    // earlier version of placeSelfInAnyDeck searched the grid and then threw,
+    // so this exact path — the card's only real trigger — crashed the turn.
+    const { match, playerId, slotIndex } = matchWithPigInMarket()
+    const i = playerIndex(match, playerId)
+    const deckBefore = match.players[i].deck
+    const fameBefore = match.players[i].fame
+    const price = match.shared.market.prices[slotIndex]
+
+    const after = applyMatchAction(match, playerId, { kind: 'hire', slotIndex }).match
+    const me = after.players[i]
+
+    // Exactly equal, not merely "doesn't contain pig": hire appends and the
+    // effect splices, so equality also catches an off-by-one splice.
+    expect(me.deck).toEqual(deckBefore)
+    expect(me.pendingDeckPlacement).toEqual({ cardId: 'pig', source: 'hire' })
+    expect(me.fame).toBe(fameBefore - price)
+    expect(me.actionsRemaining).toBe(1)
+    // Detached from every zone while it waits for a destination.
+    expect(zoneCensus(after, 'pig')).toEqual([])
   })
 
   test('a dismissed Pig comes back OUT of the dismissed pile', () => {
     // Otherwise it would be in two places at once — the rules send it to a
     // deck INSTEAD of out of the game.
-    const { match, playerId } = matchWithPigInGrid()
+    const { match, playerId } = matchWithPigInMarket()
     const i = playerIndex(match, playerId)
     const view = { ...match.players[i], ...match.shared, dismissed: ['bee' as CardId, 'pig' as CardId] }
     const after = applyEffects(view, cards['pig'], cards['pig'].onDismiss)
@@ -72,16 +126,31 @@ describe('detaching the card (phases.ts)', () => {
   })
 
   test('it throws rather than silently vanishing if the card is nowhere', () => {
-    const { match, playerId } = matchWithPigInGrid()
+    const { match, playerId } = matchWithPigInMarket()
     const i = playerIndex(match, playerId)
-    const view = { ...match.players[i], ...match.shared }
-    expect(() => applyEffects(view, cards['pig'], cards['pig'].onHire)).toThrow(/neither in the grid nor the dismissed pile/)
+    // Genuinely absent from BOTH zones the effect can detach from.
+    const view = { ...match.players[i], ...match.shared, deck: [], dismissed: [] }
+    expect(() => applyEffects(view, cards['pig'], cards['pig'].onHire)).toThrow(/neither in the deck nor the dismissed pile/)
+  })
+
+  test('hire to placement, end to end: it lands in the opponent\'s deck and nowhere else', () => {
+    const { match, playerId, slotIndex } = matchWithPigInMarket()
+    const hired = applyMatchAction(match, playerId, { kind: 'hire', slotIndex }).match
+    const victim = hired.turnOrder.find((id) => id !== playerId)!
+    const after = applyMatchAction(hired, playerId, {
+      kind: 'resolveDeckPlacement',
+      target: { kind: 'player', playerId: victim },
+    }).match
+
+    const victimIndex = playerIndex(after, victim)
+    expect(zoneCensus(after, 'pig')).toEqual([`p${victimIndex}.deck`])
+    expect(after.players[playerIndex(after, playerId)].pendingDeckPlacement).toBeNull()
   })
 })
 
 describe('placing it (match.ts)', () => {
   function pendingMatch(): { match: Match; playerId: string } {
-    const { match, playerId } = matchWithPigInGrid()
+    const { match, playerId } = marketPhaseMatch()
     const i = playerIndex(match, playerId)
     const players = match.players.slice()
     players[i] = { ...players[i], pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
@@ -140,7 +209,7 @@ describe('placing it (match.ts)', () => {
   })
 
   test('resolving with nothing pending is an error', () => {
-    const { match, playerId } = matchWithPigInGrid()
+    const { match, playerId } = marketPhaseMatch()
     expect(() => matchResolveDeckPlacement(match, playerId, { kind: 'toonDeck' })).toThrow(/no card waiting for a deck/)
   })
 })
@@ -178,29 +247,51 @@ describe('through the action layer', () => {
   })
 
   test('a turn cannot end while the Pig still owes a deck', () => {
-    // Ending it would strand the card outside every zone in the game.
+    // Ending it would strand the card outside every zone in the game — and
+    // the prompt is turn-gated, so the seat could never be asked again.
     const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
     const match: Match = { ...base, shared: { ...base.shared, phase: 'market' } }
     const idx = match.activePlayerIndex
     const players = match.players.slice()
     players[idx] = { ...players[idx], actionsRemaining: 0, pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
     const stuck: Match = { ...match, players }
+    const actor = stuck.turnOrder[idx]
 
-    // The auto-end path (actions exhausted) must decline to fire.
-    const after = applyMatchAction(stuck, stuck.turnOrder[idx], { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } })
-    // Once answered, the turn is free to close.
+    // The explicit click is refused...
+    expect(() => applyMatchAction(stuck, actor, { kind: 'endTurn' })).toThrow(IllegalActionError)
+
+    // ...and once the placement is answered, the turn closes on its own —
+    // this seat had no actions left, so the placement was the only thing
+    // holding it open.
+    const after = applyMatchAction(stuck, actor, { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } })
     expect(after.match.players[idx].pendingDeckPlacement).toBeNull()
+    expect(after.match.activePlayerIndex).not.toBe(idx)
   })
 })
 
 // --- helpers ---------------------------------------------------------------
 
-function gridWithCard(grid: ReturnType<typeof buildNewMatch>['players'][0]['grid'], cardId: CardId) {
-  const next = { base: grid.base.map((row) => row.slice()), extraRows: grid.extraRows.map((row) => row.slice()) }
-  next.base[0][0] = { cards: [cardId], faceUp: [true] }
-  return next
-}
-
 function cardIdsInGrid(grid: ReturnType<typeof buildNewMatch>['players'][0]['grid']): CardId[] {
   return occupiedSlots(grid).flatMap(({ slot }) => slot.cards)
 }
+
+describe('the pending prompt freezes the rest of the turn', () => {
+  function stuckMatch(): { match: Match; actor: string; idx: number } {
+    const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
+    const idx = base.activePlayerIndex
+    const players = base.players.slice()
+    players[idx] = { ...players[idx], fame: 50, actionsRemaining: 1, pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
+    return { match: { ...base, shared: { ...base.shared, phase: 'market' }, players }, actor: base.turnOrder[idx], idx }
+  }
+
+  test('you cannot hire or dismiss while a card is still owed a deck', () => {
+    const { match, actor } = stuckMatch()
+    expect(() => applyMatchAction(match, actor, { kind: 'hire', slotIndex: 0 })).toThrow(IllegalActionError)
+    expect(() => applyMatchAction(match, actor, { kind: 'dismiss', pos: { section: 'base', row: 0, col: 0 }, index: 0 })).toThrow(IllegalActionError)
+  })
+
+  test('the refusal names the card, so the player knows what is blocking them', () => {
+    const { match, actor } = stuckMatch()
+    expect(() => applyMatchAction(match, actor, { kind: 'endTurn' })).toThrow(/Pig/)
+  })
+})

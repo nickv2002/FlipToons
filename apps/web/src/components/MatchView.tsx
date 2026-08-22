@@ -147,8 +147,17 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
           multiplayer awareness at all. */}
       {phase === 'market' && (
         <section className="match__mine" data-testid="my-board">
-          <h3 className="match__mine-title">Your board{isMyTurn ? '' : ' (not your turn)'}</h3>
-          <fieldset className="match__fieldset" disabled={!isMyTurn} data-testid="my-controls">
+          <h3 className="match__mine-title">
+            Your board{isMyTurn ? (me.pendingDeckPlacement ? ' (choose a deck first)' : '') : ' (not your turn)'}
+          </h3>
+          {/* A pending deck placement freezes the rest of the turn: the engine
+              refuses hire/dismiss/endTurn until it is answered, so leaving
+              those live would only hand the player a guaranteed error. */}
+          <fieldset
+            className="match__fieldset"
+            disabled={!isMyTurn || me.pendingDeckPlacement !== null}
+            data-testid="my-controls"
+          >
             <RoundView
               state={viewOf(match, myIndex)}
               dispatch={(action) => {

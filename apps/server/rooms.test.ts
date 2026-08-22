@@ -318,3 +318,70 @@ describe('room lifecycle', () => {
     expect(room.log.length).toBeLessThanOrEqual(MAX_LOG_LINES)
   })
 })
+
+// The Pig is the one card whose effect PAUSES a turn on a cross-player
+// prompt: `pendingDeckPlacement` is set on the acting seat, and
+// matchActions.ts refuses to close the turn until it is answered. Nothing had
+// ever put that field on the wire, and a field that fails to serialize here
+// deadlocks the whole table — the acting seat can neither answer the prompt
+// nor end its turn. (PLAYER_FIELDS already proved once that a per-player
+// field can be silently dropped in transit.)
+describe('the Pig prompt crosses the wire', () => {
+  test('hiring a Pig blocks the turn until a deck is chosen, and unblocks after', async () => {
+    const { getRoom } = await import('./rooms')
+    const pair = await seatedPair()
+    await startGame(pair)
+
+    // Park the room in the Market phase with a Pig the host can afford, and
+    // pull the real Pig out of the toon deck so there is only one copy.
+    const room = getRoom(pair.roomCode)!
+    const m = room.match
+    const market = {
+      prices: m.shared.market.prices,
+      slots: m.shared.market.slots.slice(),
+      insertionSeq: m.shared.market.insertionSeq.slice(),
+    }
+    market.slots[0] = 'pig'
+    const players = m.players.slice()
+    const i = m.activePlayerIndex
+    players[i] = { ...players[i], fame: market.prices[0] + 5, actionsRemaining: 2 }
+    room.match = {
+      ...m,
+      shared: { ...m.shared, phase: 'market', market, toonDeck: m.shared.toonDeck.filter((id) => id !== 'pig') },
+      players,
+    }
+    const actingSeat = room.match.turnOrder[i]
+    const acting = actingSeat === pair.hostSeat.playerId ? pair.host : pair.guest
+    const other = actingSeat === pair.hostSeat.playerId ? pair.guest : pair.host
+
+    // (a) the prompt reaches the clients
+    acting.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'hire', slotIndex: 0 } })
+    const afterHire = await acting.next('state')
+    expect(afterHire.match.players[i].pendingDeckPlacement).toEqual({ cardId: 'pig', source: 'hire' })
+    // ...and to the other seat too, since every board is public.
+    const seenByOther = await other.next('state')
+    expect(seenByOther.match.players[i].pendingDeckPlacement).toEqual({ cardId: 'pig', source: 'hire' })
+
+    // (b) the turn cannot be ended while it is owed
+    acting.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'endTurn' } })
+    const refused = await acting.next('error')
+    expect(refused.code).toBe('illegalAction')
+    expect(getRoom(pair.roomCode)!.match.activePlayerIndex).toBe(i)
+
+    // (c) answering it clears the prompt and frees the turn
+    acting.send({
+      type: 'action',
+      roomCode: pair.roomCode,
+      action: { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } },
+    })
+    const answered = await acting.next('state')
+    expect(answered.match.players[i].pendingDeckPlacement).toBeNull()
+
+    acting.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'endTurn' } })
+    const ended = await acting.next('state')
+    expect(ended.match.activePlayerIndex).not.toBe(i)
+
+    pair.host.close()
+    pair.guest.close()
+  })
+})

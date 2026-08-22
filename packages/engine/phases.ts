@@ -376,17 +376,6 @@ export function hire(state: GameState, slotIndex: number, choices?: EffectChoice
 // removed CardId so the caller can push it onto `dismissed` — which every
 // caller MUST do regardless of cost/kind, since Group 4's dismissed-pile
 // fame queries (Cat/Tiger/Opossum) depend on every dismissal landing there.
-// Where is this card id sitting in the grid, if anywhere? Only used by
-// placeSelfInAnyDeck, whose card (Pig) has copies: 1 — so "the first match"
-// is unambiguously "the one that just triggered".
-function findCardInGrid(grid: Grid, cardId: CardId): { pos: GridPos; index: number } | null {
-  for (const { pos, slot } of occupiedSlots(grid)) {
-    const index = slot.cards.indexOf(cardId)
-    if (index >= 0) return { pos, index }
-  }
-  return null
-}
-
 export function removeCardRaw(grid: Grid, pos: GridPos, index: number): CardId {
   const slot = getSlot(grid, pos)
   if (!slot) throw new Error(`phases.ts: removeCardRaw — no slot at ${JSON.stringify(pos)}`)
@@ -578,13 +567,22 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
         // matchResolveDeckPlacement does the actual placing.
         //
         // Where "wherever it just landed" is depends on the trigger: hire()
-        // has already placed it in the grid, dismiss() has already pushed it
-        // onto the dismissed pile.
-        const found = findCardInGrid(next.grid, card.id)
-        if (found) {
-          const grid = cloneGrid(next.grid)
-          removeCardRaw(grid, found.pos, found.index)
-          next = { ...next, grid, pendingDeckPlacement: { cardId: card.id, source: 'hire' } }
+        // has already appended it to the player's DECK (`deck: [...state.deck,
+        // cardId]` above — a hire never touches the grid; cards reach the grid
+        // only by being flipped), and dismiss() has already pushed it onto the
+        // dismissed pile. Both writes happen BEFORE applyEffects runs, so
+        // exactly one of the two branches below fires.
+        //
+        // The Pig has copies: 1, so `lastIndexOf` is unambiguously "the one
+        // that just triggered" — and for the hire case it is the append that
+        // hire() just made.
+        const deckIdx = next.deck.lastIndexOf(card.id)
+        if (deckIdx >= 0) {
+          next = {
+            ...next,
+            deck: [...next.deck.slice(0, deckIdx), ...next.deck.slice(deckIdx + 1)],
+            pendingDeckPlacement: { cardId: card.id, source: 'hire' },
+          }
           break
         }
         const dismissedIdx = next.dismissed.lastIndexOf(card.id)
@@ -596,7 +594,7 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
           }
           break
         }
-        throw new Error(`phases.ts: placeSelfInAnyDeck — ${card.name} is neither in the grid nor the dismissed pile`)
+        throw new Error(`phases.ts: placeSelfInAnyDeck — ${card.name} is neither in the deck nor the dismissed pile`)
       }
       case 'other':
         throw new Error(`phases.ts: applyEffects — effect 'other' (${JSON.stringify((effect as { text?: string }).text)}) on ${card.name} has no structured implementation`)

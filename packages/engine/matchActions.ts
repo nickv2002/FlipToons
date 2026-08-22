@@ -98,6 +98,18 @@ function assertTurn(match: Match, playerId: PlayerId, what: string): void {
   }
 }
 
+// A Pig that has been detached from its zone but not yet given a destination
+// is in NO zone at all — not a deck, not a grid, not the dismissed pile. The
+// prompt is turn-gated, so if the turn closes the seat can never be asked
+// again and the card is stranded outside the game permanently.
+// afterMarketAction already declines to AUTO-close the turn for this reason;
+// this covers the paths a player drives explicitly.
+function assertNoPendingDeckPlacement(match: Match, playerId: PlayerId, what: string): void {
+  const pending = match.players[playerIndex(match, playerId)].pendingDeckPlacement
+  if (!pending) return
+  throw new IllegalActionError(`Place ${cards[pending.cardId].name} in a deck before ${what}.`)
+}
+
 // Applies one action on behalf of ONE player.
 //
 // SECURITY: `playerId` must be derived from the connection's assigned seat,
@@ -129,6 +141,7 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
 
     case 'hire': {
       assertTurn(match, playerId, 'hire')
+      assertNoPendingDeckPlacement(match, playerId, 'taking another action')
       const cardId = match.players[playerIndex(match, playerId)] && match.shared.market.slots[action.slotIndex]
       const price =
         action.slotIndex >= 0 && action.slotIndex < match.shared.market.prices.length
@@ -152,6 +165,7 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
 
     case 'dismiss': {
       assertTurn(match, playerId, 'dismiss')
+      assertNoPendingDeckPlacement(match, playerId, 'taking another action')
       let next: Match
       try {
         next = matchDismiss(match, playerId, action.pos, action.index, action.choices)
@@ -187,6 +201,7 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
 
     case 'endTurn': {
       assertTurn(match, playerId, 'end your turn')
+      assertNoPendingDeckPlacement(match, playerId, 'ending your turn')
       const next = endMarketTurn(match, playerId)
       say('ended their turn.')
       return afterTurnBoundary(next, logLines, debugLines)

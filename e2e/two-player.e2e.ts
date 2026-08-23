@@ -43,6 +43,24 @@ test.describe('a two-player game, played from both sides', () => {
     await guest.page.context().close()
   })
 
+  test('a room code that does not exist says so instead of failing silently', async ({ browser }) => {
+    const player = await openPlayer(browser, 'Ana')
+    // The error banner used to render only once a match existed, so every
+    // lobby-phase error — a dead code, "only the host can start", "need at
+    // least 2 players" — arrived and was thrown away.
+    await player.page.getByTestId('room-code-input').fill('ZZZZZ')
+    await player.page.getByTestId('join-game').click()
+
+    await expect(player.page.getByTestId('match-error')).toBeVisible()
+    await expect(player.page.getByTestId('match-error')).toContainText('ZZZZZ')
+    // ...and we are still on the start screen, not a lobby that will never
+    // advance.
+    await expect(player.page.getByTestId('lobby')).toBeHidden()
+    await expect(player.page.getByTestId('join-game')).toBeVisible()
+
+    await player.page.context().close()
+  })
+
   test('the room code works as a shareable ?room= link', async ({ browser }) => {
     const host = await openPlayer(browser, 'Ana')
     const roomCode = await hostRoom(host)
@@ -94,6 +112,17 @@ test.describe('a two-player game, played from both sides', () => {
     // ...and the active seat's are live.
     const upNow = hostUp ? host : guest
     await expect(upNow.page.getByTestId('end-turn')).toBeEnabled()
+
+    // What must NOT be disabled: leaving. The fieldset used to wrap the whole
+    // RoundView, header included, so a seat waiting on someone who had dropped
+    // mid-turn could not act AND could not get out.
+    await expect(waiting.page.getByRole('button', { name: 'Leave game' })).toBeEnabled()
+    await expect(waiting.page.getByRole('button', { name: /^Dismissed cards/ })).toBeEnabled()
+    await expect(waiting.page.getByRole('button', { name: /^Remaining deck/ })).toBeEnabled()
+
+    // And it works: clicking it actually leaves.
+    await waiting.page.getByRole('button', { name: 'Leave game' }).click()
+    await expect(waiting.page.getByTestId('match')).toBeHidden()
 
     await host.page.context().close()
     await guest.page.context().close()

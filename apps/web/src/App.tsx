@@ -57,8 +57,12 @@ export function App() {
       <div className="app">
         {connectionBanner}
         {/* Errors used to render only while there was no state, so anything
-            that went wrong mid-game was invisible. */}
-        {match.error && match.match && (
+            that went wrong mid-game was invisible. Then they rendered only
+            while there WAS state, which hid every lobby-phase error instead —
+            a dead room code, "only the host can start", "need at least 2
+            players" — behind a lobby that simply never advanced. Neither
+            gate: an error is worth showing wherever it happens. */}
+        {match.error && (
           <p className="app__error" data-testid="match-error" onClick={match.clearError}>
             {match.error}
           </p>

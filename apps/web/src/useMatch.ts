@@ -142,6 +142,15 @@ export function useMatch() {
           if (message.code === 'noSuchRoom') {
             seatRef.current = null
             saveSeat(null)
+            // ...and the screen has to let go of it too. Clearing only the
+            // stored seat left a lobby rendering its old seat list, waiting on
+            // a host, in a room that no longer exists — no error, no
+            // connection banner (the socket opened fine), and no way back to
+            // the start screen short of a reload.
+            wantConnectedRef.current = false
+            setLobby(null)
+            setMatch(null)
+            setMyPlayerId(null)
           }
           break
         case 'serverError':

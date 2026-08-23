@@ -977,3 +977,13 @@ img.card__icon {
   opacity: 0.85;
   background: color-mix(in srgb, canvastext 4%, transparent);
 }
+
+/* The board controls sit in a fieldset so one `disabled` can close the whole
+   board on someone else's turn. It is a grouping element here, not a visible
+   box. */
+.round-view__controls {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

@@ -35,6 +35,14 @@ export type RoundViewProps = {
   leaveLabel?: string
   // See ChoicePrompt's endLabel.
   endMarketLabel?: string
+  // Multiplayer: it is someone else's turn, so nothing on the board may be
+  // touched. Applied HERE rather than by the caller wrapping the whole
+  // component, because the header's Leave button and the deck/dismissed
+  // overlays are not board actions — a native <fieldset disabled> reaches
+  // every descendant control, so wrapping the lot took the exit away from
+  // exactly the players who most need it (an opponent who dropped mid-turn
+  // leaves everyone else waiting with nothing to click).
+  controlsDisabled?: boolean
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -43,7 +51,7 @@ export type RoundViewProps = {
 // cascades through automatically (see advanceThroughPassthroughPhases),
 // same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
 // just with zero intermediate screens shown in this UI.
-export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel }: RoundViewProps) {
+export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel, controlsDisabled = false }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
   // hireChoices.ts). Rather than dispatching immediately, the click handlers
@@ -192,6 +200,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
         />
       </div>
 
+      <fieldset className="round-view__controls" disabled={controlsDisabled} data-testid="my-controls">
       {state.phase === 'market' && alligatorChoice && (
         <EffectChoicePrompt
           cardName={cards[alligatorChoice.ownerCardId].name}
@@ -264,6 +273,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           </div>
         </div>
       )}
+      </fieldset>
       {listOverlay === 'dismissed' && (
         <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
       )}

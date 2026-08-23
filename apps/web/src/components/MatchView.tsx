@@ -153,25 +153,25 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
           {/* A pending deck placement freezes the rest of the turn: the engine
               refuses hire/dismiss/endTurn until it is answered, so leaving
               those live would only hand the player a guaranteed error. */}
-          <fieldset
-            className="match__fieldset"
-            disabled={!isMyTurn || me.pendingDeckPlacement !== null}
-            data-testid="my-controls"
-          >
-            <RoundView
-              state={viewOf(match, myIndex)}
-              dispatch={(action) => {
-                const translated = toMatchAction(action)
-                if (translated) onAct(translated)
-              }}
-              onAbandon={onLeave}
-              // Solo's guaranteed-loss warning is meaningless at a table:
-              // a lost round for you is not a lost game for anyone.
-              soloWarnings={false}
-              leaveLabel="Leave game"
-              endMarketLabel="End turn"
-            />
-          </fieldset>
+          <RoundView
+            state={viewOf(match, myIndex)}
+            dispatch={(action) => {
+              const translated = toMatchAction(action)
+              if (translated) onAct(translated)
+            }}
+            onAbandon={onLeave}
+            // Solo's guaranteed-loss warning is meaningless at a table:
+            // a lost round for you is not a lost game for anyone.
+            soloWarnings={false}
+            leaveLabel="Leave game"
+            endMarketLabel="End turn"
+            // RoundView applies this to the board only. It used to be a
+            // fieldset wrapped around the whole component here, which also
+            // disabled the Leave button and the deck/dismissed overlays —
+            // leaving a table whose active player had dropped with no way out
+            // but closing the tab.
+            controlsDisabled={!isMyTurn || me.pendingDeckPlacement !== null}
+          />
         </section>
       )}
 

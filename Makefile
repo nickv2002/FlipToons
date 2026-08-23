@@ -2,7 +2,7 @@
 # test/typecheck checks. Each target just execs a scripts/*.sh wrapper (see
 # that directory for what each mode actually is); this file is the index.
 
-.PHONY: help web server play stop test typecheck e2e
+.PHONY: help web server play stop test typecheck e2e e2e-long
 
 .DEFAULT_GOAL := help
 
@@ -37,3 +37,7 @@ typecheck:
 ## Browser end-to-end tests (Playwright starts both servers itself)
 e2e:
 	bunx playwright test
+
+## Long-form 2-player game at the real fame threshold — a debugging harness, NOT part of `make e2e`
+e2e-long:
+	FLIPTOONS_LONGFORM=1 bunx playwright test e2e/longform.e2e.ts

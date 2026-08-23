@@ -19,3 +19,6 @@ coverage/
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Transcripts from `make e2e-long` (the long-form browser debugging harness)
+.longform/

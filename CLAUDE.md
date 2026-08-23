@@ -140,5 +140,29 @@ hire, dismiss, and the effect prompts they open. Use `'buy'` for anything
 touching the Market phase; `'pass'` proved nothing about it, which is how two
 Pig bugs survived a green suite. Dismiss is rationed to one per seat on
 purpose: fame is scored FROM the board, so a seat that dismisses freely
-strips its own grid and no one ever reaches the endgame threshold. Solo has its own browser spec because every multiplayer
-spec clicks straight past that screen.
+strips its own grid and no one ever reaches the endgame threshold. The play
+loop and lobby helpers live in `e2e/helpers.ts` (not `*.e2e.ts`, so Playwright
+doesn't collect it as a suite), shared with the long-form harness.
+
+`make e2e-long` is a **debugging harness, not part of `make e2e`** — a
+full-length 2-player game at the real threshold of 30, both seasons, taking
+minutes. It reports rather than just passing: which cards were hired and
+dismissed by name, which effect prompts opened, every error banner seen, and a
+transcript written to `.longform/` (gitignored). It asserts only that the game
+ends, both seats agree, nothing crashed, and no `Server error` appeared —
+never coverage. **Sparse effect coverage is the card table's doing, not a
+broken test:** only five cards in sixty-two open a prompt (Butterfly and Horse
+in S1; Raccoon, Panther and Crow in S2), so a single-season game can reach at
+most three, and a run that hits none is information about the shuffle. It is a
+sampler, not a guarantee — two runs of the same seeds reached Horse/Panther/
+Raccoon/Crow and then Butterfly/Raccoon/Crow, because the policy's own
+dismisses change what the later hires find. Run it twice before concluding a
+card is unreachable.
+
+The harness plays the ONE thing the standard suite structurally cannot: a
+full-length game. That is where the Pig actually gets hired (it did, twice,
+prompt answered, no errors), and where a market refill can come up short and
+trigger the depletion endgame.
+
+Solo has its own browser spec because every multiplayer spec clicks straight
+past that screen.

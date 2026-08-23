@@ -20,11 +20,13 @@ export const SHORT_FAME_THRESHOLD = '6'
 export async function openPlayer(browser: Browser, name: string): Promise<Player> {
   // A fresh context per player: separate localStorage, so the two seats can't
   // accidentally share a stored reconnect token.
+  //
+  // Stops at the launch screen: host and join are separate panels behind
+  // separate cards now, and the name field belongs to whichever one you open,
+  // so hostRoom/joinRoom fill it.
   const context = await browser.newContext()
   const page = await context.newPage()
   await page.goto('/')
-  await page.getByTestId('go-multiplayer').click()
-  await page.getByTestId('name-input').fill(name)
   return { page, name }
 }
 
@@ -32,8 +34,9 @@ export async function hostRoom(
   host: Player,
   opts: { seed?: string; threshold?: string; season?: 1 | 2 } = {},
 ): Promise<string> {
-  await host.page.getByTestId('player-count').selectOption('2')
-  if (opts.season) await host.page.getByTestId('season').selectOption(String(opts.season))
+  await host.page.getByTestId('mode-host').click()
+  await host.page.getByTestId('name-input').fill(host.name)
+  if (opts.season) await host.page.getByTestId(`season-${opts.season}`).click()
   if (opts.seed) await host.page.getByTestId('seed').fill(opts.seed)
   await host.page.getByTestId('fame-threshold').fill(opts.threshold ?? SHORT_FAME_THRESHOLD)
   await host.page.getByTestId('host-game').click()
@@ -42,9 +45,17 @@ export async function hostRoom(
 }
 
 export async function joinRoom(guest: Player, roomCode: string): Promise<void> {
+  await openJoinPanel(guest)
   await guest.page.getByTestId('room-code-input').fill(roomCode)
   await guest.page.getByTestId('join-game').click()
   await expect(guest.page.getByTestId('lobby')).toBeVisible()
+}
+
+// The join panel with the name already filled — for specs that want to submit
+// the form themselves (a bad room code, say).
+export async function openJoinPanel(guest: Player): Promise<void> {
+  await guest.page.getByTestId('mode-join').click()
+  await guest.page.getByTestId('name-input').fill(guest.name)
 }
 
 // Who does the UI say is up? Read from the seat that is waiting, so this never
@@ -161,7 +172,7 @@ export type PlayTally = {
 }
 
 export type PlayOptions = {
-  //   'pass'  answer prompts, end turns, press the shared flip. Deliberately
+  //   'pass'  answer prompts and end turns. Deliberately
   //           dull: the point is that the FLOW works, not that anyone plays
   //           well. Never spends fame, so the Market phase's real decisions —
   //           hire, dismiss, and every card effect they trigger — go untouched.
@@ -224,7 +235,6 @@ export async function playToEnd(players: Player[], opts: PlayOptions = {}): Prom
   }
 
   let lastRound = ''
-  let flips = 0
   let step = 0
   for (; step < maxSteps && Date.now() < deadline; step++) {
     for (const { page } of players) {
@@ -245,18 +255,10 @@ export async function playToEnd(players: Player[], opts: PlayOptions = {}): Prom
 
     let acted = false
     for (const { page, name } of players) {
-      // The shared flip advance — either seat may press it, so whoever sees
-      // the button first does.
-      if (await tryClick(page, 'advance-flip')) {
-        flips++
-        // Noted every tenth so a long reveal sequence shows progress without
-        // burying the transcript. Without SOMETHING here a stall in the Flip
-        // phase looks identical to a stall before it — which is exactly how
-        // the first long-form run reported nothing but "— flip".
-        if (flips % 10 === 0) note(`(${flips} flip advances)`)
-        acted = true
-        break
-      }
+      // There is no flip to press: the Flip takes no player input, so the
+      // server advances it (rooms.ts's advanceSharedPhases) and the phase
+      // arrives already revealed. What used to stall here was a Flip nobody
+      // had clicked; a stall now means a prompt nobody answered.
 
       // A mandatory Skunk dismissal blocks the whole table until answered.
       if (await tryClick(page, 'post-fame-option-0')) {

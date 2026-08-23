@@ -67,7 +67,7 @@ function connect(): Promise<Client> {
 // is set low so a test can reach a Final Flip without playing a dozen rounds.
 async function seatedPair(opts: { fameToTriggerEndgame?: number; seed?: number } = {}) {
   const host = await connect()
-  host.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: opts.seed ?? 11, fameToTriggerEndgame: opts.fameToTriggerEndgame ?? 999 })
+  host.send({ type: 'create', name: 'Ana', season: 1, seed: opts.seed ?? 11, fameToTriggerEndgame: opts.fameToTriggerEndgame ?? 999 })
   const seatedHost = await host.next('seated')
 
   const guest = await connect()
@@ -87,7 +87,7 @@ async function startGame(pair: Awaited<ReturnType<typeof seatedPair>>): Promise<
 describe('lobby and seating', () => {
   test('creating a room seats the creator as host and hands them a reconnect token', async () => {
     const host = await connect()
-    host.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    host.send({ type: 'create', name: 'Ana', season: 1, seed: 1 })
     const seated = await host.next('seated')
 
     expect(seated.roomCode).toHaveLength(5)
@@ -110,7 +110,7 @@ describe('lobby and seating', () => {
 
   test('the table is told when someone joins', async () => {
     const host = await connect()
-    host.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    host.send({ type: 'create', name: 'Ana', season: 1, seed: 1 })
     const seated = await host.next('seated')
     const guest = await connect()
     guest.send({ type: 'join', roomCode: seated.roomCode, name: 'Bo' })
@@ -128,13 +128,25 @@ describe('lobby and seating', () => {
     c.close()
   })
 
+  // Nobody declares a table size any more, so "full" means MAX_SEATS: the
+  // third and fourth players get in, the fifth does not.
   test('a full room is refused with its own code', async () => {
     const pair = await seatedPair()
-    const third = await connect()
-    third.send({ type: 'join', roomCode: pair.roomCode, name: 'Cy' })
-    const err = await third.next('error')
+    const extras = []
+    for (const name of ['Cy', 'Di']) {
+      const c = await connect()
+      c.send({ type: 'join', roomCode: pair.roomCode, name })
+      await c.next('seated')
+      extras.push(c)
+    }
+
+    const fifth = await connect()
+    fifth.send({ type: 'join', roomCode: pair.roomCode, name: 'Ed' })
+    const err = await fifth.next('error')
     expect(err.code).toBe('roomFull')
-    third.close()
+
+    fifth.close()
+    for (const c of extras) c.close()
     pair.host.close()
     pair.guest.close()
   })
@@ -164,7 +176,58 @@ describe('lobby and seating', () => {
     const pair = await seatedPair()
     const match = await startGame(pair)
     expect(match.players).toHaveLength(2)
-    expect(match.shared.phase).toBe('flip')
+    // NOT 'flip'. The Flip takes no player input, so the server runs it as
+    // part of starting (rooms.ts's advanceSharedPhases) — by the time anyone
+    // is dealt the match, round 1 has already been revealed and scored.
+    expect(match.shared.phase).not.toBe('flip')
+    pair.host.close()
+    pair.guest.close()
+  })
+
+  test('a lobby of one cannot be started', async () => {
+    const { getRoom } = await import('./rooms')
+    const host = await connect()
+    host.send({ type: 'create', name: 'Ana', season: 1, seed: 41 })
+    const seated = await host.next('seated')
+
+    host.send({ type: 'start', roomCode: seated.roomCode })
+    await host.next('error')
+    expect(getRoom(seated.roomCode)!.started).toBe(false)
+    host.close()
+  })
+
+  // The room is built for MAX_SEATS and rebuilt at the size that turned up, so
+  // this shrink is the ordinary path. It must not renumber anyone: each
+  // connection's seat was pinned at join time and is never re-read from the
+  // message, so a seat id that drifted here would leave every player acting as
+  // somebody who no longer exists.
+  test('starting with three of four seats deals three boards and leaves the seats where they were', async () => {
+    const pair = await seatedPair()
+    const third = await connect()
+    third.send({ type: 'join', roomCode: pair.roomCode, name: 'Cy' })
+    const seatedThird = await third.next('seated')
+
+    pair.host.send({ type: 'start', roomCode: pair.roomCode })
+    const state = await pair.host.next('state')
+    await pair.guest.next('state')
+    await third.next('state')
+
+    expect(state.match.turnOrder).toEqual(['p0', 'p1', 'p2'])
+    expect(state.match.players).toHaveLength(3)
+    expect([pair.hostSeat.playerId, pair.guestSeat.playerId, seatedThird.playerId]).toEqual(['p0', 'p1', 'p2'])
+
+    // The host's ORIGINAL socket — pinned before the rebuild — can still act.
+    // advanceFlip is now the server's own call, so sending it lands out of
+    // phase — which is exactly the discriminating reply: an IllegalActionError
+    // means the engine accepted the seat id and rejected the timing. A seat id
+    // that had drifted in the rebuild would fail earlier and harder, in
+    // match.ts's playerIndex, which throws a plain Error and surfaces as
+    // 'serverError'.
+    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
+    const stillSeated = await pair.host.next('error')
+    expect(stillSeated.code).toBe('illegalAction')
+
+    third.close()
     pair.host.close()
     pair.guest.close()
   })
@@ -173,12 +236,9 @@ describe('lobby and seating', () => {
 describe('the security boundary: the actor is the seat, not the message', () => {
   test('a player cannot act during another player\'s Market turn', async () => {
     const pair = await seatedPair()
+    // Starting already runs the Flip (rooms.ts), so this lands in
+    // postFameHooks or Market. Answer any mandatory Skunk dismissal.
     let match = await startGame(pair)
-
-    // Advance into the Market phase, answering any mandatory Skunk dismissal.
-    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
-    match = (await pair.host.next('state')).match
-    await pair.guest.next('state')
 
     for (const p of match.players) {
       const pending = match.players.find((x) => x.playerId === p.playerId)!.pendingPostFameChoice
@@ -227,9 +287,6 @@ describe('reconnect', () => {
   test('a token reclaims the same seat mid-match, with the board and the backlog', async () => {
     const pair = await seatedPair()
     await startGame(pair)
-    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
-    await pair.host.next('state')
-    await pair.guest.next('state')
 
     pair.guest.close()
     await new Promise((r) => setTimeout(r, 50))
@@ -264,7 +321,7 @@ describe('reconnect', () => {
 
   test('a bogus token falls through to taking a free seat, not an error', async () => {
     const host = await connect()
-    host.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    host.send({ type: 'create', name: 'Ana', season: 1, seed: 1 })
     const seated = await host.next('seated')
     const guest = await connect()
     guest.send({ type: 'join', roomCode: seated.roomCode, name: 'Bo', reconnectToken: 'not-a-real-token' })
@@ -278,11 +335,13 @@ describe('reconnect', () => {
 describe('log lines carry an actor', () => {
   test('the broadcast log is attributed and round-stamped', async () => {
     const pair = await seatedPair()
-    await startGame(pair)
-    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
+    // The server-run Flip is now the first thing that writes to the log, and
+    // its lines reach a client through the start broadcast's `log`.
+    pair.host.send({ type: 'start', roomCode: pair.roomCode })
     const state = await pair.host.next('state')
-    expect(state.logLines.length).toBeGreaterThan(0)
-    for (const line of state.logLines) {
+    await pair.guest.next('state')
+    expect(state.log!.length).toBeGreaterThan(0)
+    for (const line of state.log!) {
       expect(line).toHaveProperty('round')
       expect(line).toHaveProperty('playerId')
       expect(typeof line.text).toBe('string')
@@ -295,7 +354,7 @@ describe('log lines carry an actor', () => {
 describe('room lifecycle', () => {
   test('a room nobody has touched for the whole TTL is evicted', async () => {
     const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
-    const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    const { roomCode, room } = createRoom({ name: 'Ana', season: 1, seed: 1 })
     room.seats.forEach((s) => (s.connected = false))
     room.lastActivity = Date.now() - ROOM_TTL_MS - 1000
     evictStaleRooms()
@@ -306,7 +365,7 @@ describe('room lifecycle', () => {
   // tab left open kept a forgotten game resident forever.
   test('a still-connected room is evicted too once it goes untouched for the TTL', async () => {
     const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
-    const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    const { roomCode, room } = createRoom({ name: 'Ana', season: 1, seed: 1 })
     let closed = false
     const socket = { close: () => (closed = true) } as unknown as Parameters<typeof room.sockets.add>[0]
     room.sockets.add(socket)
@@ -320,7 +379,7 @@ describe('room lifecycle', () => {
 
   test('a room touched within the TTL survives, connected or not', async () => {
     const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
-    const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    const { roomCode, room } = createRoom({ name: 'Ana', season: 1, seed: 1 })
     room.seats.forEach((s) => (s.connected = false))
     room.lastActivity = Date.now() - (ROOM_TTL_MS - 60_000)
     evictStaleRooms()
@@ -329,7 +388,7 @@ describe('room lifecycle', () => {
 
   test('an active room is not evicted', async () => {
     const { evictStaleRooms, createRoom, getRoom } = await import('./rooms')
-    const { roomCode } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    const { roomCode } = createRoom({ name: 'Ana', season: 1, seed: 1 })
     evictStaleRooms()
     expect(getRoom(roomCode)).toBeDefined()
   })
@@ -349,7 +408,7 @@ describe('room lifecycle', () => {
     const closed = new Promise<void>((resolve) => pair.host.ws.addEventListener('close', () => resolve(), { once: true }))
     // Any message sweeps — evictStaleRooms runs at the top of handleMessage.
     const bystander = await connect()
-    bystander.send({ type: 'create', name: 'Cy', playerCount: 2, season: 1, seed: 3 })
+    bystander.send({ type: 'create', name: 'Cy', season: 1, seed: 3 })
     await bystander.next('seated')
 
     await closed
@@ -363,7 +422,7 @@ describe('room lifecycle', () => {
 
   test('the log is capped so a long match cannot grow without bound', async () => {
     const { createRoom, MAX_LOG_LINES, applyRoomAction, startRoom } = await import('./rooms')
-    const { room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1, fameToTriggerEndgame: 999 })
+    const { room } = createRoom({ name: 'Ana', season: 1, seed: 1, fameToTriggerEndgame: 999 })
     startRoom(room)
     room.log = Array.from({ length: MAX_LOG_LINES + 50 }, (_, i) => ({ playerId: null, round: 1, text: `line ${i}` }))
     applyRoomAction(room, room.match.turnOrder[0], { kind: 'advanceFlip' })
@@ -451,7 +510,7 @@ describe('cross-room isolation', () => {
     // The attacker is p0 of its OWN room — the same seat id the victim's host
     // holds, which is what used to make the check pass.
     const attacker = await connect()
-    attacker.send({ type: 'create', name: 'Mallory', playerCount: 2, season: 1, seed: 22 })
+    attacker.send({ type: 'create', name: 'Mallory', season: 1, seed: 22 })
     const attackerSeat = await attacker.next('seated')
     expect(attackerSeat.playerId).toBe('p0')
 
@@ -472,14 +531,14 @@ describe('cross-room isolation', () => {
   test('a connection cannot start a lobby it is not seated in', async () => {
     const { getRoom } = await import('./rooms')
     const victimHost = await connect()
-    victimHost.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: 23 })
+    victimHost.send({ type: 'create', name: 'Ana', season: 1, seed: 23 })
     const victimSeat = await victimHost.next('seated')
     const victimGuest = await connect()
     victimGuest.send({ type: 'join', roomCode: victimSeat.roomCode, name: 'Bo' })
     await victimGuest.next('seated')
 
     const attacker = await connect()
-    attacker.send({ type: 'create', name: 'Mallory', playerCount: 2, season: 1, seed: 24 })
+    attacker.send({ type: 'create', name: 'Mallory', season: 1, seed: 24 })
     await attacker.next('seated')
 
     attacker.send({ type: 'start', roomCode: victimSeat.roomCode })
@@ -506,31 +565,25 @@ describe('malformed messages', () => {
     expect(err.code).toBe('illegalAction')
     expect(err.message).toMatch(/teleport/)
 
-    // The room is untouched and still playable.
+    // The room is untouched: a real action still reaches the engine and comes
+    // back with an engine-level answer rather than an identity complaint.
     pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
-    await pair.host.next('state')
+    const after = await pair.host.next('error')
+    expect(after.code).toBe('illegalAction')
+    expect(after.message).toMatch(/Nothing to reveal/)
 
     pair.host.close()
     pair.guest.close()
   })
 
-  test('a create with no usable playerCount falls back to a 2-seat room', async () => {
+  test('a create with a garbage season still yields a room rather than throwing', async () => {
     const client = await connect()
-    client.send({ type: 'create', name: 'Ana', season: 1, seed: 32 } as unknown as ClientMessage)
-    const seated = await client.next('seated')
-    expect(seated.playerId).toBe('p0')
-    expect(seated.lobby.seats).toHaveLength(1)
-    client.close()
-  })
-
-  test('a create with a garbage playerCount still yields a room rather than throwing', async () => {
-    const client = await connect()
-    client.send({ type: 'create', name: 'Ana', playerCount: 'lots', season: 'winter', seed: 33 } as unknown as ClientMessage)
+    client.send({ type: 'create', name: 'Ana', season: 'winter', seed: 33 } as unknown as ClientMessage)
     const seated = await client.next('seated')
     expect(seated.roomCode).toHaveLength(5)
     // The server is still answering after it.
     const after = await connect()
-    after.send({ type: 'create', name: 'Bo', playerCount: 2, season: 1, seed: 34 })
+    after.send({ type: 'create', name: 'Bo', season: 1, seed: 34 })
     await after.next('seated')
     client.close()
     after.close()
@@ -560,9 +613,11 @@ describe('a seat belongs to one connection at a time', () => {
     const seat = getRoom(pair.roomCode)!.seats.find((s) => s.playerId === pair.guestSeat.playerId)!
     expect(seat.connected).toBe(true)
 
-    // ...and the live socket can still act.
+    // ...and the live socket can still act: the reply is an engine-level
+    // complaint about timing, not "you are not seated".
     revived.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
-    await revived.next('state')
+    const acted = await revived.next('error')
+    expect(acted.code).toBe('illegalAction')
 
     pair.host.close()
     revived.close()
@@ -628,11 +683,10 @@ describe('a seat nobody is holding does not stall the table', () => {
   test("the absent seat's turn is played for it, and the turn passes", async () => {
     const { getRoom, armTurnTimeout } = await import('./rooms')
     const pair = await seatedPair({ seed: 61 })
-    await startGame(pair)
 
-    // Into the Market phase, where turns are strictly ordered.
-    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
-    let state = await pair.host.next('state')
+    // Starting already flipped; walk on into the Market phase, where turns
+    // are strictly ordered.
+    let state = { match: await startGame(pair) } as { match: Match }
     while (state.match.shared.phase !== 'market') {
       const owing = state.match.players.findIndex((p) => p.pendingPostFameChoice)
       if (owing < 0) break
@@ -668,7 +722,15 @@ describe('a seat nobody is holding does not stall the table', () => {
 
     const room = getRoom(pair.roomCode)!
     // Force a known Market-phase turn rather than depending on the shuffle.
-    room.match = { ...room.match, shared: { ...room.match.shared, phase: 'market' }, activePlayerIndex: 1 }
+    // The prompts have to go too: the Flip now runs as part of starting, and
+    // strandingSeat answers on a pending post-fame choice BEFORE it looks at
+    // whose Market turn it is.
+    room.match = {
+      ...room.match,
+      shared: { ...room.match.shared, phase: 'market' },
+      activePlayerIndex: 1,
+      players: room.match.players.map((p) => ({ ...p, pendingPostFameChoice: null })),
+    }
 
     pair.host.inbox.length = 0
     pair.guest.close()
@@ -693,7 +755,15 @@ describe('a seat nobody is holding does not stall the table', () => {
     await startGame(pair)
 
     const room = getRoom(pair.roomCode)!
-    room.match = { ...room.match, shared: { ...room.match.shared, phase: 'market' }, activePlayerIndex: 0 }
+    // Prompts cleared for the same reason as the test above: strandingSeat
+    // answers on a pending post-fame choice before it looks at whose turn it
+    // is, and this test is about the turn.
+    room.match = {
+      ...room.match,
+      shared: { ...room.match.shared, phase: 'market' },
+      activePlayerIndex: 0,
+      players: room.match.players.map((p) => ({ ...p, pendingPostFameChoice: null })),
+    }
     armTurnTimeout(room, 30)
 
     // Taking a long time to decide is not a disconnection.
@@ -729,6 +799,7 @@ describe('skipping an absent seat answers whatever it owes first', () => {
       players: room.match.players.map((p, i) => (i === 1 ? { ...p, grid, actionsRemaining: 0, pendingPostFameChoice: null } : { ...p, pendingPostFameChoice: null })),
     }
 
+    const roundBefore = room.match.shared.round
     pair.host.inbox.length = 0
     pair.guest.close()
     await pair.host.next('lobby')
@@ -743,8 +814,11 @@ describe('skipping an absent seat answers whatever it owes first', () => {
     expect(skipped.match.players[1].dismissed).toHaveLength(1)
     // ...and the table is no longer waiting on that seat. Seat 1 is the LAST
     // in a two-player order, so ending its turn wraps and closes the Market
-    // phase for everyone rather than moving activePlayerIndex.
-    expect(skipped.match.shared.phase).not.toBe('market')
+    // phase for everyone rather than moving activePlayerIndex. The ROUND is
+    // what to assert on: Cleanup now rolls straight into the next round's
+    // server-run Flip, so the phase lands back on 'market' within the same
+    // broadcast.
+    expect(skipped.match.shared.round).toBeGreaterThan(roundBefore)
 
     pair.host.close()
   })
@@ -766,6 +840,7 @@ describe('skipping an absent seat answers whatever it owes first', () => {
       ),
     }
 
+    const roundBefore = room.match.shared.round
     pair.host.inbox.length = 0
     pair.guest.close()
     await pair.host.next('lobby')
@@ -773,8 +848,73 @@ describe('skipping an absent seat answers whatever it owes first', () => {
 
     const skipped = await pair.host.next('state', 3000)
     expect(skipped.match.players[1].pendingDeckPlacement).toBeNull()
-    expect(skipped.match.shared.phase).not.toBe('market')
+    // See the round-vs-phase note in the Alligator test above.
+    expect(skipped.match.shared.round).toBeGreaterThan(roundBefore)
 
     pair.host.close()
+  })
+})
+
+// The Flip asks nobody for anything: every seat reveals at once and the action
+// was never turn- or host-gated. A button for it was therefore a shared
+// control with no owner — whoever clicked first won, and everyone else got
+// "Nothing to reveal right now". The server runs it instead.
+describe('the flip runs itself', () => {
+  test('starting a room reveals round 1 without anyone acting', async () => {
+    const { createRoom, startRoom } = await import('./rooms')
+    const { room } = createRoom({ name: 'Ana', season: 1, seed: 81, fameToTriggerEndgame: 999 })
+    room.seats.push({ playerId: 'p1', name: 'Bo', reconnectToken: 't', connected: true })
+    startRoom(room)
+
+    expect(room.match.shared.phase).not.toBe('flip')
+    // Cards are on the table, and the reveal is in the log the start
+    // broadcast carries.
+    expect(room.match.players.every((p) => p.grid.base.flat().some((s) => s !== null))).toBe(true)
+    expect(room.log.length).toBeGreaterThan(0)
+  })
+
+  test('a round that ends rolls straight on into the next reveal', async () => {
+    const { createRoom, startRoom, applyRoomAction } = await import('./rooms')
+    const { room } = createRoom({ name: 'Ana', season: 1, seed: 82, fameToTriggerEndgame: 999 })
+    room.seats.push({ playerId: 'p1', name: 'Bo', reconnectToken: 't', connected: true })
+    startRoom(room)
+
+    const roundBefore = room.match.shared.round
+    for (let i = 0; i < 12 && room.match.shared.round === roundBefore; i++) {
+      const owing = room.match.players.find((p) => p.pendingPostFameChoice)
+      if (owing) {
+        const o = owing.pendingPostFameChoice!.options[0]
+        applyRoomAction(room, owing.playerId, { kind: 'resolvePostFameChoice', pos: o.pos, index: o.index })
+        continue
+      }
+      applyRoomAction(room, room.match.turnOrder[room.match.activePlayerIndex], { kind: 'endTurn' })
+    }
+
+    expect(room.match.shared.round).toBe(roundBefore + 1)
+    // Never parked on the reveal, and never on Cleanup either.
+    expect(['flip', 'cleanup']).not.toContain(room.match.shared.phase)
+  })
+
+  // The Final Flip is the same deal, so `phase === 'finalFlip'` now only ever
+  // exists inside one server tick: the endgame arrives in the SAME broadcast
+  // as the market action that triggered it.
+  test('the Final Flip resolves the match without a click', async () => {
+    const { createRoom, startRoom, applyRoomAction } = await import('./rooms')
+    const { room } = createRoom({ name: 'Ana', season: 1, seed: 83, fameToTriggerEndgame: 1 })
+    room.seats.push({ playerId: 'p1', name: 'Bo', reconnectToken: 't', connected: true })
+    startRoom(room)
+
+    for (let i = 0; i < 12 && room.match.shared.phase !== 'ended'; i++) {
+      const owing = room.match.players.find((p) => p.pendingPostFameChoice)
+      if (owing) {
+        const o = owing.pendingPostFameChoice!.options[0]
+        applyRoomAction(room, owing.playerId, { kind: 'resolvePostFameChoice', pos: o.pos, index: o.index })
+        continue
+      }
+      applyRoomAction(room, room.match.turnOrder[room.match.activePlayerIndex], { kind: 'endTurn' })
+    }
+
+    expect(room.match.shared.endgameTriggered).toBe(true)
+    expect(room.match.shared.phase).toBe('ended')
   })
 })

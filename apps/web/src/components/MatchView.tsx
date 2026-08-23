@@ -5,7 +5,7 @@ import type { Match } from '../../../../packages/engine/state'
 import type { MatchAction } from '../../../../packages/engine/matchActions'
 import type { Action } from '../../../../packages/engine/actions'
 import type { LobbyState } from '../../../server/protocol'
-import { Grid } from './Grid'
+import { BoardPane } from './BoardPane'
 import { RoundView } from './RoundView'
 
 const cards = cardsById()
@@ -39,8 +39,10 @@ function toMatchAction(action: Action): MatchAction | null {
       return { kind: 'endTurn' }
     default:
       // flip / checkFame / continueToMarket / advanceCleanup are solo's
-      // zero-click cascade. Multiplayer advances those from the shared
-      // control below, never from one player's board.
+      // zero-click cascade. Multiplayer has no client control for them at
+      // all: the Flip takes no input from anybody, so the SERVER advances it
+      // (rooms.ts's advanceSharedPhases) rather than asking one player to
+      // press a button on everyone else's behalf.
       return null
   }
 }
@@ -69,25 +71,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
 
       <Scoreboard match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} />
 
-      {phase === 'flip' && (
-        <div className="match__advance">
-          <p>Everyone flips together.</p>
-          <button type="button" data-testid="advance-flip" onClick={() => onAct({ kind: 'advanceFlip' })}>
-            Flip
-          </button>
-        </div>
-      )}
-
-      {phase === 'finalFlip' && (
-        <div className="match__advance match__advance--final" data-testid="final-flip-banner">
-          <p>
-            <strong>Final Flip.</strong> One last reveal — most fame wins.
-          </p>
-          <button type="button" data-testid="advance-flip" onClick={() => onAct({ kind: 'advanceFlip' })}>
-            Final Flip
-          </button>
-        </div>
-      )}
+      <EndgameNotice match={match} />
 
       {/* The mandatory Skunk dismissal. It blocks the Market phase for the
           whole table, so it gets its own prompt rather than hiding inside the
@@ -144,15 +128,21 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
 
       {/* Your own board. Rendered through the same RoundView solo uses — a
           PlayerView is structurally the old GameState, so it needs no
-          multiplayer awareness at all. */}
-      {phase === 'market' && (
-        <section className="match__mine" data-testid="my-board">
-          <h3 className="match__mine-title">
-            Your board{isMyTurn ? (me.pendingDeckPlacement ? ' (choose a deck first)' : '') : ' (not your turn)'}
-          </h3>
-          {/* A pending deck placement freezes the rest of the turn: the engine
-              refuses hire/dismiss/endTurn until it is answered, so leaving
-              those live would only hand the player a guaranteed error. */}
+          multiplayer awareness at all.
+
+          It renders in EVERY phase. It used to be Market-only while opponent
+          boards rendered always, so the flip revealed cards on their grids
+          while yours simply wasn't on the page. Outside Market there is
+          nothing to click, so it falls back to the same read-only BoardPane
+          the opponents get. */}
+      <section className="match__mine" data-testid="my-board">
+        <h3 className="match__mine-title">
+          Your board{phase !== 'market' ? '' : isMyTurn ? (me.pendingDeckPlacement ? ' (choose a deck first)' : '') : ' (not your turn)'}
+        </h3>
+        {/* A pending deck placement freezes the rest of the turn: the engine
+            refuses hire/dismiss/endTurn until it is answered, so leaving
+            those live would only hand the player a guaranteed error. */}
+        {phase === 'market' ? (
           <RoundView
             state={viewOf(match, myIndex)}
             dispatch={(action) => {
@@ -172,8 +162,10 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
             // but closing the tab.
             controlsDisabled={!isMyTurn || me.pendingDeckPlacement !== null}
           />
-        </section>
-      )}
+        ) : (
+          <BoardPane title="Your grid" grid={me.grid} cards={cards} deckCount={me.deck.length} readOnly />
+        )}
+      </section>
 
       <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} />
     </div>
@@ -250,6 +242,10 @@ function Scoreboard({
 // "a player may examine any player's dismissed cards at any time"), so there
 // is nothing to hide — only to label clearly enough that nobody mistakes
 // someone else's grid for their own.
+//
+// Drawn by the SAME BoardPane your own board uses, deliberately. It used to be
+// a bare <Grid> under an <h4>, which made an opponent's grid look like a
+// different kind of object from yours. `readOnly` is the only difference.
 function OpponentBoards({
   match,
   myPlayerId,
@@ -271,14 +267,23 @@ function OpponentBoards({
       <div className="opponents__list">
         {others.map((p) => (
           <div key={p.playerId} className="opponents__board" data-testid={`opponent-${p.playerId}`}>
-            <h4>
-              {nameOf(p.playerId)}
-              {phase === 'market' && p.playerId === activeId && <span className="opponents__turn"> — their turn</span>}
-            </h4>
-            <Grid grid={p.grid} cards={cards} fame={p.fame} />
-            <p className="opponents__counts">
-              deck {p.deck.length} · dismissed {p.dismissed.length} · fame this round {p.fameGeneratedThisRound}
-            </p>
+            <BoardPane
+              title={
+                <>
+                  {nameOf(p.playerId)}
+                  {phase === 'market' && p.playerId === activeId && <span className="opponents__turn"> — their turn</span>}
+                </>
+              }
+              grid={p.grid}
+              cards={cards}
+              deckCount={p.deck.length}
+              readOnly
+              footer={
+                <p className="opponents__counts">
+                  dismissed {p.dismissed.length} · fame this round {p.fameGeneratedThisRound}
+                </p>
+              }
+            />
           </div>
         ))}
       </div>
@@ -316,5 +321,30 @@ function EndScreen({
         ))}
       </ul>
     </div>
+  )
+}
+
+
+// The endgame arrives with no warning otherwise: runMatchCleanup latches the
+// trigger and hands STRAIGHT to the Final Flip (match.ts), which the server
+// now resolves in the same tick — so there is no phase after the trigger in
+// which to say anything. The one place a warning can live is the trigger
+// round's own Market phase, where the condition is already derivable from the
+// state every client holds.
+//
+// The predicate mirrors runMatchCleanup's latch exactly, depletion arm
+// included: a short market refill ends the game identically to the fame
+// threshold, and a notice that only fired on fame would silently no-show.
+function EndgameNotice({ match }: { match: Match }) {
+  if (match.shared.endgameTriggered) return null
+  const byFame = match.players.some((p) => p.fameGeneratedThisRound >= match.shared.fameToTriggerEndgame)
+  if (!byFame && !match.shared.toonDeckDepleted) return null
+  return (
+    <p className="match__endgame-notice" data-testid="endgame-notice">
+      {byFame
+        ? `Someone has hit ${match.shared.fameToTriggerEndgame} fame.`
+        : 'The toon deck has run short.'}{' '}
+      This is the last round — the Final Flip decides it.
+    </p>
   )
 }

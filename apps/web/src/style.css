@@ -99,6 +99,12 @@ button {
   gap: 1rem;
 }
 
+@media (max-width: 480px) {
+  .mode-picker__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mode-card {
   min-height: 96px;
   padding: 1rem 1.25rem;
@@ -164,39 +170,109 @@ button {
   align-self: flex-start;
   background: none;
   border: none;
-  padding: 0;
+  /* A ≥44px tap target: this used to be a zero-padding text link. */
+  min-height: 44px;
+  padding: 0 0.5rem 0 0;
   opacity: 0.75;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .config-panel__back:hover {
   opacity: 1;
 }
 
-.config-panel__difficulty {
+/* The one control every config screen picks with. Same card language as the
+   mode picker, one size down, so a phone gets a real tap target instead of a
+   native <select>. */
+.option-field {
   display: flex;
-  border: 1px solid #8886;
-  border-radius: 8px;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
-.config-panel__difficulty-option {
-  flex: 1;
+.option-field__label {
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+/* Side by side wherever they fit — two or three short options stay one row
+   even on a phone — and wrapping rather than shrinking below a thumb's
+   width. */
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.75rem;
+}
+
+.option-card {
+  min-height: 64px;
   padding: 0.75rem 0.5rem;
-  border: none;
+  border-radius: 12px;
+  border: 2px solid #8886;
   background: canvas;
   color: canvastext;
-  font-size: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.config-panel__difficulty-option + .config-panel__difficulty-option {
-  border-left: 1px solid #8886;
+.option-card:active {
+  transform: scale(0.97);
 }
 
-.config-panel__difficulty-option--active {
+.option-card--active {
+  border-color: var(--color-accent);
   background: var(--color-accent-bg);
   color: var(--color-accent);
   font-weight: 700;
+}
+
+.option-card__icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.option-card__label {
+  font-size: 1rem;
+}
+
+.option-card__subtitle {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.config-panel__field input,
+.config-panel__seed input,
+.config-panel__room-code input {
+  min-height: 52px;
+  /* Never below 16px: iOS zooms the page when a smaller field takes focus. */
+  font-size: 1rem;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+}
+
+.config-panel__status {
+  opacity: 0.75;
+  font-size: 0.9rem;
+}
+
+/* Sits above the Host button in place of the old player-count cards, saying
+   where the table size actually gets decided now. */
+.lobby__count {
+  margin: 0.5rem 0 0.25rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+  font-size: 0.9rem;
+}
+
+.config-panel__hint {
+  margin: 0;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .config-panel__room-code {
@@ -986,4 +1062,309 @@ img.card__icon {
   margin: 0;
   padding: 0;
   min-width: 0;
+}
+
+/* ---------- Waiting room ---------- */
+
+/* The lobby markup shipped without any styles of its own, so a seat rendered
+   as bare adjacent spans with no separator — "Nick" + "host" + "you" read as
+   one word, "Nickhostyou". The badges are pills here so the name stays the
+   name. */
+.lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.lobby__title {
+  margin: 0;
+}
+
+.lobby__code,
+.lobby__share {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.lobby__code strong {
+  font-size: 1.6rem;
+  letter-spacing: 0.3em;
+  color: var(--color-accent);
+}
+
+.lobby__share code {
+  word-break: break-all;
+}
+
+.lobby__seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lobby__seat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, canvastext 15%, transparent);
+  border-radius: 10px;
+}
+
+.lobby__seat-name {
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.lobby__badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, canvastext 10%, transparent);
+}
+
+.lobby__badge--you {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+}
+
+.lobby__badge--away {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.lobby__start {
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 0.9rem 1.5rem;
+  min-height: 52px;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-accent);
+  color: white;
+}
+
+.lobby__start:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lobby__waiting {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.lobby__leave {
+  align-self: center;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------- Multiplayer match ---------- */
+
+/* None of this existed. `.match__*`, `.opponents*` and `.scoreboard*` had zero
+   rules in this sheet, so a seated match rendered as default block flow:
+   opponent boards stacked full-width UNDER a differently-framed board of your
+   own. Same cards, two presentations — which is what made other players'
+   grids read as a different kind of object from yours. Everything here uses
+   the sheet's existing vocabulary (canvas/canvastext, color-mix neutrals,
+   --color-accent) rather than a second palette. */
+
+.match {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.match__header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.match__round {
+  font-weight: 700;
+}
+
+.match__phase {
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, canvastext 8%, transparent);
+  color: color-mix(in srgb, canvastext 70%, transparent);
+}
+
+.match__turn {
+  margin-left: auto;
+  color: color-mix(in srgb, canvastext 70%, transparent);
+}
+
+.match__turn--mine {
+  color: var(--color-accent);
+}
+
+/* Quiet on purpose: the last round is worth knowing about, not worth
+   interrupting a turn for. */
+.match__endgame-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--color-accent);
+  border-radius: 4px;
+  background: var(--color-accent-bg);
+  font-size: 0.9rem;
+}
+
+.match__prompt {
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-bg);
+}
+
+.match__prompt p {
+  margin-top: 0;
+}
+
+.match__prompt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.match__waiting,
+.match__error {
+  margin: 0;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.match__end {
+  padding: 1rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, canvastext 5%, transparent);
+}
+
+.match__final-scores {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.match__mine-title,
+.opponents > h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, canvastext 60%, transparent);
+}
+
+/* The pane every board is drawn in — yours and everyone else's (BoardPane.tsx).
+   Deliberately ONE rule rather than a "mine" variant and an "opponent"
+   variant: the only difference between the two is that one is interactive. */
+.round-view__grid-pane {
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, canvastext 12%, transparent);
+  background: color-mix(in srgb, canvastext 3%, transparent);
+}
+
+.round-view__grid-pane h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.round-view__grid-heading {
+  margin-bottom: 0.5rem;
+}
+
+.opponents__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.opponents__turn {
+  color: var(--color-accent);
+  font-weight: 400;
+}
+
+.opponents__counts {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, canvastext 60%, transparent);
+}
+
+.scoreboard {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.scoreboard th,
+.scoreboard td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid color-mix(in srgb, canvastext 10%, transparent);
+}
+
+.scoreboard th {
+  font-weight: 600;
+  color: color-mix(in srgb, canvastext 60%, transparent);
+}
+
+.scoreboard__row--me {
+  background: color-mix(in srgb, canvastext 5%, transparent);
+}
+
+.scoreboard__you {
+  color: color-mix(in srgb, canvastext 55%, transparent);
+}
+
+.scoreboard__badge {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-warning);
+}
+
+.scoreboard__modifier {
+  color: var(--color-positive);
+}
+
+/* A grid sizes itself to its container, so the SAME three columns came out at
+   ~108px in the narrow pane beside the market and ~205px in an opponent pane
+   spanning the page — same component, two card sizes, which is most of what
+   made the two boards read as different kinds of thing.
+
+   Scoped to `.match` on purpose: solo has only ever had one board, so there
+   is nothing there for it to match, and capping it globally would shrink the
+   solo grid (398px -> 352px at 1024px wide) to fix a problem solo doesn't
+   have. Inside a match it applies to YOUR board and everyone else's alike. */
+.match .grid {
+  max-width: 22rem;
+}
+
+/* `.card:disabled` carries two unrelated meanings, and only one of them is
+   information. "This card isn't dismissable" is worth greying. "It isn't your
+   turn" is not — when the WHOLE board is off, every card is equally inert, so
+   greying them all says nothing and, worse, makes your own grid look unlike
+   the opponent grids sitting right next to it at rest. Cancel the grey when
+   the fieldset is what disabled it; the fieldset still blocks the clicks. */
+.round-view__controls:disabled .card:disabled {
+  opacity: 1;
 }

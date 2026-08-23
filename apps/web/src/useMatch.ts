@@ -179,7 +179,7 @@ export function useMatch() {
   }, [])
 
   const createRoom = useCallback(
-    (opts: { name: string; playerCount: number; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => {
+    (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => {
       connect({ type: 'create', ...opts })
     },
     [connect],

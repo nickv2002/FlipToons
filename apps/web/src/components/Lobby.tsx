@@ -29,6 +29,10 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
         Share this link: <code data-testid="room-link">{shareUrl}</code>
       </p>
 
+      <p className="lobby__count" data-testid="seat-count">
+        Players ({lobby.seats.length} of {lobby.capacity})
+      </p>
+
       <ul className="lobby__seats" data-testid="seat-list">
         {lobby.seats.map((seat) => (
           <li key={seat.playerId} className="lobby__seat" data-testid={`seat-${seat.playerId}`}>

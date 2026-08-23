@@ -14,7 +14,10 @@ import type { Page } from '@playwright/test'
 
 async function startSolo(page: Page, season: 1 | 2): Promise<void> {
   await page.goto('/')
-  await page.getByRole('button', { name: `Solo · Season ${season}` }).click()
+  // Solo card -> config panel: season and difficulty are cards on the panel
+  // now, not separate buttons on the picker.
+  await page.getByTestId('mode-solo').click()
+  await page.getByTestId(`season-${season}`).click()
   await page.getByRole('button', { name: 'Start Game' }).click()
 }
 
@@ -63,8 +66,10 @@ test.describe('solo still works through the web UI', () => {
 
   test('the menu offers multiplayer without a stored seat hijacking solo', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByTestId('go-multiplayer')).toBeVisible()
-    // A fresh browser has no seat remembered, so it must open on solo.
-    await expect(page.getByRole('button', { name: 'Solo · Season 1' })).toBeVisible()
+    await expect(page.getByTestId('mode-host')).toBeVisible()
+    await expect(page.getByTestId('mode-join')).toBeVisible()
+    // A fresh browser has no seat remembered, so it must open on the picker
+    // with solo offered, not inside a multiplayer panel.
+    await expect(page.getByTestId('mode-solo')).toBeVisible()
   })
 })

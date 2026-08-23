@@ -28,6 +28,11 @@ export type SlotProps = {
   choiceCost?: number
   choiceDisabled?: boolean
   onChoice?: (target: DismissTarget) => void
+  // This board is being SHOWN, not played — an opponent's grid, or your own
+  // outside the Market phase. Cards render as inert <div>s rather than
+  // enabled-but-inactionable buttons, and nothing is greyed: a board at rest
+  // should look the same whoever it belongs to.
+  readOnly?: boolean
 }
 
 // NOTE: dismiss cost is NOT gated on affordability the way Market.tsx gates
@@ -37,7 +42,7 @@ export type SlotProps = {
 // unaffordable, caught by actions.ts's try/catch and surfaced in the log,
 // same as tui.ts's playerFacingMessage path — no client-side affordability
 // gate here. `fame` is only used to color the badge red as a heads-up.
-export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, choiceOptions, choiceCost, choiceDisabled, onChoice }: SlotProps) {
+export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, choiceOptions, choiceCost, choiceDisabled, onChoice, readOnly }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
   }
@@ -77,6 +82,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
               onClick={dismissEntry && !immuneToDismiss && onDismiss ? () => onDismiss(pos, dismissEntry.stackIndex) : undefined}
               disabled={faceUp && onDismiss !== undefined && (immuneToDismiss || !dismissEntry)}
               dealDelayMs={slotIndex !== undefined ? slotIndex * DEAL_STAGGER_MS : undefined}
+              readOnly={readOnly}
             />
           </div>
         )

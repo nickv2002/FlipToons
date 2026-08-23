@@ -35,16 +35,22 @@ export type LobbyState = {
   started: boolean
   season: 1 | 2
   fameToTriggerEndgame: number
+  // How many seats the room can hold — always MAX_SEATS. The table size is not
+  // chosen up front any more; it is whoever is in the lobby when the host
+  // starts. The lobby renders this only so you can see there is still room.
+  capacity: number
 }
 
 export type ClientMessage =
-  // Creates a room and takes the first seat. `playerCount` is the table size
-  // the room will accept; a 1-player room is a solo game.
+  // Creates a room and takes the first seat. The table size is NOT declared
+  // here: the room accepts up to MAX_SEATS and is dealt for whoever actually
+  // turned up when the host presses start. Solo never goes through a room at
+  // all — the browser runs it locally.
   //
   // `fameToTriggerEndgame` is optional and exists because 30 fame is many
   // rounds of play: the browser end-to-end test sets it low to reach a Final
   // Flip quickly, and it doubles as the most useful playtesting knob.
-  | { type: 'create'; name: string; playerCount: number; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }
+  | { type: 'create'; name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }
   // `reconnectToken` reclaims a seat after a reload or a dropped connection.
   // Without one, this is a new player taking a free seat.
   | { type: 'join'; roomCode: string; name: string; reconnectToken?: string }

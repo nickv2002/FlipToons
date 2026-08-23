@@ -1,95 +1,63 @@
 import { useState } from 'react'
 import type { SoloDifficulty } from '../../../../packages/engine/setup'
+import { OptionCards } from './OptionCards'
 
 export type NewGameFormProps = {
   onStart: (seed: number, difficulty: SoloDifficulty, season: 1 | 2) => void
+  onBack: () => void
 }
-
-type Step =
-  | { kind: 'pick' }
-  | { kind: 'configure'; season: 1 | 2 }
-
-const DIFFICULTIES: SoloDifficulty[] = ['easy', 'normal', 'hard']
 
 function resolveSeed(seed: string): number {
   const parsed = Number(seed)
   return Number.isFinite(parsed) ? parsed : Date.now() >>> 0
 }
 
-export function NewGameForm({ onStart }: NewGameFormProps) {
-  const [step, setStep] = useState<Step>({ kind: 'pick' })
+// Solo config only. The mode picker that used to live here is now
+// LaunchScreen; season, which used to be baked into the picker's cards, is a
+// choice on this panel.
+export function NewGameForm({ onStart, onBack }: NewGameFormProps) {
+  const [season, setSeason] = useState<1 | 2>(1)
   const [difficulty, setDifficulty] = useState<SoloDifficulty>('normal')
   const [seed, setSeed] = useState(() => String(Date.now() >>> 0))
 
-  if (step.kind === 'pick') {
-    return (
-      <div className="mode-picker">
-        <h1>FlipToons</h1>
-        <div className="mode-picker__grid">
-          <button
-            type="button"
-            className="mode-card mode-card--solo"
-            onClick={() => setStep({ kind: 'configure', season: 1 })}
-          >
-            <span className="mode-card__icon">🎲</span>
-            <span className="mode-card__label">Solo · Season 1</span>
-            <span className="mode-card__subtitle">Play against the clock</span>
-          </button>
-
-          <button
-            type="button"
-            className="mode-card mode-card--solo"
-            onClick={() => setStep({ kind: 'configure', season: 2 })}
-          >
-            <span className="mode-card__icon">🎲</span>
-            <span className="mode-card__label">Solo · Season 2</span>
-            <span className="mode-card__subtitle">Play against the clock</span>
-          </button>
-
-
-
-        </div>
-      </div>
-    )
-  }
-
-  const { season } = step
-
   return (
     <div className="config-panel">
-      <button type="button" className="config-panel__back" onClick={() => setStep({ kind: 'pick' })}>
+      <button type="button" className="config-panel__back" onClick={onBack}>
         ← Back
       </button>
-      <h1>
-        Solo · Season {season}
-      </h1>
+      <h1>Solo</h1>
 
-      <div className="config-panel__difficulty" role="group" aria-label="Difficulty">
-        {DIFFICULTIES.map((level) => (
-          <button
-            key={level}
-            type="button"
-            className={
-              'config-panel__difficulty-option' +
-              (difficulty === level ? ' config-panel__difficulty-option--active' : '')
-            }
-            onClick={() => setDifficulty(level)}
-          >
-            {level[0].toUpperCase() + level.slice(1)}
-          </button>
-        ))}
-      </div>
+      <OptionCards
+        label="Season"
+        value={season}
+        onChange={(value) => setSeason(value as 1 | 2)}
+        options={[
+          { value: 1, label: 'Season 1', icon: '🍂', testId: 'season-1' },
+          { value: 2, label: 'Season 2', icon: '🌊', testId: 'season-2' },
+        ]}
+      />
+
+      <OptionCards
+        label="Difficulty"
+        value={difficulty}
+        onChange={setDifficulty}
+        options={[
+          { value: 'easy', label: 'Easy', icon: '🙂', testId: 'difficulty-easy' },
+          { value: 'normal', label: 'Normal', icon: '😐', testId: 'difficulty-normal' },
+          { value: 'hard', label: 'Hard', icon: '😤', testId: 'difficulty-hard' },
+        ]}
+      />
 
       <button
         type="button"
         className="config-panel__confirm"
+        data-testid="start-solo"
         onClick={() => {
           onStart(resolveSeed(seed), difficulty, season)
         }}
       >
         Start Game
       </button>
-
 
       <label className="config-panel__seed">
         Seed

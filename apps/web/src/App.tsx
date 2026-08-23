@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useGame } from './useGame'
 import { useMatch, roomCodeFromUrl, hasStoredSeat } from './useMatch'
-import { NewGameForm } from './components/NewGameForm'
 import { RoundView } from './components/RoundView'
 import { ResolveLog } from './components/ResolveLog'
 import { Lobby } from './components/Lobby'
 import { MatchView } from './components/MatchView'
-import { MultiplayerStart } from './components/MultiplayerStart'
+import { LaunchScreen } from './components/LaunchScreen'
+import type { LaunchStep } from './components/LaunchScreen'
 
 // Two genuinely different games live here:
 //
@@ -16,6 +16,9 @@ import { MultiplayerStart } from './components/MultiplayerStart'
 //
 // The previous "host online" mode was neither: it hosted a SOLO game that any
 // number of browsers jointly drove, sharing one grid and one fame pool.
+//
+// Both start from the same launch screen: three big cards (Solo / Host a
+// table / Join a Game), each leading into its own config panel.
 export function App() {
   const local = useGame()
   const match = useMatch()
@@ -24,6 +27,8 @@ export function App() {
   // game; open there rather than on the solo screen, or a reload silently
   // abandons a game that is still running.
   const [mode, setMode] = useState<'solo' | 'multiplayer'>(urlRoom || hasStoredSeat() ? 'multiplayer' : 'solo')
+  // A shared ?room= link should land on the join panel with the code in it.
+  const [launchStep, setLaunchStep] = useState<LaunchStep>(urlRoom ? 'join' : 'pick')
 
   // A room code in the URL or a stored seat means "get me back into that
   // game." The old remote hook persisted nothing, so a refresh lost the room
@@ -52,6 +57,35 @@ export function App() {
       </p>
     ) : null
 
+  // ONE render site, shared by both branches below. Two would remount the
+  // panel the moment a failed join flipped the mode back — losing the typed
+  // name along with the error explaining what went wrong.
+  const launchScreen = (
+    <LaunchScreen
+      step={launchStep}
+      onPick={(step) => {
+        setLaunchStep(step)
+        setMode(step === 'host' || step === 'join' ? 'multiplayer' : 'solo')
+      }}
+      onBack={() => {
+        match.clearError()
+        setLaunchStep('pick')
+        setMode('solo')
+      }}
+      onStartSolo={local.startNewGame}
+      onHost={match.createRoom}
+      onJoin={match.joinRoom}
+      connection={match.connection}
+      initialRoomCode={urlRoom}
+    />
+  )
+
+  const leaveMatch = () => {
+    match.leave()
+    setLaunchStep('pick')
+    setMode('solo')
+  }
+
   if (mode === 'multiplayer') {
     return (
       <div className="app">
@@ -75,10 +109,7 @@ export function App() {
               lobby={match.lobby}
               myPlayerId={match.myPlayerId}
               onAct={match.act}
-              onLeave={() => {
-                match.leave()
-                setMode('solo')
-              }}
+              onLeave={leaveMatch}
             />
             <ResolveLog
               log={match.log.map((l) => ({
@@ -95,18 +126,10 @@ export function App() {
             myPlayerId={match.myPlayerId}
             connection={match.connection}
             onStart={match.startGame}
-            onLeave={() => {
-              match.leave()
-              setMode('solo')
-            }}
+            onLeave={leaveMatch}
           />
         ) : (
-          <>
-            <MultiplayerStart onHost={match.createRoom} onJoin={match.joinRoom} error={match.error} connection={match.connection} initialRoomCode={urlRoom} />
-            <button type="button" className="app__back" onClick={() => setMode('solo')}>
-              Back to solo
-            </button>
-          </>
+          launchScreen
         )}
       </div>
     )
@@ -115,12 +138,7 @@ export function App() {
   return (
     <div className="app">
       {local.state === null ? (
-        <>
-          <NewGameForm onStart={local.startNewGame} />
-          <button type="button" className="app__multiplayer" data-testid="go-multiplayer" onClick={() => setMode('multiplayer')}>
-            Play with other people
-          </button>
-        </>
+        launchScreen
       ) : (
         <div className="app__game">
           <RoundView state={local.state} dispatch={local.dispatch} onAbandon={local.abandonGame} />

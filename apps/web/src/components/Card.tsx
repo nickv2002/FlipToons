@@ -45,6 +45,17 @@ export type CardProps = {
   // slot. Undefined means "don't animate" — the caller only supplies this
   // when the card is new, via remount-keying (see Market.tsx/Slot.tsx).
   dealDelayMs?: number
+  // Renders the front as a <div> instead of a <button>: this card is being
+  // SHOWN, not offered. Distinct from `disabled`, which still renders a
+  // button (an offer you can't currently take, greyed to say so).
+  //
+  // Opponent boards used to render every face-up card as an enabled,
+  // keyboard-focusable button with no onClick — Slot.tsx computes
+  // `disabled` from `onDismiss !== undefined`, which opponents never get.
+  // Reaching for `disabled` instead would have been worse: it would grey
+  // every opponent card, which is exactly the presentation mismatch this
+  // pass exists to remove.
+  readOnly?: boolean
 }
 
 const immunePhrase: Record<string, string> = {
@@ -91,8 +102,8 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId }: CardProps) {
-  const clickable = !!onClick && !disabled
+export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly }: CardProps) {
+  const clickable = !!onClick && !disabled && !readOnly
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
   if (!card) {
@@ -118,16 +129,14 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
     ? `⚠ effect not simulated by the engine${card.unencodableReason ? ` (${card.unencodableReason})` : ''} — resolve it manually per the text above.`
     : null
 
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      className={`card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${selected ? ' card--selected' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`}
-      onClick={onClick}
-      disabled={disabled}
-      style={dealStyle}
-      title={compact ? [card.name, bodyText, warningText].filter(Boolean).join('\n') : undefined}
-    >
+  const className = `card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${selected ? ' card--selected' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`
+  const title = compact ? [card.name, bodyText, warningText].filter(Boolean).join('\n') : undefined
+
+  // Identical class list and children either way, so a read-only card and an
+  // interactive one at rest paint the same — every .card rule is on the class,
+  // none of them on button semantics.
+  const body = (
+    <>
       <div className="card__top">
         <span className="card__rank">rank {card.rank}</span>
         {price !== undefined && (
@@ -160,6 +169,20 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
       )}
       {bodyText && <div className="card__text">{bodyText}</div>}
       {warningText && <div className="card__warning">{warningText}</div>}
+    </>
+  )
+
+  if (readOnly) {
+    return (
+      <div data-testid={testId} className={className} style={dealStyle} title={title}>
+        {body}
+      </div>
+    )
+  }
+
+  return (
+    <button type="button" data-testid={testId} className={className} onClick={onClick} disabled={disabled} style={dealStyle} title={title}>
+      {body}
     </button>
   )
 }

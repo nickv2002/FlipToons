@@ -7,7 +7,7 @@ import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../pa
 import type { EffectChoices } from '../../../../packages/engine/cards/types'
 import { computePendingChoice, buildEffectChoices } from '../../../../packages/engine/hireChoices'
 import type { PendingChoice } from '../../../../packages/engine/hireChoices'
-import { Grid } from './Grid'
+import { BoardPane } from './BoardPane'
 import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
@@ -150,12 +150,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
-          <div className="round-view__grid-pane">
-            <div className="round-view__grid-heading">
-              <h2>Final grid</h2>
-            </div>
-            <Grid grid={state.grid} cards={cards} fame={state.fame} />
-          </div>
+          <BoardPane title="Final grid" grid={state.grid} cards={cards} deckCount={state.deck.length} readOnly />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Final market</h2>
@@ -241,21 +236,15 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
       )}
       {state.phase === 'market' && !alligatorChoice && !pending && (
         <div className="round-view__phase round-view__phase--market">
-          <div className="round-view__grid-pane">
-            <div className="round-view__grid-heading">
-              <h2>Your grid</h2>
-              <span className="round-view__deck-count" title="Cards left undrawn in your deck">
-                Deck: <strong>{state.deck.length}</strong> left
-              </span>
-            </div>
-            <Grid
-              grid={state.grid}
-              cards={cards}
-              dismissEntries={listDismissEntries(state)}
-              onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
-              fame={state.fame}
-            />
-          </div>
+          <BoardPane
+            title="Your grid"
+            grid={state.grid}
+            cards={cards}
+            deckCount={state.deck.length}
+            dismissEntries={listDismissEntries(state)}
+            onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
+            fame={state.fame}
+          />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Market</h2>

@@ -99,12 +99,13 @@ function stopDevServer(proc) {
   })
 }
 
-// Starts a solo game via the New Game form's two-step picker: a mode card
-// (`Solo · Season N`) opens a config panel with a difficulty segmented
-// control and a de-emphasized seed field at the bottom — see
-// components/NewGameForm.tsx if these ever need updating.
+// Starts a solo game via the launch screen's two steps: the Solo mode card
+// opens a config panel whose season and difficulty are big option cards, with
+// a de-emphasized seed field at the bottom — see components/LaunchScreen.tsx
+// and components/NewGameForm.tsx if these ever need updating.
 async function startSoloGame(page, { seed = Date.now() >>> 0, difficulty = 'normal', season = 1 } = {}) {
-  await page.getByRole('button', { name: new RegExp(`Solo · Season ${season}`) }).click()
+  await page.getByTestId('mode-solo').click()
+  await page.getByTestId(`season-${season}`).click()
   await page
     .getByRole('button', { name: new RegExp(`^${difficulty}$`, 'i') })
     .click()

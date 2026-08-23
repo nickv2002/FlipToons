@@ -40,7 +40,6 @@ export type Room = {
   seats: Seat[]
   hostPlayerId: string
   started: boolean
-  playerCount: number
   season: 1 | 2
   seed: number
   fameToTriggerEndgame: number
@@ -89,27 +88,22 @@ function generateToken(): string {
 
 export function createRoom(params: {
   name: string
-  playerCount: number
   season: 1 | 2
   seed?: number
   fameToTriggerEndgame?: number
 }): { roomCode: string; room: Room; seat: Seat } {
-  // Rooms are 2-4 seats. A solo game does not go through a room at all — the
-  // browser runs it locally (apps/web/src/useGame.ts), which is what "hosted
-  // solo" was really doing before, only with the extra failure modes of a
-  // network in the middle.
-  // Math.floor of a non-number is NaN, and both Math.max and Math.min pass NaN
-  // straight through — so clamping alone turned a malformed playerCount into a
-  // NaN that buildMultiplayerSetup rejected by throwing. Anything that isn't a
-  // usable number falls back to the smallest legal table instead.
-  const requested = Number(params.playerCount)
-  const playerCount = Number.isFinite(requested) ? Math.max(2, Math.min(MAX_SEATS, Math.floor(requested))) : 2
+  // Rooms hold up to MAX_SEATS. Nobody declares the table size when hosting —
+  // you cannot know who will click your link — so a room always opens at full
+  // capacity and startRoom shrinks the match to whoever actually turned up.
+  // A solo game does not go through a room at all: the browser runs it locally
+  // (apps/web/src/useGame.ts), which is what "hosted solo" was really doing
+  // before, only with the extra failure modes of a network in the middle.
   const seed = params.seed ?? Math.floor(Math.random() * 2 ** 31)
   const roomCode = generateRoomCode()
 
-  // The match is built up front so the lobby already knows the table size and
-  // the seat ids; it simply isn't dealt until `start`.
-  const match = buildNewMatch(seed, playerCount, params.season, {
+  // Built at full capacity so joiners have seat ids to take; it simply isn't
+  // dealt until `start`, which rebuilds it at the size that showed up.
+  const match = buildNewMatch(seed, MAX_SEATS, params.season, {
     fameToTriggerEndgame: params.fameToTriggerEndgame,
   })
 
@@ -119,7 +113,6 @@ export function createRoom(params: {
     seats: [seat],
     hostPlayerId: seat.playerId,
     started: false,
-    playerCount,
     season: params.season,
     seed,
     fameToTriggerEndgame: match.shared.fameToTriggerEndgame,
@@ -200,7 +193,7 @@ export function joinRoom(room: Room, name: string, reconnectToken?: string): Joi
   if (room.started) {
     return { ok: false, code: 'alreadyStarted', message: 'That game has already started.' }
   }
-  if (room.seats.length >= room.playerCount) {
+  if (room.seats.length >= MAX_SEATS) {
     return { ok: false, code: 'roomFull', message: 'That room is full.' }
   }
 
@@ -221,27 +214,73 @@ export function lobbyOf(room: Room, roomCode: string): LobbyState {
     connected: s.connected,
     isHost: s.playerId === room.hostPlayerId,
   }))
-  return { roomCode, seats, started: room.started, season: room.season, fameToTriggerEndgame: room.fameToTriggerEndgame }
+  return {
+    roomCode,
+    seats,
+    started: room.started,
+    season: room.season,
+    fameToTriggerEndgame: room.fameToTriggerEndgame,
+    capacity: MAX_SEATS,
+  }
 }
 
-// Closes the lobby. The match was built for `playerCount` seats; if fewer
-// people actually turned up, it is rebuilt at the size that did — otherwise
-// the empty seats would sit there holding boards nobody plays.
+// Closes the lobby. The match was built for MAX_SEATS; unless the room filled,
+// it is rebuilt at the size that actually turned up — otherwise the empty
+// seats would sit there holding boards nobody plays. This is the ORDINARY
+// path now, not the exception: no one declares a table size any more.
+//
+// Seat ids survive the rebuild untouched. buildNewMatch hands out a fixed
+// p0..p{n-1} (match.ts), so shrinking 4 -> n leaves every seat already in the
+// room holding the id it had — which is what keeps each connection's pinned
+// SocketData.seat valid across the start. Notably hostPlayerId is NOT
+// recomputed here: if seat 0 dropped in the lobby, index.ts has already handed
+// the host to a connected heir, and reassigning it to seats[0] would give it
+// straight back to the player who left.
 export function startRoom(room: Room): void {
   if (room.started) return
   if (room.seats.length < 2) return // nothing to start; the lobby waits
-  if (room.seats.length !== room.playerCount) {
-    room.playerCount = room.seats.length
+  if (room.seats.length !== room.match.turnOrder.length) {
     room.match = buildNewMatch(room.seed, room.seats.length, room.season, {
       fameToTriggerEndgame: room.fameToTriggerEndgame,
     })
-    room.seats.forEach((s, i) => {
-      s.playerId = room.match.turnOrder[i]
-    })
-    room.hostPlayerId = room.seats[0].playerId
   }
   room.started = true
+  // Round 1 opens in the Flip phase, and the Flip takes no player input — so
+  // the table would otherwise sit on a control nobody owns. Run it here, in
+  // time for the `state` broadcast index.ts sends straight after starting.
+  room.match = advanceSharedPhases(room.match, room.log, room.debugLog)
   room.lastActivity = Date.now()
+}
+
+// The Flip is not a decision. Nobody chooses anything, every seat reveals at
+// once (match.ts's flipSeats(allSeats)), and the action was never turn-gated
+// or host-gated — so a button for it was a shared control with no owner:
+// whoever clicked first won and everyone else got "Nothing to reveal right
+// now". The server drives it instead.
+//
+// This runs on the SERVER rather than from an auto-firing client because all
+// N seats would otherwise race and N-1 would collect an error banner.
+//
+// Consequence worth knowing: `phase === 'finalFlip'` now only ever exists
+// inside one server tick, so the endgame arrives in the SAME broadcast as the
+// market action that triggered it.
+function advanceSharedPhases(match: Match, logLines: LogLine[], debugLines: string[]): Match {
+  // A bound, not a cascade: 'flip' lands on postFameHooks/market and
+  // 'finalFlip' lands on 'ended', and runMatchCleanup produces one or the
+  // other, never both. The guard is here so a future phase edit cannot spin
+  // the event loop.
+  let next = match
+  for (let i = 0; i < 4; i++) {
+    const phase = next.shared.phase
+    if (phase !== 'flip' && phase !== 'finalFlip') return next
+    // Attributed to a seat only because applyMatchAction validates that the
+    // id exists; advanceFlip itself is seat-agnostic (matchActions.ts).
+    const result = applyMatchAction(next, next.turnOrder[0], { kind: 'advanceFlip' })
+    next = result.match
+    logLines.push(...result.logLines)
+    debugLines.push(...result.debugLines)
+  }
+  return next
 }
 
 function send(ws: ServerWebSocket<SocketData>, message: ServerMessage): void {
@@ -266,7 +305,16 @@ export function applyRoomAction(
 ): { ok: true; logLines: LogLine[]; debugLines: string[] } | { ok: false; message: string } {
   try {
     const { match, logLines, debugLines } = applyMatchAction(room.match, playerId, action)
-    room.match = match
+    // Ending the last Market turn of a round runs Cleanup, which leaves the
+    // match in 'flip' (or 'finalFlip'). Advancing it HERE, inside the same
+    // call, folds the reveal's log lines into the ones index.ts is about to
+    // broadcast — one message, not two.
+    //
+    // Nothing is committed to the room until the advance has finished, so an
+    // engine bug thrown mid-cascade still leaves the room exactly as it was —
+    // which is what index.ts's catch promises the caller.
+    const advanced = advanceSharedPhases(match, logLines, debugLines)
+    room.match = advanced
     room.log.push(...logLines)
     room.debugLog.push(...debugLines)
     if (room.log.length > MAX_LOG_LINES) room.log.splice(0, room.log.length - MAX_LOG_LINES)
@@ -288,8 +336,9 @@ export function applyRoomAction(
 // room hit its idle TTL — and until the client's own fix, the other
 // players could not even leave.
 //
-// The Flip is safe: any seat may press it. Only two things wait on ONE named
-// seat, and both are covered here.
+// The Flip is safe: the server advances it the moment the phase is reached
+// (advanceSharedPhases), so no seat can strand the table on it. Only two
+// things wait on ONE named seat, and both are covered here.
 
 function seatOf(room: Room, playerId: string): Seat | undefined {
   return room.seats.find((s) => s.playerId === playerId)

@@ -3,6 +3,7 @@ import {
   describeStall,
   hostRoom,
   joinRoom,
+  openJoinPanel,
   openPlayer,
   playToEnd,
   settleToMarket,
@@ -35,12 +36,47 @@ test.describe('a two-player game, played from both sides', () => {
       await expect(p.page.getByTestId('seat-list')).toContainText('Bo')
     }
 
+    // Nobody picked a table size when hosting, so the lobby is what says how
+    // many are in and how many more will fit.
+    await expect(host.page.getByTestId('seat-count')).toHaveText('Players (2 of 4)')
+
     // Only the host is offered the start control.
     await expect(host.page.getByTestId('start-game')).toBeVisible()
+    await expect(host.page.getByTestId('start-game')).toContainText('2 players')
     await expect(guest.page.getByTestId('waiting-for-host')).toBeVisible()
 
     await host.page.context().close()
     await guest.page.context().close()
+  })
+
+  // The size of the table is now decided by who turns up, so a third player
+  // joining the same room must be seated rather than refused.
+  test('a third player can join a room that was never sized for them', async ({ browser }) => {
+    const host = await openPlayer(browser, 'Ana')
+    const roomCode = await hostRoom(host)
+
+    const guest = await openPlayer(browser, 'Bo')
+    await joinRoom(guest, roomCode)
+    const third = await openPlayer(browser, 'Cy')
+    await joinRoom(third, roomCode)
+
+    for (const p of [host, guest, third]) {
+      await expect(p.page.getByTestId('seat-list')).toContainText('Cy')
+      await expect(p.page.getByTestId('seat-count')).toHaveText('Players (3 of 4)')
+    }
+
+    // All three are dealt in — the match was rebuilt at three seats on start,
+    // and every seat kept the id its connection was pinned to.
+    await host.page.getByTestId('start-game').click()
+    for (const p of [host, guest, third]) {
+      await expect(p.page.getByTestId('match')).toBeVisible()
+      await expect(p.page.getByTestId('scoreboard')).toContainText('Cy')
+      await expect(p.page.getByTestId('score-p2')).toBeVisible()
+    }
+
+    await host.page.context().close()
+    await guest.page.context().close()
+    await third.page.context().close()
   })
 
   test('a room code that does not exist says so instead of failing silently', async ({ browser }) => {
@@ -48,6 +84,7 @@ test.describe('a two-player game, played from both sides', () => {
     // The error banner used to render only once a match existed, so every
     // lobby-phase error — a dead code, "only the host can start", "need at
     // least 2 players" — arrived and was thrown away.
+    await openJoinPanel(player)
     await player.page.getByTestId('room-code-input').fill('ZZZZZ')
     await player.page.getByTestId('join-game').click()
 
@@ -87,8 +124,8 @@ test.describe('a two-player game, played from both sides', () => {
 
     for (const p of [host, guest]) await expect(p.page.getByTestId('match')).toBeVisible()
 
-    // Get into the Market phase.
-    await host.page.getByTestId('advance-flip').click()
+    // Get into the Market phase. Nobody presses a Flip — the server runs it
+    // as part of starting — so this only has to clear any Skunk prompt.
     await settleToMarket([host, guest])
 
     for (const p of [host, guest]) await expect(p.page.getByTestId('turn-indicator')).toBeVisible()
@@ -227,7 +264,6 @@ test.describe('a two-player game, played from both sides', () => {
     const guest = await openPlayer(browser, 'Bo')
     await joinRoom(guest, roomCode)
     await host.page.getByTestId('start-game').click()
-    await host.page.getByTestId('advance-flip').click()
 
     // The scoreboard lists both players separately for both viewers.
     for (const p of [host, guest]) {
@@ -240,6 +276,39 @@ test.describe('a two-player game, played from both sides', () => {
     await expect(host.page.getByTestId('opponent-p0')).toHaveCount(0)
     await expect(guest.page.getByTestId('opponent-p0')).toBeVisible()
     await expect(guest.page.getByTestId('opponent-p1')).toHaveCount(0)
+
+    // Nobody was asked to press a Flip: the server ran it, and both boards
+    // are on the table already.
+    await expect(host.page.getByTestId('advance-flip')).toHaveCount(0)
+    for (const p of [host, guest]) await expect(p.page.getByTestId('my-board')).toBeVisible()
+
+    // Yours and theirs are drawn by the same BoardPane — one pane each, not a
+    // framed board of your own next to a bare grid for everyone else.
+    await expect(host.page.getByTestId('my-board').locator('.round-view__grid-pane')).toHaveCount(1)
+    await expect(host.page.getByTestId('opponent-p1').locator('.round-view__grid-pane')).toHaveCount(1)
+    // ...and an opponent's cards are inert: shown, not offered.
+    await expect(host.page.getByTestId('opponent-p1').locator('button.card')).toHaveCount(0)
+
+    await host.page.context().close()
+    await guest.page.context().close()
+  })
+
+  // The endgame used to arrive with no warning: Cleanup latches the trigger
+  // and hands straight to the Final Flip, which the server now resolves in the
+  // same tick. A threshold of 1 makes round 1 the trigger round, so the notice
+  // has to be up during that round's Market phase or never.
+  test('the last round says so before the Final Flip decides it', async ({ browser }) => {
+    const host = await openPlayer(browser, 'Ana')
+    const roomCode = await hostRoom(host, { seed: '11', threshold: '1' })
+    const guest = await openPlayer(browser, 'Bo')
+    await joinRoom(guest, roomCode)
+    await host.page.getByTestId('start-game').click()
+    await settleToMarket([host, guest])
+
+    for (const p of [host, guest]) {
+      await expect(p.page.getByTestId('endgame-notice')).toBeVisible()
+      await expect(p.page.getByTestId('endgame-notice')).toContainText('last round')
+    }
 
     await host.page.context().close()
     await guest.page.context().close()

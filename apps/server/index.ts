@@ -99,7 +99,6 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     try {
       const { roomCode, room, seat } = createRoom({
         name: message.name || 'Player 1',
-        playerCount: message.playerCount,
         // Anything that isn't literally season 2 is season 1 — the union is a
         // claim about well-behaved clients, not a runtime guarantee.
         season: Number(message.season) === 2 ? 2 : 1,

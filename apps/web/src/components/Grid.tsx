@@ -15,12 +15,14 @@ export type GridProps = {
   choiceCost?: number
   choiceDisabled?: boolean
   onChoice?: (target: DismissTarget) => void
+  // See Slot.tsx's readOnly.
+  readOnly?: boolean
 }
 
 // extraRows render ABOVE the base rows (grid.ts: "extraRows[0] sits directly
 // above base row 0, extraRows[1] above extraRows[0]"), so this maps them
 // top-to-bottom in reverse before the two base rows.
-export function Grid({ grid, cards, dismissEntries, onDismiss, fame, choiceOptions, choiceCost, choiceDisabled, onChoice }: GridProps) {
+export function Grid({ grid, cards, dismissEntries, onDismiss, fame, choiceOptions, choiceCost, choiceDisabled, onChoice, readOnly }: GridProps) {
   const cols = (grid.extraRows[0] ?? grid.base[0] ?? []).length
   return (
     <div className="grid">
@@ -42,6 +44,7 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, fame, choiceOptio
                 choiceCost={choiceCost}
                 choiceDisabled={choiceDisabled}
                 onChoice={onChoice}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -63,6 +66,7 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, fame, choiceOptio
               choiceCost={choiceCost}
               choiceDisabled={choiceDisabled}
               onChoice={onChoice}
+              readOnly={readOnly}
             />
           ))}
         </div>

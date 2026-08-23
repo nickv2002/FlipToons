@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
+import { OptionCards } from './OptionCards'
 
 export type MultiplayerStartProps = {
-  onHost: (opts: { name: string; playerCount: number; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => void
+  // Host and join are two panels behind two cards on the launch screen, not
+  // two sections of one page. Same component so the name field, the busy
+  // state and the error line stay in one place.
+  variant: 'host' | 'join'
+  onHost: (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => void
   onJoin: (roomCode: string, name: string) => void
-  error: string | null
+  onBack: () => void
   connection: ConnectionState
   // Prefilled from ?room=ABCDE so a shared link drops you straight onto the
-  // join form with the code already in it.
+  // join panel with the code already in it.
   initialRoomCode?: string | null
 }
 
-export function MultiplayerStart({ onHost, onJoin, error, connection, initialRoomCode }: MultiplayerStartProps) {
+export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, initialRoomCode }: MultiplayerStartProps) {
   const [name, setName] = useState('')
-  const [playerCount, setPlayerCount] = useState(2)
   const [season, setSeason] = useState<1 | 2>(1)
   const [seed, setSeed] = useState('')
   const [threshold, setThreshold] = useState('')
@@ -22,79 +26,84 @@ export function MultiplayerStart({ onHost, onJoin, error, connection, initialRoo
   const busy = connection === 'connecting' || connection === 'reconnecting'
 
   return (
-    <div className="mp-start" data-testid="multiplayer-start">
-      <h2>Play with other people</h2>
+    <div className="config-panel" data-testid="multiplayer-start">
+      <button type="button" className="config-panel__back" onClick={onBack}>
+        ← Back
+      </button>
+      <h1>{variant === 'host' ? 'Host a table' : 'Join a Game'}</h1>
 
-      <label className="mp-start__field">
+      <label className="config-panel__field">
         Your name
         <input data-testid="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
       </label>
 
-      <section className="mp-start__section">
-        <h3>Host a table</h3>
-        <label className="mp-start__field">
-          Players
-          <select data-testid="player-count" value={playerCount} onChange={(e) => setPlayerCount(Number(e.target.value))}>
-            {[2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="mp-start__field">
-          Season
-          <select data-testid="season" value={season} onChange={(e) => setSeason(Number(e.target.value) as 1 | 2)}>
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </select>
-        </label>
-        <label className="mp-start__field">
-          Seed (optional)
-          <input data-testid="seed" value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="random" />
-        </label>
-        <label className="mp-start__field">
-          {/* 30 fame is a long game. Exposed because it's the single most
-              useful playtesting knob, and it's what makes a short end-to-end
-              run possible. */}
-          Fame to end the game
-          <input data-testid="fame-threshold" value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder="30" />
-        </label>
-        <button
-          type="button"
-          data-testid="host-game"
-          disabled={busy || name.trim() === ''}
-          onClick={() =>
-            onHost({
-              name: name.trim(),
-              playerCount,
-              season,
-              seed: seed.trim() === '' ? undefined : Number(seed),
-              fameToTriggerEndgame: threshold.trim() === '' ? undefined : Number(threshold),
-            })
-          }
-        >
-          Host
-        </button>
-      </section>
+      {variant === 'host' ? (
+        <>
+          <OptionCards
+            label="Season"
+            value={season}
+            onChange={(value) => setSeason(value as 1 | 2)}
+            options={[
+              { value: 1, label: 'Season 1', icon: '🍂', testId: 'season-1' },
+              { value: 2, label: 'Season 2', icon: '🌊', testId: 'season-2' },
+            ]}
+          />
 
-      <section className="mp-start__section">
-        <h3>Join a table</h3>
-        <label className="mp-start__field">
-          Room code
-          <input data-testid="room-code-input" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} placeholder="ABCDE" maxLength={5} />
-        </label>
-        <button type="button" data-testid="join-game" disabled={busy || name.trim() === '' || roomCode.trim().length !== 5} onClick={() => onJoin(roomCode, name.trim())}>
-          Join
-        </button>
-      </section>
+          {/* No table size to pick: you cannot know who will click your link.
+              The room opens with every seat free and is dealt for whoever is
+              in the waiting room when you press start. */}
+          <p className="config-panel__hint">You'll get a room code to share. Start once everyone's in — up to four players.</p>
 
-      {busy && <p className="mp-start__status" data-testid="connecting">Connecting…</p>}
-      {error && (
-        <p className="form-warning" data-testid="mp-error">
-          {error}
-        </p>
+          <button
+            type="button"
+            className="config-panel__confirm"
+            data-testid="host-game"
+            disabled={busy || name.trim() === ''}
+            onClick={() =>
+              onHost({
+                name: name.trim(),
+                season,
+                seed: seed.trim() === '' ? undefined : Number(seed),
+                fameToTriggerEndgame: threshold.trim() === '' ? undefined : Number(threshold),
+              })
+            }
+          >
+            Host
+          </button>
+
+          <label className="config-panel__seed">
+            Seed
+            <input data-testid="seed" value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="random" />
+          </label>
+          <label className="config-panel__seed">
+            {/* 30 fame is a long game. Exposed because it's the single most
+                useful playtesting knob, and it's what makes a short end-to-end
+                run possible. */}
+            Fame to end the game
+            <input data-testid="fame-threshold" value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder="30" />
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="config-panel__room-code">
+            Room code
+            <input data-testid="room-code-input" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} placeholder="ABCDE" maxLength={5} />
+          </label>
+          <button
+            type="button"
+            className="config-panel__confirm"
+            data-testid="join-game"
+            disabled={busy || name.trim() === '' || roomCode.trim().length !== 5}
+            onClick={() => onJoin(roomCode, name.trim())}
+          >
+            Join
+          </button>
+        </>
       )}
+
+      {/* Errors are rendered once, by App, above this panel — a second copy
+          here would show the same failure twice. */}
+      {busy && <p className="config-panel__status" data-testid="connecting">Connecting…</p>}
     </div>
   )
 }

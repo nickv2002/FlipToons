@@ -133,14 +133,43 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 - **The turn timeout gates on DISCONNECTION, never idleness.** A player who is
   present and thinking is not on a clock. A skip that moves nothing does not
   re-arm.
+- **The SERVER runs the Flip, not a player.** `advanceFlip` was never turn- or
+  host-gated — any seat could press it and one press flipped everyone — which
+  made the button a shared control with no owner: first click won, everyone
+  else got "Nothing to reveal right now". `rooms.ts`'s `advanceSharedPhases`
+  drives it instead, from `startRoom` and from the tail of `applyRoomAction`,
+  so the reveal folds into the same broadcast as whatever caused it. There is
+  no client control for it, and `phase === 'finalFlip'` now exists only inside
+  one server tick — the endgame arrives in the same message as the market
+  action that triggered it. That is why the trigger round's Market phase
+  carries an `endgame-notice`: `runMatchCleanup` hands straight from `cleanup`
+  to `finalFlip`, so there is no phase left in which to warn anyone.
+- **Every board on the table is drawn by one component.** `BoardPane.tsx` —
+  yours and every opponent's, in every phase. The only difference is
+  `readOnly`, which renders cards as inert `<div>`s rather than the enabled,
+  focusable, click-less `<button>`s opponent grids used to get. Two rules
+  protect the parity: `.grid`'s `max-width` (so a grid in a wide pane draws
+  the same card size as one in the narrow column beside the market) and
+  `.round-view__controls:disabled .card:disabled { opacity: 1 }` (an
+  it-isn't-your-turn grey says nothing, and made your own board look unlike
+  the opponent boards next to it).
+- **The table size is not declared when hosting.** A room always opens at
+  `MAX_SEATS` and `buildNewMatch` is called with 4; `startRoom` rebuilds the
+  match at however many seats actually turned up. That rebuild is the ORDINARY
+  path, not an edge case. It is safe only because seat ids are a fixed
+  `p0..p{n-1}` (`match.ts`) and seats are never removed from `room.seats`, so
+  shrinking leaves every seat holding the id its connection was pinned to at
+  `attach` time. Do not recompute `hostPlayerId` there — `index.ts` may already
+  have handed the role to a connected heir.
 - **No cumulative score anywhere.** Fame is one per-round number that is at
   once your score, your spending power, and expiring. The rules keep no
   running tally; don't invent one in the UI.
 
 ## Testing
 
-413 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 16
-Playwright browser tests in `e2e/`.
+417 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus the 17
+Playwright browser tests `make e2e` runs (the two long-form specs are skipped
+there; see `make e2e-long` below).
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
 oracle/fixtures design was superseded; tests just assert expected values
@@ -148,7 +177,7 @@ inline). `apps/server/rooms.test.ts` runs a real `Bun.serve` over real WebSocket
 seat assignment, reconnect-by-token, and turn enforcement only exist at that
 layer. `e2e/` drives two browsers through a whole 2-player game; run `make e2e`
 after any web change. `playToEnd` takes a policy: `'pass'` only presses the
-shared flip and ends turns (proves the flow), `'buy'` actually spends fame —
+ends turns (proves the flow), `'buy'` actually spends fame —
 hire, dismiss, and the effect prompts they open. Use `'buy'` for anything
 touching the Market phase; `'pass'` proved nothing about it, which is how two
 Pig bugs survived a green suite. Dismiss is rationed to one per seat on

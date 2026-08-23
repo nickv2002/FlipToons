@@ -80,15 +80,25 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
   evictStaleRooms()
 
   if (message.type === 'create') {
-    const { roomCode, room, seat } = createRoom({
-      name: message.name || 'Player 1',
-      playerCount: message.playerCount,
-      season: message.season,
-      seed: message.seed,
-      fameToTriggerEndgame: message.fameToTriggerEndgame,
-    })
-    attach(ws, room, roomCode, seat.playerId)
-    send(ws, { type: 'seated', roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room, roomCode) })
+    // The 'action' path already treats engine throws as containable; create
+    // and start used to not, so a malformed message threw straight out of the
+    // socket callback. Same shape here.
+    try {
+      const { roomCode, room, seat } = createRoom({
+        name: message.name || 'Player 1',
+        playerCount: message.playerCount,
+        // Anything that isn't literally season 2 is season 1 — the union is a
+        // claim about well-behaved clients, not a runtime guarantee.
+        season: Number(message.season) === 2 ? 2 : 1,
+        seed: Number.isFinite(Number(message.seed)) ? Number(message.seed) : undefined,
+        fameToTriggerEndgame: Number.isFinite(Number(message.fameToTriggerEndgame)) ? Number(message.fameToTriggerEndgame) : undefined,
+      })
+      attach(ws, room, roomCode, seat.playerId)
+      send(ws, { type: 'seated', roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room, roomCode) })
+    } catch (err) {
+      console.error('apps/server: could not create a room', err)
+      send(ws, { type: 'error', message: 'Could not create that room.' })
+    }
     return
   }
 
@@ -136,7 +146,13 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       send(ws, { type: 'error', message: 'Need at least 2 players to start.' })
       return
     }
-    startRoom(room)
+    try {
+      startRoom(room)
+    } catch (err) {
+      console.error('apps/server: could not start the game', err)
+      send(ws, { type: 'serverError', message: 'Server error starting the game.' })
+      return
+    }
     broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
     broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
     return

@@ -440,3 +440,47 @@ describe('cross-room isolation', () => {
     attacker.close()
   })
 })
+
+// Everything below the socket is typed, but nothing above it is: a message is
+// whatever JSON.parse returned. These are the shapes a stale client or a
+// fuzzer produces, and none of them should read as an engine bug.
+describe('malformed messages', () => {
+  test('an unknown action kind is a player mistake, not a server error', async () => {
+    const pair = await seatedPair({ seed: 31 })
+    await startGame(pair)
+
+    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'teleport' } } as unknown as ClientMessage)
+    const err = await pair.host.next('error')
+    expect(err.code).toBe('illegalAction')
+    expect(err.message).toMatch(/teleport/)
+
+    // The room is untouched and still playable.
+    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
+    await pair.host.next('state')
+
+    pair.host.close()
+    pair.guest.close()
+  })
+
+  test('a create with no usable playerCount falls back to a 2-seat room', async () => {
+    const client = await connect()
+    client.send({ type: 'create', name: 'Ana', season: 1, seed: 32 } as unknown as ClientMessage)
+    const seated = await client.next('seated')
+    expect(seated.playerId).toBe('p0')
+    expect(seated.lobby.seats).toHaveLength(1)
+    client.close()
+  })
+
+  test('a create with a garbage playerCount still yields a room rather than throwing', async () => {
+    const client = await connect()
+    client.send({ type: 'create', name: 'Ana', playerCount: 'lots', season: 'winter', seed: 33 } as unknown as ClientMessage)
+    const seated = await client.next('seated')
+    expect(seated.roomCode).toHaveLength(5)
+    // The server is still answering after it.
+    const after = await connect()
+    after.send({ type: 'create', name: 'Bo', playerCount: 2, season: 1, seed: 34 })
+    await after.next('seated')
+    client.close()
+    after.close()
+  })
+})

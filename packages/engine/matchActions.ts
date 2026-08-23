@@ -134,7 +134,14 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       if (!pending) throw new IllegalActionError('You have no pending choice to answer.')
       const card = cards[pending.ownerCardId]
       const target = cards[pending.options.find((o) => o.pos === action.pos && o.index === action.index)?.cardId ?? '']
-      const next = matchResolvePostFameChoice(match, playerId, { pos: action.pos, index: action.index })
+      let next: Match
+      try {
+        next = matchResolvePostFameChoice(match, playerId, { pos: action.pos, index: action.index })
+      } catch (err) {
+        // Same split as hire/dismiss: an illegal option is the player's
+        // mistake, not a phase-machine bug.
+        throw new IllegalActionError(err instanceof Error ? err.message : String(err))
+      }
       say(`${card.name}: dismissed ${target?.name ?? 'a card'}.`)
       return { match: next, logLines, debugLines }
     }
@@ -142,7 +149,7 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
     case 'hire': {
       assertTurn(match, playerId, 'hire')
       assertNoPendingDeckPlacement(match, playerId, 'taking another action')
-      const cardId = match.players[playerIndex(match, playerId)] && match.shared.market.slots[action.slotIndex]
+      const cardId = match.shared.market.slots[action.slotIndex]
       const price =
         action.slotIndex >= 0 && action.slotIndex < match.shared.market.prices.length
           ? hireCost(match.shared.market, action.slotIndex)
@@ -206,6 +213,15 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       say('ended their turn.')
       return afterTurnBoundary(next, logLines, debugLines)
     }
+
+    // Actions arrive over a socket as parsed JSON, so the TS union above is a
+    // claim about well-behaved clients, not a runtime guarantee — an older
+    // client or a fuzzer can name any kind. Without this the switch fell
+    // through, the function returned undefined, and destructuring it threw a
+    // TypeError the server then logged as an engine bug. It is a player
+    // mistake, so it is reported as one.
+    default:
+      throw new IllegalActionError(`Unknown action "${(action as { kind?: unknown }).kind}".`)
   }
 }
 

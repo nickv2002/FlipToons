@@ -80,7 +80,12 @@ export function createRoom(params: {
   // browser runs it locally (apps/web/src/useGame.ts), which is what "hosted
   // solo" was really doing before, only with the extra failure modes of a
   // network in the middle.
-  const playerCount = Math.max(2, Math.min(MAX_SEATS, Math.floor(params.playerCount)))
+  // Math.floor of a non-number is NaN, and both Math.max and Math.min pass NaN
+  // straight through — so clamping alone turned a malformed playerCount into a
+  // NaN that buildMultiplayerSetup rejected by throwing. Anything that isn't a
+  // usable number falls back to the smallest legal table instead.
+  const requested = Number(params.playerCount)
+  const playerCount = Number.isFinite(requested) ? Math.max(2, Math.min(MAX_SEATS, Math.floor(requested))) : 2
   const seed = params.seed ?? Math.floor(Math.random() * 2 ** 31)
   const roomCode = generateRoomCode()
 

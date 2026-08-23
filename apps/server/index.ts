@@ -12,6 +12,7 @@
 // with zero new dependencies, so that's what's used here instead.
 import {
   applyRoomAction,
+  armTurnTimeout,
   broadcast,
   createRoom,
   evictStaleRooms,
@@ -140,6 +141,9 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     // Everyone else sees the seat list change — that's how a table notices
     // someone dropped or came back.
     broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
+    // They may be the seat everyone was waiting on; if so, stand the clock
+    // down.
+    armTurnTimeout(room)
     return
   }
 
@@ -167,6 +171,7 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     }
     broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
     broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    armTurnTimeout(room)
     return
   }
 
@@ -197,6 +202,8 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
         return
       }
       broadcast(room, { type: 'state', match: room.match, logLines: result.logLines, debugLines: result.debugLines })
+      // The turn may have just passed to a seat nobody is holding.
+      armTurnTimeout(room)
     } catch (err) {
       // A genuine phase-machine bug — loud server-side, room state untouched.
       console.error('apps/server: engine bug applying action', message.action, err)
@@ -245,6 +252,8 @@ export function startServer(port: number = DEFAULT_PORT) {
           if (heir) room.hostPlayerId = heir.playerId
         }
         broadcast(room, { type: 'lobby', lobby: lobbyOf(room, ws.data.roomCode!) })
+        // If they were the seat the table was waiting on, start the clock.
+        armTurnTimeout(room)
       },
     },
   })

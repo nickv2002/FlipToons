@@ -48,6 +48,9 @@ export type Room = {
   debugLog: string[]
   sockets: Set<ServerWebSocket<SocketData>>
   lastActivity: number
+  // Set only while the table is waiting on a seat nobody is sitting in. See
+  // armTurnTimeout.
+  turnTimer?: ReturnType<typeof setTimeout>
 }
 
 const rooms = new Map<string, Room>()
@@ -59,6 +62,10 @@ export const ROOM_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
 // Logs are capped too: a long match generates a lot of lines, and a client
 // only ever renders the recent tail.
 export const MAX_LOG_LINES = 2000
+// How long the table waits on a seat whose player has dropped before playing
+// that seat's turn for them. Nothing used to skip such a turn, so one dropped
+// connection stalled everyone else for the full ROOM_TTL_MS.
+export const TURN_TIMEOUT_MS = 60 * 1000
 
 function generateRoomCode(): string {
   let code: string
@@ -125,6 +132,8 @@ export function getRoom(roomCode: string): Room | undefined {
 }
 
 export function deleteRoom(roomCode: string): void {
+  const room = rooms.get(roomCode)
+  if (room) clearTurnTimeout(room)
   rooms.delete(roomCode)
 }
 
@@ -140,6 +149,8 @@ export function evictStaleRooms(now: number = Date.now()): number {
     const idle = now - room.lastActivity > ROOM_TTL_MS
     const abandoned = room.sockets.size === 0 && room.seats.every((s) => !s.connected)
     if (idle && abandoned) {
+      // A pending timer would otherwise outlive the room it was waiting on.
+      clearTurnTimeout(room)
       rooms.delete(code)
       evicted++
     }
@@ -246,4 +257,139 @@ export function applyRoomAction(
     if (err instanceof IllegalActionError) return { ok: false, message: err.message }
     throw err
   }
+}
+
+// ---------------------------------------------------------------------------
+// Waiting on someone who isn't there
+// ---------------------------------------------------------------------------
+//
+// A dropped connection used to mark its seat away and change nothing else. If
+// that seat was the one holding everyone up, the table sat there until the
+// room hit its two-hour TTL — and until the client's own fix, the other
+// players could not even leave.
+//
+// The Flip is safe: any seat may press it. Only two things wait on ONE named
+// seat, and both are covered here.
+
+function seatOf(room: Room, playerId: string): Seat | undefined {
+  return room.seats.find((s) => s.playerId === playerId)
+}
+
+// The seat, if any, whose absence is currently stopping the game.
+function strandingSeat(room: Room): Seat | undefined {
+  if (!room.started) return undefined
+
+  // A post-fame choice (a mandatory Skunk dismissal, say) blocks the Market
+  // phase from opening for anyone, and is owed by one particular player.
+  const owing = room.match.players.find((p) => p.pendingPostFameChoice)
+  if (owing) {
+    const seat = seatOf(room, owing.playerId)
+    return seat && !seat.connected ? seat : undefined
+  }
+
+  // Otherwise only the Market phase is strictly turn-based.
+  if (room.match.shared.phase !== 'market') return undefined
+  const seat = seatOf(room, room.match.turnOrder[room.match.activePlayerIndex])
+  return seat && !seat.connected ? seat : undefined
+}
+
+export function clearTurnTimeout(room: Room): void {
+  if (!room.turnTimer) return
+  clearTimeout(room.turnTimer)
+  room.turnTimer = undefined
+}
+
+// Re-evaluates whether the table is stranded, and arms or disarms accordingly.
+// Cheap and idempotent, so it can be called after anything that might have
+// changed the answer: an action, a disconnection, a reconnection.
+//
+// The gate is DISCONNECTION, never idleness — a player who is present and
+// thinking is not on a clock.
+export function armTurnTimeout(room: Room, timeoutMs: number = TURN_TIMEOUT_MS): void {
+  clearTurnTimeout(room)
+  const seat = strandingSeat(room)
+  if (!seat) return
+  const timer = setTimeout(() => {
+    room.turnTimer = undefined
+    playForAbsentSeat(room, timeoutMs)
+  }, timeoutMs)
+  // Otherwise an armed timer holds the event loop open and `bun test` never
+  // exits.
+  timer.unref?.()
+  room.turnTimer = timer
+}
+
+// Plays the least the rules allow on behalf of a seat nobody is holding:
+// answer whatever it owes with the first legal option, then end its turn.
+// Buying nothing is always legal, so this can only cost that player the
+// chance to spend — never a rule.
+function playForAbsentSeat(room: Room, timeoutMs: number): void {
+  const seat = strandingSeat(room)
+  if (!seat) return
+
+  const logLines: LogLine[] = []
+  const debugLines: string[] = []
+  let stalled = false
+  // Each action is applied through the normal surface, so the engine's own
+  // legality checks still hold. The bound is a safety net: nothing here should
+  // need more than a couple of steps, and a loop that isn't converging must
+  // not spin.
+  for (let step = 0; step < 8; step++) {
+    const player = room.match.players.find((p) => p.playerId === seat.playerId)
+    if (!player) break
+
+    let action: MatchAction
+    if (player.pendingPostFameChoice) {
+      const option = player.pendingPostFameChoice.options[0]
+      action = { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index }
+    } else if (player.pendingDeckPlacement) {
+      action = { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } }
+    } else if (player.pendingPostMarketChoice) {
+      const option = player.pendingPostMarketChoice.options[0]
+      action = { kind: 'resolvePostMarketChoice', pos: option.pos, index: option.index }
+    } else if (room.match.shared.phase === 'market' && room.match.turnOrder[room.match.activePlayerIndex] === seat.playerId) {
+      action = { kind: 'endTurn' }
+    } else {
+      break // no longer stranded on this seat
+    }
+
+    let result: ReturnType<typeof applyRoomAction>
+    try {
+      result = applyRoomAction(room, seat.playerId, action)
+    } catch (err) {
+      // Same split as the action handler: a genuine engine fault is loud here
+      // and leaves the room untouched, rather than taking the process down
+      // from inside a timer.
+      console.error('apps/server: engine bug skipping an absent seat', action, err)
+      stalled = true
+      break
+    }
+    if (!result.ok) {
+      console.error(`apps/server: could not skip ${seat.playerId}'s turn — ${result.message}`)
+      stalled = true
+      break
+    }
+    logLines.push(...result.logLines)
+    debugLines.push(...result.debugLines)
+  }
+
+  if (logLines.length > 0 || debugLines.length > 0) {
+    const notice: LogLine = {
+      playerId: seat.playerId,
+      round: room.match.shared.round,
+      text: `was skipped — no one is connected to that seat.`,
+    }
+    room.log.push(notice)
+    broadcast(room, { type: 'state', match: room.match, logLines: [notice, ...logLines], debugLines })
+  }
+
+  // A skip that could not move anything must NOT re-arm: nothing changed, so
+  // the next firing would find the same state and fail the same way, once a
+  // minute, forever. The room stays stranded either way — but stranded and
+  // quiet, with one line in the log saying why, beats a spin. The clock starts
+  // again on its own the next time anything happens in the room.
+  if (stalled) return
+
+  // The seat this passed to may be empty too.
+  armTurnTimeout(room, timeoutMs)
 }

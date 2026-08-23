@@ -568,3 +568,161 @@ describe('the host role does not strand a lobby', () => {
     pair.guest.close()
   })
 })
+
+// A dropped connection used to stall everyone else until the room's two-hour
+// TTL. These re-arm the timer with a short delay rather than waiting out
+// TURN_TIMEOUT_MS — the mechanism is what's under test, not the duration.
+describe('a seat nobody is holding does not stall the table', () => {
+  test("the absent seat's turn is played for it, and the turn passes", async () => {
+    const { getRoom, armTurnTimeout } = await import('./rooms')
+    const pair = await seatedPair({ seed: 61 })
+    await startGame(pair)
+
+    // Into the Market phase, where turns are strictly ordered.
+    pair.host.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
+    let state = await pair.host.next('state')
+    while (state.match.shared.phase !== 'market') {
+      const owing = state.match.players.findIndex((p) => p.pendingPostFameChoice)
+      if (owing < 0) break
+      const who = owing === 0 ? pair.host : pair.guest
+      const option = state.match.players[owing].pendingPostFameChoice!.options[0]
+      who.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index } })
+      state = await who.next('state')
+    }
+    expect(state.match.shared.phase).toBe('market')
+
+    const room = getRoom(pair.roomCode)!
+    const upIndex = room.match.activePlayerIndex
+    const up = upIndex === 0 ? pair.host : pair.guest
+    const other = upIndex === 0 ? pair.guest : pair.host
+
+    other.inbox.length = 0
+    up.close()
+    await other.next('lobby')
+    armTurnTimeout(room, 30)
+
+    // The other seat is told, and the turn has moved on.
+    const skipped = await other.next('state', 3000)
+    expect(skipped.match.activePlayerIndex).not.toBe(upIndex)
+    expect(skipped.logLines.some((l) => /skipped/.test(l.text))).toBe(true)
+
+    other.close()
+  })
+
+  test('coming back before the clock runs out cancels it', async () => {
+    const { getRoom, armTurnTimeout } = await import('./rooms')
+    const pair = await seatedPair({ seed: 62 })
+    await startGame(pair)
+
+    const room = getRoom(pair.roomCode)!
+    // Force a known Market-phase turn rather than depending on the shuffle.
+    room.match = { ...room.match, shared: { ...room.match.shared, phase: 'market' }, activePlayerIndex: 1 }
+
+    pair.host.inbox.length = 0
+    pair.guest.close()
+    await pair.host.next('lobby')
+    armTurnTimeout(room, 5_000)
+    expect(room.turnTimer).toBeDefined()
+
+    const revived = await connect()
+    revived.send({ type: 'join', roomCode: pair.roomCode, name: 'Bo', reconnectToken: pair.guestSeat.reconnectToken })
+    await revived.next('seated')
+
+    // Back in their seat, back off the clock.
+    expect(room.turnTimer).toBeUndefined()
+
+    pair.host.close()
+    revived.close()
+  })
+
+  test('a present player is never on a clock', async () => {
+    const { getRoom, armTurnTimeout } = await import('./rooms')
+    const pair = await seatedPair({ seed: 63 })
+    await startGame(pair)
+
+    const room = getRoom(pair.roomCode)!
+    room.match = { ...room.match, shared: { ...room.match.shared, phase: 'market' }, activePlayerIndex: 0 }
+    armTurnTimeout(room, 30)
+
+    // Taking a long time to decide is not a disconnection.
+    expect(room.turnTimer).toBeUndefined()
+
+    pair.host.close()
+    pair.guest.close()
+  })
+})
+
+// The skip above only ever needed to press "end turn". These drive the three
+// prompt branches, which are the ones that matter: if one of them throws, the
+// skip catches it, logs, and gives up — and the table stays stranded, silently,
+// which is the exact thing the timeout exists to prevent.
+describe('skipping an absent seat answers whatever it owes first', () => {
+  test('a pending post-Market choice is answered on their behalf', async () => {
+    const { getRoom, armTurnTimeout } = await import('./rooms')
+    const { emptyGrid, placeCardFaceUp } = await import('../../packages/engine/grid')
+    const pair = await seatedPair({ seed: 71 })
+    await startGame(pair)
+
+    // Force the one grid that stops a turn halfway: an Alligator with two
+    // eligible cards in the slot to its right.
+    const room = getRoom(pair.roomCode)!
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'snail')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+    room.match = {
+      ...room.match,
+      shared: { ...room.match.shared, phase: 'market' },
+      activePlayerIndex: 1,
+      players: room.match.players.map((p, i) => (i === 1 ? { ...p, grid, actionsRemaining: 0, pendingPostFameChoice: null } : { ...p, pendingPostFameChoice: null })),
+    }
+
+    pair.host.inbox.length = 0
+    pair.guest.close()
+    await pair.host.next('lobby')
+    // index.ts arms this itself on the disconnection — check that before
+    // re-arming with a short delay for the test's sake.
+    expect(room.turnTimer).toBeDefined()
+    armTurnTimeout(room, 30)
+
+    const skipped = await pair.host.next('state', 3000)
+    // The prompt was answered, not abandoned...
+    expect(skipped.match.players[1].pendingPostMarketChoice).toBeNull()
+    expect(skipped.match.players[1].dismissed).toHaveLength(1)
+    // ...and the table is no longer waiting on that seat. Seat 1 is the LAST
+    // in a two-player order, so ending its turn wraps and closes the Market
+    // phase for everyone rather than moving activePlayerIndex.
+    expect(skipped.match.shared.phase).not.toBe('market')
+
+    pair.host.close()
+  })
+
+  test('a pending deck placement is answered on their behalf', async () => {
+    const { getRoom, armTurnTimeout } = await import('./rooms')
+    const pair = await seatedPair({ seed: 72 })
+    await startGame(pair)
+
+    const room = getRoom(pair.roomCode)!
+    room.match = {
+      ...room.match,
+      shared: { ...room.match.shared, phase: 'market' },
+      activePlayerIndex: 1,
+      players: room.match.players.map((p, i) =>
+        i === 1
+          ? { ...p, actionsRemaining: 0, pendingPostFameChoice: null, pendingDeckPlacement: { cardId: 'pig' } }
+          : { ...p, pendingPostFameChoice: null },
+      ),
+    }
+
+    pair.host.inbox.length = 0
+    pair.guest.close()
+    await pair.host.next('lobby')
+    armTurnTimeout(room, 30)
+
+    const skipped = await pair.host.next('state', 3000)
+    expect(skipped.match.players[1].pendingDeckPlacement).toBeNull()
+    expect(skipped.match.shared.phase).not.toBe('market')
+
+    pair.host.close()
+  })
+})

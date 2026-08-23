@@ -709,7 +709,7 @@ describe('skipping an absent seat answers whatever it owes first', () => {
       activePlayerIndex: 1,
       players: room.match.players.map((p, i) =>
         i === 1
-          ? { ...p, actionsRemaining: 0, pendingPostFameChoice: null, pendingDeckPlacement: { cardId: 'pig' } }
+          ? { ...p, actionsRemaining: 0, pendingPostFameChoice: null, pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
           : { ...p, pendingPostFameChoice: null },
       ),
     }

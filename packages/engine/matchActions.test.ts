@@ -242,7 +242,7 @@ describe('resuming an Alligator prompt does not replay the pass', () => {
   //   [alligator][a 2-card stack][vulture]
   // The Alligator must prompt (two eligible cards to its right), and the
   // Vulture sits later in reading order so it is still queued when it does.
-  function parkedInMarket(playerCount: number) {
+  function parkedInMarket(playerCount: number, seat = 0) {
     const match = buildNewMatch(7, playerCount, 1, { fameToTriggerEndgame: 999 })
     const grid = emptyGrid()
     placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
@@ -253,8 +253,8 @@ describe('resuming an Alligator prompt does not replay the pass', () => {
     return {
       ...match,
       shared: { ...match.shared, phase: 'market' as const },
-      players: match.players.map((p, i) => (i === 0 ? { ...p, grid, actionsRemaining: 0 } : p)),
-      activePlayerIndex: 0,
+      players: match.players.map((p, i) => (i === seat ? { ...p, grid, actionsRemaining: 0 } : p)),
+      activePlayerIndex: seat,
     }
   }
 
@@ -284,29 +284,37 @@ describe('resuming an Alligator prompt does not replay the pass', () => {
     expect(answered.match.activePlayerIndex).toBe(1)
   })
 
-  test('answering the prompt does not decay the market', () => {
-    for (const playerCount of [2, 3]) {
-      const m = parkedInMarket(playerCount)
-      const me = m.turnOrder[0]
+  // Mid-turn (the next seat still has a turn coming) and on the LAST seat,
+  // where the turn wraps and closeMarketPhase runs the once-per-round decay.
+  // The wrapping case is the one that used to decay TWICE — once in the solo
+  // tail the resolve wrongly reached, once again where it belongs.
+  test.each([
+    ['mid-turn, 2 players', 2, 0],
+    ['mid-turn, 3 players', 3, 0],
+    ['on the last seat, 2 players', 2, 1],
+    ['on the last seat, 3 players', 3, 2],
+  ])('answering the prompt %s decays the market no differently', (_label, playerCount, seat) => {
+    const m = parkedInMarket(playerCount, seat)
+    const me = m.turnOrder[seat]
 
-      // Control: the same seat ending its turn with no Alligator in the grid.
-      const control = applyMatchAction(
-        { ...m, players: m.players.map((p, i) => (i === 0 ? { ...p, grid: emptyGrid() } : p)) },
-        me,
-        { kind: 'endTurn' },
-      )
+    // Control: the same seat, at the same point in the turn order, ending its
+    // turn with nothing in its grid to prompt about.
+    const control = applyMatchAction(
+      { ...m, players: m.players.map((p, i) => (i === seat ? { ...p, grid: emptyGrid() } : p)) },
+      me,
+      { kind: 'endTurn' },
+    )
 
-      const ended = applyMatchAction(m, me, { kind: 'endTurn' })
-      const pending = ended.match.players[0].pendingPostMarketChoice!
-      const answered = applyMatchAction(ended.match, me, {
-        kind: 'resolvePostMarketChoice',
-        pos: pending.options[0].pos,
-        index: pending.options[0].index,
-      })
+    const ended = applyMatchAction(m, me, { kind: 'endTurn' })
+    const pending = ended.match.players[seat].pendingPostMarketChoice!
+    const answered = applyMatchAction(ended.match, me, {
+      kind: 'resolvePostMarketChoice',
+      pos: pending.options[0].pos,
+      index: pending.options[0].index,
+    })
 
-      // Answering a prompt is not a market event. The decay belongs to the
-      // end of the ROUND, and for 3+ players it never happens at all.
-      expect(answered.match.shared.toonDeck.length).toBe(control.match.shared.toonDeck.length)
-    }
+    // Answering a prompt is not a market event. Whatever the decay would have
+    // done on this turn, it does exactly once — and for 3+ players, not at all.
+    expect(answered.match.shared.toonDeck.length).toBe(control.match.shared.toonDeck.length)
   })
 })

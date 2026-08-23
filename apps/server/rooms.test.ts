@@ -484,3 +484,54 @@ describe('malformed messages', () => {
     after.close()
   })
 })
+
+// A dropped connection is often noticed late — the reconnect can land before
+// the old socket's close event ever arrives. Whoever closes last must not get
+// to decide whether the player is present.
+describe('a seat belongs to one connection at a time', () => {
+  test('a stale socket closing after a reconnect does not mark the seat away', async () => {
+    const { getRoom } = await import('./rooms')
+    const pair = await seatedPair({ seed: 41 })
+    await startGame(pair)
+
+    // The guest comes back on a NEW socket while the old one is still open —
+    // the two-tabs case, and what a network blip looks like from here.
+    const revived = await connect()
+    revived.send({ type: 'join', roomCode: pair.roomCode, name: 'Bo', reconnectToken: pair.guestSeat.reconnectToken })
+    const reseated = await revived.next('seated')
+    expect(reseated.playerId).toBe(pair.guestSeat.playerId)
+
+    // Now the original drops.
+    pair.guest.close()
+    await new Promise((r) => setTimeout(r, 100))
+
+    const seat = getRoom(pair.roomCode)!.seats.find((s) => s.playerId === pair.guestSeat.playerId)!
+    expect(seat.connected).toBe(true)
+
+    // ...and the live socket can still act.
+    revived.send({ type: 'action', roomCode: pair.roomCode, action: { kind: 'advanceFlip' } })
+    await revived.next('state')
+
+    pair.host.close()
+    revived.close()
+  })
+
+  test('the seat is still marked away when its own socket closes', async () => {
+    const { getRoom } = await import('./rooms')
+    const pair = await seatedPair({ seed: 42 })
+    await startGame(pair)
+
+    // The inbox already holds the lobby updates from seating, so drain it
+    // first — otherwise next('lobby') returns one of those instead of the
+    // disconnection we are waiting for.
+    pair.host.inbox.length = 0
+    pair.guest.close()
+    const dropped = await pair.host.next('lobby')
+    expect(dropped.lobby.seats.find((s) => s.playerId === pair.guestSeat.playerId)!.connected).toBe(false)
+
+    const seat = getRoom(pair.roomCode)!.seats.find((s) => s.playerId === pair.guestSeat.playerId)!
+    expect(seat.connected).toBe(false)
+
+    pair.host.close()
+  })
+})

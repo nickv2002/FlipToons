@@ -27,6 +27,12 @@ export type Seat = {
   // survivable.
   reconnectToken: string
   connected: boolean
+  // The connection currently holding this seat, so a LATER close event from an
+  // EARLIER socket can be recognised and ignored. Without it, a stale socket
+  // closing after the player had already reconnected marked a seat that was
+  // sitting right there as away — and, once turns can be skipped on
+  // disconnection, would have skipped a present player's turn.
+  socket?: ServerWebSocket<SocketData>
 }
 
 export type Room = {

@@ -35,6 +35,18 @@ function attach(ws: Bun.ServerWebSocket<SocketData>, room: Room, roomCode: strin
   // this seat and nothing else. The 'action' message deliberately carries no
   // playerId field — if it did, any client could act as any player.
   ws.data.seat = playerId
+  // A seat has exactly one live connection. Reclaiming it hands the seat to
+  // this socket; the previous one is dropped now rather than left to report a
+  // disconnection later, on behalf of a player who has already come back.
+  const seat = room.seats.find((s) => s.playerId === playerId)
+  if (seat) {
+    const previous = seat.socket
+    seat.socket = ws
+    if (previous && previous !== ws) {
+      room.sockets.delete(previous)
+      previous.close()
+    }
+  }
   room.lastActivity = Date.now()
 }
 
@@ -215,8 +227,14 @@ export function startServer(port: number = DEFAULT_PORT) {
         // Mark the seat away rather than freeing it — the player holds a
         // reconnect token and can come back to it. Presence is broadcast so
         // the rest of the table can see who dropped.
+        //
+        // Only the seat's CURRENT socket may report this. A socket that has
+        // already been superseded is closing after the fact, and the player it
+        // belonged to is by now connected on another one.
         const seat = room.seats.find((s) => s.playerId === ws.data.seat)
-        if (seat) seat.connected = false
+        if (!seat || seat.socket !== ws) return
+        seat.socket = undefined
+        seat.connected = false
         broadcast(room, { type: 'lobby', lobby: lobbyOf(room, ws.data.roomCode!) })
       },
     },

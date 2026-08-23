@@ -235,6 +235,15 @@ export function startServer(port: number = DEFAULT_PORT) {
         if (!seat || seat.socket !== ws) return
         seat.socket = undefined
         seat.connected = false
+        // Only the host can start a game, and nothing used to reassign that.
+        // A host who dropped before starting and could not get their token
+        // back left everyone else sitting in a lobby no one was allowed to
+        // start. It stays put once the game is underway — the role does
+        // nothing then, and moving it would only confuse the seat list.
+        if (!room.started && room.hostPlayerId === seat.playerId) {
+          const heir = room.seats.find((s) => s.connected)
+          if (heir) room.hostPlayerId = heir.playerId
+        }
         broadcast(room, { type: 'lobby', lobby: lobbyOf(room, ws.data.roomCode!) })
       },
     },

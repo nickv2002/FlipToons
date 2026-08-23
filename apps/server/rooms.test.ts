@@ -535,3 +535,36 @@ describe('a seat belongs to one connection at a time', () => {
     pair.host.close()
   })
 })
+
+describe('the host role does not strand a lobby', () => {
+  test('a host who drops before starting hands the role to someone still there', async () => {
+    const { getRoom } = await import('./rooms')
+    const pair = await seatedPair({ seed: 51 })
+    expect(getRoom(pair.roomCode)!.hostPlayerId).toBe(pair.hostSeat.playerId)
+
+    pair.guest.inbox.length = 0
+    pair.host.close()
+    const lobby = await pair.guest.next('lobby')
+    expect(lobby.lobby.seats.find((s) => s.playerId === pair.guestSeat.playerId)!.isHost).toBe(true)
+
+    // ...and the new host can actually start the game.
+    pair.guest.send({ type: 'start', roomCode: pair.roomCode })
+    const state = await pair.guest.next('state')
+    expect(state.match.players).toHaveLength(2)
+
+    pair.guest.close()
+  })
+
+  test('the role stays put once the game is underway', async () => {
+    const { getRoom } = await import('./rooms')
+    const pair = await seatedPair({ seed: 52 })
+    await startGame(pair)
+
+    pair.guest.inbox.length = 0
+    pair.host.close()
+    await pair.guest.next('lobby')
+    expect(getRoom(pair.roomCode)!.hostPlayerId).toBe(pair.hostSeat.playerId)
+
+    pair.guest.close()
+  })
+})

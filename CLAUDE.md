@@ -139,7 +139,7 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 
 ## Testing
 
-410 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 16
+413 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 16
 Playwright browser tests in `e2e/`.
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s

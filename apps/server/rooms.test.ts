@@ -293,7 +293,7 @@ describe('log lines carry an actor', () => {
 })
 
 describe('room lifecycle', () => {
-  test('stale, abandoned rooms are evicted', async () => {
+  test('a room nobody has touched for the whole TTL is evicted', async () => {
     const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
     const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
     room.seats.forEach((s) => (s.connected = false))
@@ -302,11 +302,63 @@ describe('room lifecycle', () => {
     expect(getRoom(roomCode)).toBeUndefined()
   })
 
+  // Idleness alone evicts. Requiring the room to also be abandoned meant one
+  // tab left open kept a forgotten game resident forever.
+  test('a still-connected room is evicted too once it goes untouched for the TTL', async () => {
+    const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
+    const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    let closed = false
+    const socket = { close: () => (closed = true) } as unknown as Parameters<typeof room.sockets.add>[0]
+    room.sockets.add(socket)
+    room.seats.forEach((s) => (s.connected = true))
+    room.lastActivity = Date.now() - ROOM_TTL_MS - 1000
+    evictStaleRooms()
+    expect(getRoom(roomCode)).toBeUndefined()
+    // The client is told, rather than left clicking at a room that is gone.
+    expect(closed).toBe(true)
+  })
+
+  test('a room touched within the TTL survives, connected or not', async () => {
+    const { evictStaleRooms, createRoom, getRoom, ROOM_TTL_MS } = await import('./rooms')
+    const { roomCode, room } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
+    room.seats.forEach((s) => (s.connected = false))
+    room.lastActivity = Date.now() - (ROOM_TTL_MS - 60_000)
+    evictStaleRooms()
+    expect(getRoom(roomCode)).toBeDefined()
+  })
+
   test('an active room is not evicted', async () => {
     const { evictStaleRooms, createRoom, getRoom } = await import('./rooms')
     const { roomCode } = createRoom({ name: 'Ana', playerCount: 2, season: 1, seed: 1 })
     evictStaleRooms()
     expect(getRoom(roomCode)).toBeDefined()
+  })
+
+  // Over real sockets, because the fake-socket test above only proves the
+  // eviction loop calls close() — not that a genuinely seated client is hung
+  // up on, nor that index.ts's close handler survives firing against a room
+  // that has just been deleted out from under it.
+  test("an evicted room's live connections are closed, and the server stays healthy", async () => {
+    const { getRoom, ROOM_TTL_MS } = await import('./rooms')
+    const pair = await seatedPair()
+    await startGame(pair)
+
+    const room = getRoom(pair.roomCode)!
+    room.lastActivity = Date.now() - ROOM_TTL_MS - 1000
+
+    const closed = new Promise<void>((resolve) => pair.host.ws.addEventListener('close', () => resolve(), { once: true }))
+    // Any message sweeps — evictStaleRooms runs at the top of handleMessage.
+    const bystander = await connect()
+    bystander.send({ type: 'create', name: 'Cy', playerCount: 2, season: 1, seed: 3 })
+    await bystander.next('seated')
+
+    await closed
+    expect(getRoom(pair.roomCode)).toBeUndefined()
+    // Nothing in the close path blew up on the room that no longer exists.
+    expect(pair.guest.inbox.some((m) => m.type === 'serverError')).toBe(false)
+    bystander.close()
+    pair.host.close()
+    pair.guest.close()
   })
 
   test('the log is capped so a long match cannot grow without bound', async () => {
@@ -569,7 +621,7 @@ describe('the host role does not strand a lobby', () => {
   })
 })
 
-// A dropped connection used to stall everyone else until the room's two-hour
+// A dropped connection used to stall everyone else until the room's idle
 // TTL. These re-arm the timer with a short delay rather than waiting out
 // TURN_TIMEOUT_MS — the mechanism is what's under test, not the duration.
 describe('a seat nobody is holding does not stall the table', () => {

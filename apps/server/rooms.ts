@@ -58,7 +58,12 @@ const rooms = new Map<string, Room>()
 // Rooms are evicted once they have been idle this long. The old registry never
 // called rooms.delete and never truncated its logs, so a long-lived server
 // grew without bound.
-export const ROOM_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
+//
+// "Idle" means nothing has TOUCHED the room — creating it, seating a
+// connection, starting it, or applying an action all bump `lastActivity`. So a
+// client that keeps rejoining without ever playing does hold a room open; what
+// the window is really bounding is abandonment, and a rejoin is not that.
+export const ROOM_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 // Logs are capped too: a long match generates a lot of lines, and a client
 // only ever renders the recent tail.
 export const MAX_LOG_LINES = 2000
@@ -143,17 +148,32 @@ export function roomCount(): number {
 
 // Drops rooms nobody has touched in ROOM_TTL_MS. Called opportunistically on
 // every message rather than from a timer, so a quiet server does no work.
+//
+// Idleness alone is the test. Eviction used to additionally require that the
+// room be abandoned — no sockets, no seat marked connected — which meant a
+// single browser tab left open overnight pinned a finished or forgotten game
+// in memory forever, however long the TTL was. A day without anyone touching
+// the room is the answer regardless of who still has a socket pointed at it.
 export function evictStaleRooms(now: number = Date.now()): number {
   let evicted = 0
   for (const [code, room] of rooms) {
-    const idle = now - room.lastActivity > ROOM_TTL_MS
-    const abandoned = room.sockets.size === 0 && room.seats.every((s) => !s.connected)
-    if (idle && abandoned) {
-      // A pending timer would otherwise outlive the room it was waiting on.
-      clearTurnTimeout(room)
-      rooms.delete(code)
-      evicted++
-    }
+    if (now - room.lastActivity <= ROOM_TTL_MS) continue
+    // A pending timer would otherwise outlive the room it was waiting on.
+    clearTurnTimeout(room)
+    // Delete before closing, so index.ts's close handler — which looks the
+    // room up by code — finds nothing and bails, rather than broadcasting to
+    // and re-arming a turn timer on the room being evicted (a timer armed
+    // after clearTurnTimeout, on an object nothing will ever clear again).
+    // Close events are delivered asynchronously, so in practice it would find
+    // the room gone either way; this makes that independent of timing.
+    rooms.delete(code)
+    evicted++
+    // Any connection still pointed at this room is now talking to nothing.
+    // Closing it puts the client on its normal reconnect path, where the
+    // rejoin answers `noSuchRoom` and the UI lets go of the seat — far better
+    // than leaving a live-looking board whose every click is a no-op.
+    for (const ws of room.sockets) ws.close()
+    room.sockets.clear()
   }
   return evicted
 }
@@ -265,7 +285,7 @@ export function applyRoomAction(
 //
 // A dropped connection used to mark its seat away and change nothing else. If
 // that seat was the one holding everyone up, the table sat there until the
-// room hit its two-hour TTL — and until the client's own fix, the other
+// room hit its idle TTL — and until the client's own fix, the other
 // players could not even leave.
 //
 // The Flip is safe: any seat may press it. Only two things wait on ONE named

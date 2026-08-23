@@ -126,7 +126,7 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 
 ## Testing
 
-389 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 11
+389 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 14
 Playwright browser tests in `e2e/`.
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
@@ -134,5 +134,11 @@ oracle/fixtures design was superseded; tests just assert expected values
 inline). `apps/server/rooms.test.ts` runs a real `Bun.serve` over real WebSockets —
 seat assignment, reconnect-by-token, and turn enforcement only exist at that
 layer. `e2e/` drives two browsers through a whole 2-player game; run `make e2e`
-after any web change. Solo has its own browser spec because every multiplayer
+after any web change. `playToEnd` takes a policy: `'pass'` only presses the
+shared flip and ends turns (proves the flow), `'buy'` actually spends fame —
+hire, dismiss, and the effect prompts they open. Use `'buy'` for anything
+touching the Market phase; `'pass'` proved nothing about it, which is how two
+Pig bugs survived a green suite. Dismiss is rationed to one per seat on
+purpose: fame is scored FROM the board, so a seat that dismisses freely
+strips its own grid and no one ever reaches the endgame threshold. Solo has its own browser spec because every multiplayer
 spec clicks straight past that screen.

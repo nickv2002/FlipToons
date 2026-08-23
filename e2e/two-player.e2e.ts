@@ -110,12 +110,37 @@ async function settleToMarket(players: Player[], timeoutMs = 20_000): Promise<vo
 }
 
 // Plays the match to its end screen, alternating between the two pages. The
-// policy is deliberately dull — answer prompts, end turns, press the shared
-// flip — because the point is that the FLOW works, not that anyone plays well.
-async function playToEnd(players: Player[], maxSteps = 300): Promise<void> {
+// policy is one of two, chosen by the caller.
+//
+//   'pass'  answer prompts, end turns, press the shared flip. Deliberately
+//           dull: the point is that the FLOW works, not that anyone plays
+//           well. Never spends fame, so the Market phase's real decisions —
+//           hire, dismiss, and every card effect they trigger — go untouched.
+//   'buy'   the same, but each seat spends its turn: hire the first market
+//           card it can afford, else dismiss something off its own board,
+//           and answer whatever effect prompt that opens. This is the one
+//           that exercises the card vocabulary.
+//
+// Returns a tally of what it actually managed to do, so a test can assert the
+// game was really played rather than passed through — a 'buy' run that never
+// found an affordable card would otherwise be the 'pass' test wearing a hat.
+type PlayTally = { hires: number; dismisses: number; effectChoices: number }
+
+// See the dismiss branch below for why this is a budget and not a free choice.
+const DISMISSES_PER_SEAT = 1
+
+async function playToEnd(
+  players: Player[],
+  opts: { policy?: 'pass' | 'buy'; maxSteps?: number } = {},
+): Promise<PlayTally> {
+  const policy = opts.policy ?? 'pass'
+  const dismissBudget = new Map<Page, number>()
+  const maxSteps = opts.maxSteps ?? 300
+  const tally: PlayTally = { hires: 0, dismisses: 0, effectChoices: 0 }
+
   for (let step = 0; step < maxSteps; step++) {
     for (const { page } of players) {
-      if (await visible(page, 'game-over')) return
+      if (await visible(page, 'game-over')) return tally
     }
 
     let acted = false
@@ -142,6 +167,68 @@ async function playToEnd(players: Player[], maxSteps = 300): Promise<void> {
         break
       }
 
+      // An effect prompt from a hire or dismiss (Panther, Butterfly, Crow,
+      // Horse, Alligator). Decline the optional ones and take the first
+      // option on the mandatory ones — Horse's multi-select confirms with
+      // nothing chosen, which is a legal and meaningful answer. This is
+      // checked before the market below, because an open prompt blocks the
+      // acting seat until it is answered.
+      if (policy === 'buy' && (await present(page, '[data-testid="effect-choice"]'))) {
+        if (
+          (await tryClickFirst(page, '[data-testid="effect-choice-skip"]')) ||
+          (await tryClickFirst(page, '[data-testid="effect-choice-option-0"]:not([disabled])')) ||
+          (await tryClickFirst(page, '[data-testid="effect-choice-confirm"]'))
+        ) {
+          tally.effectChoices++
+          acted = true
+          break
+        }
+      }
+
+      // Spend the turn. Hire beats dismiss because it grows the deck and so
+      // keeps the game moving toward a real endgame; dismiss is the fallback
+      // for a turn with fame but nothing affordable in the market.
+      // My turn, with fame to spend. The gate is the `end-turn` BUTTON, not
+      // the `my-controls` fieldset around it: Playwright's isEnabled only
+      // understands native form controls and reports a disabled <fieldset> as
+      // enabled. The button inside inherits the disable, so it tells the
+      // truth.
+      //
+      // Every check below is a count(), which resolves against the current
+      // DOM without waiting. That matters more than it looks: the obvious
+      // version — loop slots 0..6 calling isEnabled — spends a full timeout
+      // on each slot that doesn't exist, and a 2-player market has four. That
+      // alone put ~3s into every step and stopped the game finishing at all.
+      if (policy === 'buy' && (await present(page, 'button[data-testid="end-turn"]:not([disabled])'))) {
+        // Match the BUTTON specifically: an empty market slot renders as a
+        // div carrying the same test id, and a div is never :disabled — so a
+        // testid-only match would "hire" a hole in the market.
+        if (await tryClickFirst(page, 'button[data-testid^="market-slot-"]:not([disabled])')) {
+          tally.hires++
+          acted = true
+          break
+        }
+        // Dismiss is deliberately RATIONED rather than used as the general
+        // fallback. It is a real move and its onDismiss effects are worth
+        // exercising, but a seat that dismisses every turn it can't afford a
+        // hire strips its own board — and fame is scored FROM the board, so
+        // both seats then sit below the endgame threshold forever and the
+        // game never ends. The first version of this loop did exactly that:
+        // 18 dismisses and 2 hires in 20 steps, no winner.
+        //
+        // A dismissible card renders clickable inside the grid pane; every
+        // other card there is disabled, so "the first clickable one" is a
+        // legal target by construction.
+        if ((dismissBudget.get(page) ?? DISMISSES_PER_SEAT) > 0) {
+          if (await tryClickFirst(page, '.round-view__grid-pane .card--clickable:not([disabled])')) {
+            dismissBudget.set(page, (dismissBudget.get(page) ?? DISMISSES_PER_SEAT) - 1)
+            tally.dismisses++
+            acted = true
+            break
+          }
+        }
+      }
+
       // Market turn: only the active seat can do anything. Gate on the
       // button being ENABLED, not merely present — the waiting seat renders
       // the same button behind a disabled fieldset.
@@ -164,6 +251,26 @@ async function playToEnd(players: Player[], maxSteps = 300): Promise<void> {
     await players[0].page.waitForTimeout(acted ? 80 : 150)
   }
   throw new Error(`playToEnd: the game never reached an end screen.\n${await describeStall(players)}`)
+}
+
+// Same bounds as tryClick, for the one control that has no test id of its
+// own: a dismissible grid card is identified by being the clickable one.
+async function tryClickFirst(page: Page, selector: string): Promise<boolean> {
+  const target = page.locator(selector).first()
+  if ((await target.count().catch(() => 0)) === 0) return false
+  try {
+    await target.click({ timeout: 2000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Is anything matching this selector in the DOM right now? count() reads the
+// current DOM and returns immediately — no implicit wait, which is what keeps
+// the play loop's per-step cost flat.
+async function present(page: Page, selector: string): Promise<boolean> {
+  return (await page.locator(selector).count().catch(() => 0)) > 0
 }
 
 test.describe('a two-player game, played from both sides', () => {
@@ -253,7 +360,7 @@ test.describe('a two-player game, played from both sides', () => {
 
     for (const p of [host, guest]) await expect(p.page.getByTestId('match')).toBeVisible()
 
-    await playToEnd([host, guest])
+    await playToEnd([host, guest], { policy: 'pass' })
 
     // BOTH browsers must land on the same result — a game that ends only for
     // whoever clicked last is exactly the class of bug this test exists for.
@@ -281,6 +388,61 @@ test.describe('a two-player game, played from both sides', () => {
     await host.page.context().close()
     await guest.page.context().close()
   })
+
+  // The full-game test above proves the FLOW works, but its policy never
+  // spends fame — so hire, dismiss, and every card effect they trigger go
+  // completely unexercised, which is exactly the shape of gap that hid two
+  // Pig bugs. This plays the same game for real, across several seeds,
+  // because which cards come up (and therefore which effect prompts open) is
+  // entirely a function of the seed.
+  for (const seed of ['3', '11', '29']) {
+    test(`a full game played for real — hiring, dismissing and effects — seed ${seed}`, async ({ browser }) => {
+      // A bought game is several times longer than the pass-policy one — more
+      // rounds, and an effect prompt to answer on many turns. Seed 11 runs to
+      // about a minute, which is close enough to the 90s default to flake.
+      test.setTimeout(180_000)
+      const crashes: string[] = []
+      const host = await openPlayer(browser, 'Ana')
+      const guest = await openPlayer(browser, 'Bo')
+      for (const p of [host, guest]) p.page.on('pageerror', (e) => crashes.push(e.message))
+      const roomCode = await hostRoom(host, { seed })
+      await joinRoom(guest, roomCode)
+      await host.page.getByTestId('start-game').click()
+      for (const p of [host, guest]) await expect(p.page.getByTestId('match')).toBeVisible()
+
+      const tally = await playToEnd([host, guest], { policy: 'buy' })
+
+      for (const p of [host, guest]) {
+        await expect(p.page.getByTestId('game-over')).toBeVisible({ timeout: 20_000 })
+      }
+
+      // Without this the test silently degrades into the pass-policy one:
+      // a run that never found an affordable card would still reach an end
+      // screen and still go green, having proved nothing new.
+      console.log(`seed ${seed}: ${tally.hires} hires, ${tally.dismisses} dismisses, ${tally.effectChoices} effect prompts answered`)
+      expect(tally.hires).toBeGreaterThan(0)
+
+      // Both seats must still agree on the outcome, same as the pass-policy
+      // game — spending fame must not fork the two clients' view of who won.
+      const hostResult = await host.page.getByTestId('result').innerText()
+      const guestResult = await guest.page.getByTestId('result').innerText()
+      if (hostResult.includes('shared win')) {
+        expect(guestResult).toContain('shared win')
+      } else {
+        expect(hostResult.includes('You win')).not.toBe(guestResult.includes('You win'))
+      }
+
+      // No uncaught client exception anywhere in the run. Deliberately NOT an
+      // assertion on the error banner: an illegal action is a normal race here
+      // (a click can land the instant the turn changes hands) and the banner
+      // persists until clicked, so that would flake. A genuine engine throw
+      // shows up instead as the loop never reaching an end screen.
+      expect(crashes).toEqual([])
+
+      await host.page.context().close()
+      await guest.page.context().close()
+    })
+  }
 
   test('each seat has its own board and its own fame', async ({ browser }) => {
     const host = await openPlayer(browser, 'Ana')

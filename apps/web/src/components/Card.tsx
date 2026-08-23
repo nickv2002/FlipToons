@@ -17,6 +17,11 @@ export type CardProps = {
   dismissImmune?: boolean
   onClick?: () => void
   disabled?: boolean
+  // A stable hook for the browser tests. The market and the effect-choice
+  // prompts render Cards as their only clickable controls, and picking one
+  // out by its rendered text is ambiguous the moment two slots hold the same
+  // card — which is normal.
+  testId?: string
   // True specifically when `disabled` is because the price exceeds current
   // fame (vs. e.g. an empty slot or dismiss-immunity) — lets the price
   // badge render in --color-negative instead of just the generic dimmed
@@ -86,13 +91,13 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId }: CardProps) {
   const clickable = !!onClick && !disabled
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
   if (!card) {
     return (
-      <div className={`card card--empty${onClick ? ' card--clickable' : ''}`} onClick={clickable ? onClick : undefined}>
+      <div data-testid={testId} className={`card card--empty${onClick ? ' card--clickable' : ''}`} onClick={clickable ? onClick : undefined}>
         <span className="card__empty-label">{emptyLabel ?? 'empty'}</span>
       </div>
     )
@@ -100,7 +105,7 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
 
   if (!faceUp) {
     return (
-      <div className={`card card--facedown${dealDelayMs !== undefined ? ' card--dealt' : ''}`} style={dealStyle}>
+      <div data-testid={testId} className={`card card--facedown${dealDelayMs !== undefined ? ' card--dealt' : ''}`} style={dealStyle}>
         <span className="card__facedown-mark">?</span>
       </div>
     )
@@ -116,6 +121,7 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
   return (
     <button
       type="button"
+      data-testid={testId}
       className={`card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${selected ? ' card--selected' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`}
       onClick={onClick}
       disabled={disabled}

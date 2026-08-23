@@ -37,12 +37,12 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
   // player picks from the board they already recognize.
   if (choice.kind === 'dismissByName') {
     return (
-      <div className="effect-choice">
+      <div className="effect-choice" data-testid="effect-choice">
         <p className="effect-choice__prompt">
           {cardName}: you may resolve this ability for {choice.cost} fame.
         </p>
         <Grid grid={grid} cards={cards} choiceOptions={choice.options} choiceCost={choice.cost} choiceDisabled={!affordable} onChoice={onResolve} />
-        <button type="button" className="effect-choice__skip" onClick={() => onResolve('skip')}>
+        <button type="button" className="effect-choice__skip" data-testid="effect-choice-skip" onClick={() => onResolve('skip')}>
           Skip
         </button>
       </div>
@@ -52,7 +52,7 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
   if (choice.kind === 'discardMarketAndRefill') {
     const toggle = (i: number) => setSelectedSlots((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]))
     return (
-      <div className="effect-choice">
+      <div className="effect-choice" data-testid="effect-choice">
         <p className="effect-choice__prompt">{cardName}: discard any number of market cards and refill.</p>
         <div className="effect-choice__cards">
           {choice.options.map((i) => (
@@ -65,7 +65,7 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
             />
           ))}
         </div>
-        <button type="button" onClick={() => onResolve(selectedSlots)}>
+        <button type="button" data-testid="effect-choice-confirm" onClick={() => onResolve(selectedSlots)}>
           Discard {selectedSlots.length} card{selectedSlots.length === 1 ? '' : 's'} &amp; refill
         </button>
       </div>
@@ -73,16 +73,17 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
   }
 
   return (
-    <div className="effect-choice">
+    <div className="effect-choice" data-testid="effect-choice">
       <p className="effect-choice__prompt">
         {cardName}: {choice.mandatory ? 'choose a card to dismiss' : 'you may resolve this ability'}
         {choice.kind === 'dismissAlligatorTarget' ? '.' : ` for ${choice.cost} fame.`}
       </p>
       <div className="effect-choice__cards">
         {(choice.kind === 'dismissChosenGridCard' || choice.kind === 'dismissAlligatorTarget') &&
-          choice.options.map((t) => (
+          choice.options.map((t, n) => (
             <Card
               key={`${t.pos.section}-${t.pos.row}-${t.pos.col}-${t.index}`}
+              testId={`effect-choice-option-${n}`}
               card={cards[t.cardId]}
               compact
               dismissCost={choice.kind === 'dismissAlligatorTarget' ? undefined : choice.cost}
@@ -92,12 +93,13 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
           ))}
         {choice.kind === 'hireFromDismissed' &&
           choice.options.map((id, i) => (
-            <Card key={`${id}-${i}`} card={cards[id]} compact price={choice.cost} unaffordable={!affordable} disabled={!affordable} onClick={() => onResolve(id)} />
+            <Card key={`${id}-${i}`} testId={`effect-choice-option-${i}`} card={cards[id]} compact price={choice.cost} unaffordable={!affordable} disabled={!affordable} onClick={() => onResolve(id)} />
           ))}
         {choice.kind === 'hireFromMarketAndRefill' &&
-          choice.options.map((i) => (
+          choice.options.map((i, n) => (
             <Card
               key={i}
+              testId={`effect-choice-option-${n}`}
               card={cards[market[i]!]}
               compact
               price={choice.cost}
@@ -108,7 +110,7 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, grid
           ))}
       </div>
       {!choice.mandatory && (
-        <button type="button" className="effect-choice__skip" onClick={() => onResolve('skip')}>
+        <button type="button" className="effect-choice__skip" data-testid="effect-choice-skip" onClick={() => onResolve('skip')}>
           Skip
         </button>
       )}

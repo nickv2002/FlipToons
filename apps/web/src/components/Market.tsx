@@ -22,6 +22,7 @@ export function Market({ market, cards, fame, onHire }: MarketProps) {
           return (
             <Card
               key={`${i}-${cardId ?? 'empty'}`}
+              testId={`market-slot-${i}`}
               card={card}
               price={price}
               emptyLabel={`${price} fame`}

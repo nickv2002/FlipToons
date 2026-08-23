@@ -97,3 +97,21 @@ describe('no engine module branches on Card.season (§10)', () => {
     })
   }
 })
+
+// actions.ts is the SOLO action surface and carries three house rules that are
+// wrong at a table: checkInstantWin (which ends the game the moment fame hits
+// the threshold, overriding the rulebook's "the trigger round still plays its
+// full Market phase"), the isGuaranteedLoss family, and the atomic flip
+// cascade. matchActions.ts reimplements what it needs instead of importing
+// them. CLAUDE.md has said so since the split; nothing checked it until now.
+describe('the multiplayer action surface stays clear of the solo one', () => {
+  test('matchActions.ts imports nothing from actions.ts', () => {
+    const source = readFileSync(join(import.meta.dir, 'matchActions.ts'), 'utf8')
+    expect(source).not.toMatch(/from '\.\/actions'/)
+  })
+
+  test('match.ts imports nothing from actions.ts either', () => {
+    const source = readFileSync(join(import.meta.dir, 'match.ts'), 'utf8')
+    expect(source).not.toMatch(/from '\.\/actions'/)
+  })
+})

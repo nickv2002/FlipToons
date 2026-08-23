@@ -894,8 +894,21 @@ export function endMarketPhase(state: GameState, logLines?: string[]): GameState
 // pass — any later postMarketHook candidates, then the standard refill/decay/
 // phase transition, exactly as if the whole sequence had run uninterrupted.
 export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
+  const afterHooks = resumePostMarketHooks(state, choice, logLines)
+  if (afterHooks.pendingPostMarketChoice) return afterHooks // another Alligator needs a choice too
+  return finishEndMarketPhase(afterHooks)
+}
+
+// The hook half of resolvePostMarketChoice, split out so the multiplayer turn
+// machine can answer a prompt WITHOUT dragging in the solo end-of-phase tail.
+// Applies the choice, then RESUMES the interrupted pass from
+// `remainingCandidates` — it must never restart the scan, because
+// runPostMarketHooks is stateless and would re-fire every hook still standing
+// in the grid (the Alligator would eat the whole stack to its right one prompt
+// at a time, and the Vulture would take a second card).
+export function resumePostMarketHooks(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
   const pending = state.pendingPostMarketChoice
-  if (!pending) throw new Error('phases.ts: resolvePostMarketChoice — this state has no pending post-Market choice')
+  if (!pending) throw new Error('phases.ts: resumePostMarketHooks — this state has no pending post-Market choice')
 
   const target = pending.options.find((o) => o.index === choice.index && samePos(o.pos, choice.pos))
   if (!target) {
@@ -913,9 +926,7 @@ export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos
   }
   logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[pending.ownerCardId].name} at ${posLabel(pending.ownerPos)}).`)
 
-  const afterHooks = applyPostMarketCandidates(next, pending.remainingCandidates, cards, logLines)
-  if (afterHooks.pendingPostMarketChoice) return afterHooks // another Alligator needs a choice too
-  return finishEndMarketPhase(afterHooks)
+  return applyPostMarketCandidates(next, pending.remainingCandidates, cards, logLines)
 }
 
 // ---------------------------------------------------------------------------

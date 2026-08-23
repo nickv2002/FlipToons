@@ -11,6 +11,7 @@ import { buildNewMatch, playerIndex } from './match'
 import { IllegalActionError, applyMatchAction, isPlayersTurn } from './matchActions'
 import type { LogLine, MatchAction } from './matchActions'
 import type { Match } from './state'
+import { emptyGrid, placeCardFaceUp } from './grid'
 
 // Plays a match to completion with a simple deterministic policy: answer any
 // prompt with its first legal option, never hire, just end each turn. Enough
@@ -227,5 +228,85 @@ describe('log lines carry an actor and the round they happened in', () => {
     const endgame = played.log.find((l) => l.text.includes('endgame is triggered'))
     expect(endgame).toBeDefined()
     expect(endgame!.playerId).toBeNull()
+  })
+})
+
+// The Alligator prompt is the one place a seat's post-Market hook pass stops
+// halfway and has to be picked back up by a separate action. Resuming it used
+// to go back through endMarketTurn, which restarts runPostMarketHooks — and
+// that scan is stateless, so every hook still standing in the grid fired
+// again. It also reached the solo end-of-phase tail, which runs the 1-2 player
+// market decay unconditionally.
+describe('resuming an Alligator prompt does not replay the pass', () => {
+  // Parks a match in the Market phase with `index`'s grid forced to:
+  //   [alligator][a 2-card stack][vulture]
+  // The Alligator must prompt (two eligible cards to its right), and the
+  // Vulture sits later in reading order so it is still queued when it does.
+  function parkedInMarket(playerCount: number) {
+    const match = buildNewMatch(7, playerCount, 1, { fameToTriggerEndgame: 999 })
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'alligator')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'snail')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 2 }, 'vulture')
+
+    return {
+      ...match,
+      shared: { ...match.shared, phase: 'market' as const },
+      players: match.players.map((p, i) => (i === 0 ? { ...p, grid, actionsRemaining: 0 } : p)),
+      activePlayerIndex: 0,
+    }
+  }
+
+  test('exactly one card leaves the stack, and the Vulture fires once', () => {
+    const m = parkedInMarket(3)
+    const me = m.turnOrder[0]
+
+    const ended = applyMatchAction(m, me, { kind: 'endTurn' })
+    const pending = ended.match.players[0].pendingPostMarketChoice
+    expect(pending).not.toBeNull()
+    expect(pending!.options).toHaveLength(2)
+
+    const answered = applyMatchAction(ended.match, me, {
+      kind: 'resolvePostMarketChoice',
+      pos: pending!.options[0].pos,
+      index: pending!.options[0].index,
+    })
+
+    // The prompt is gone for good — it must not re-open on the same stack.
+    expect(answered.match.players[0].pendingPostMarketChoice).toBeNull()
+
+    // One card from the stack (the Alligator's single target) plus one from
+    // the Vulture. Three dismissals would mean the pass ran twice.
+    expect(answered.match.players[0].dismissed).toHaveLength(2)
+
+    // ...and the turn actually passed.
+    expect(answered.match.activePlayerIndex).toBe(1)
+  })
+
+  test('answering the prompt does not decay the market', () => {
+    for (const playerCount of [2, 3]) {
+      const m = parkedInMarket(playerCount)
+      const me = m.turnOrder[0]
+
+      // Control: the same seat ending its turn with no Alligator in the grid.
+      const control = applyMatchAction(
+        { ...m, players: m.players.map((p, i) => (i === 0 ? { ...p, grid: emptyGrid() } : p)) },
+        me,
+        { kind: 'endTurn' },
+      )
+
+      const ended = applyMatchAction(m, me, { kind: 'endTurn' })
+      const pending = ended.match.players[0].pendingPostMarketChoice!
+      const answered = applyMatchAction(ended.match, me, {
+        kind: 'resolvePostMarketChoice',
+        pos: pending.options[0].pos,
+        index: pending.options[0].index,
+      })
+
+      // Answering a prompt is not a market event. The decay belongs to the
+      // end of the ROUND, and for 3+ players it never happens at all.
+      expect(answered.match.shared.toonDeck.length).toBe(control.match.shared.toonDeck.length)
+    }
   })
 })

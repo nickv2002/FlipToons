@@ -25,7 +25,7 @@ import {
   dismiss,
   endMarketPhase,
   hire,
-  resolvePostMarketChoice,
+  resumePostMarketHooks,
   runCheckFame,
   runFlip,
   runMarketDecay,
@@ -296,45 +296,58 @@ export function matchResolvePostMarketChoice(match: Match, playerId: PlayerId, c
   const afterChoice = withPlayer(match, index, (view) => resolvePostMarketChoiceOnly(view, choice, logLines))
   // The choice may have unblocked the rest of this seat's hooks; if none are
   // left pending, the turn can close.
+  //
+  // It closes through finishSeatTurn, NOT endMarketTurn: the hook pass is
+  // already finished and resuming it is the resume function's job. Going back
+  // through endMarketTurn re-ran runPostMarketHooks from scratch, and that
+  // scan is stateless — every hook still standing in the grid fired a second
+  // time.
   if (afterChoice.players[index].pendingPostMarketChoice) return afterChoice
-  return endMarketTurn(afterChoice, playerId, logLines)
+  return finishSeatTurn(afterChoice, index)
 }
 
 // phases.ts's resolvePostMarketChoice resumes the whole solo end-of-phase
 // sequence (refill + decay + phase transition) once the hooks finish. Under a
-// turn machine those steps belong to endMarketTurn, so this stops at the hook
-// boundary and leaves the timing to the caller.
+// turn machine those steps belong to the turn, so this uses the hook-only half
+// and leaves the timing to the caller.
+//
+// The old version called the full solo function and then pinned `phase` and
+// `actionsRemaining` back, on the theory that the pin undid it. It didn't: the
+// refill and — worse — the 1-2 player decay had already written `market`,
+// `toonDeck` and `nextInsertionSeq`, and the pin doesn't touch those. A 3-4
+// player table burned two toon cards to a rule that doesn't apply to it, and a
+// 1-2 player table on its last seat decayed twice in one round.
 function resolvePostMarketChoiceOnly(view: PlayerView, choice: { pos: GridPos; index: number }, logLines?: string[]): PlayerView {
   const pending = view.pendingPostMarketChoice
   if (!pending) throw new Error('match.ts: resolvePostMarketChoiceOnly — no pending post-Market choice')
-  // Resolve against a state whose remaining candidates are the ONLY ones left,
-  // then stop; resolvePostMarketChoice returns early (still phase 'market')
-  // whenever another choice is needed, and otherwise would run the solo
-  // finishEndMarketPhase — which the phase pin below neutralizes.
-  const resolved = resolvePostMarketChoice(view, choice, logLines)
-  return { ...resolved, phase: 'market', actionsRemaining: view.actionsRemaining }
+  return resumePostMarketHooks(view, choice, logLines)
 }
 
-// Ends ONE seat's Market turn: fire that seat's post-market hooks, refill the
-// shared market, then either pass to the next seat or — if the turn order has
-// wrapped — close the phase for the whole table.
+// Ends ONE seat's Market turn: fire that seat's post-market hooks, then close
+// the turn.
 export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: string[]): Match {
   const index = assertActive(match, playerId, 'endMarketTurn')
 
-  const afterHooks = withPlayer(match, index, (view) => {
-    const hooked = runPostMarketHooks(view, logLines)
-    if (hooked.pendingPostMarketChoice) return hooked // paused on an Alligator stack-target pick
-    return { ...runStandardRefill(hooked), actionsRemaining: 0 }
-  })
+  const afterHooks = withPlayer(match, index, (view) => runPostMarketHooks(view, logLines))
 
-  // Paused mid-hooks — the turn does NOT pass; this seat still owes a choice.
+  // Paused mid-hooks — the turn does NOT pass; this seat still owes a choice,
+  // and matchResolvePostMarketChoice picks the sequence back up from here.
   if (afterHooks.players[index].pendingPostMarketChoice) return afterHooks
 
-  const nextIndex = (index + 1) % afterHooks.turnOrder.length
-  const wrapped = nextIndex === afterHooks.firstPlayerIndex
-  if (!wrapped) return { ...afterHooks, activePlayerIndex: nextIndex }
+  return finishSeatTurn(afterHooks, index)
+}
 
-  return closeMarketPhase(afterHooks)
+// The tail of a seat's Market turn, once its hooks are done however they got
+// there: refill the shared market, then either pass to the next seat or — if
+// the turn order has wrapped — close the phase for the whole table.
+function finishSeatTurn(match: Match, index: number): Match {
+  const afterRefill = withPlayer(match, index, (view) => ({ ...runStandardRefill(view), actionsRemaining: 0 }))
+
+  const nextIndex = (index + 1) % afterRefill.turnOrder.length
+  const wrapped = nextIndex === afterRefill.firstPlayerIndex
+  if (!wrapped) return { ...afterRefill, activePlayerIndex: nextIndex }
+
+  return closeMarketPhase(afterRefill)
 }
 
 // Once-per-round tail of the Market phase: the 1-2 player decay, then the

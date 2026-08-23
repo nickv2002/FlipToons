@@ -14,7 +14,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "allowJs": false
+    "allowJs": false,
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

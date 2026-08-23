@@ -31,8 +31,13 @@ test:
 	bun test
 
 ## bunx tsc --noEmit, from repo root
+# All three projects. The root config covers packages/ only; apps/server and
+# apps/web have their own, and for a long time nothing ran them — which is how
+# a wrong field name in the server reached a commit.
 typecheck:
 	bunx tsc --noEmit -p .
+	bunx tsc --noEmit -p apps/server/tsconfig.json
+	bunx tsc --noEmit -p apps/web/tsconfig.json
 
 ## Browser end-to-end tests (Playwright starts both servers itself)
 e2e:

@@ -836,6 +836,41 @@ img.card__icon {
   max-width: 200px;
 }
 
+/* Quieter than the prompt line: the rule in force (Caterpillars only, the
+   stack to the Alligator's right, ...) explains why the row below holds the
+   cards it holds. */
+.effect-choice__note {
+  margin: -0.3rem 0 0;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, canvastext 60%, transparent);
+}
+
+.effect-choice__option {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.2rem;
+  flex: 1 1 140px;
+  max-width: 200px;
+}
+
+/* Cards in a row are not the same height — a long ability text stretches one
+   of them — and a caption hanging off the bottom of each made the row read as
+   ragged. Stretching every card to the tallest puts all the captions on one
+   line. */
+.effect-choice__option > .card {
+  flex: 1;
+}
+
+/* Two cards of the same name are common (the starting deck holds two
+   Caterpillars), and dismissing one rather than the other leaves a different
+   board — so each option says where it sits. */
+.effect-choice__pos {
+  font-size: 0.75rem;
+  text-align: center;
+  color: color-mix(in srgb, canvastext 55%, transparent);
+}
+
 .effect-choice__skip {
   align-self: flex-start;
   opacity: 0.8;
@@ -1203,7 +1238,6 @@ img.card__icon {
 .match__phase {
   font-size: 0.85rem;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
   background: color-mix(in srgb, canvastext 8%, transparent);
@@ -1344,6 +1378,29 @@ img.card__icon {
 
 .scoreboard__modifier {
   color: var(--color-positive);
+}
+
+/* This round against the endgame threshold — the only comparison the rules
+   make. Same look as solo's .round-view__progress, but its own class: the
+   bar lives in a table cell here, not across the page. */
+.scoreboard__progress {
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, canvastext 10%, transparent);
+  overflow: hidden;
+  min-width: 80px;
+  margin-bottom: 0.2rem;
+}
+
+.scoreboard__progress-bar {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.scoreboard__progress-text {
+  font-variant-numeric: tabular-nums;
 }
 
 /* A grid sizes itself to its container, so the SAME three columns came out at

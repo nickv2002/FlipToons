@@ -2,7 +2,6 @@ import type { Card as CardData, CardId } from '../../../../packages/engine/cards
 import type { GridPos, Slot as SlotData } from '../../../../packages/engine/types'
 import { Card } from './Card'
 import type { DismissEntry } from '../../../../packages/engine/actions'
-import type { DismissTarget } from '../../../../packages/engine/hireChoices'
 import { DEAL_STAGGER_MS } from '../dealAnimation'
 
 export type SlotProps = {
@@ -19,15 +18,6 @@ export type SlotProps = {
   // Flat position across the whole grid (extra rows above base rows), used
   // only to stagger this slot's deal-in animation.
   slotIndex?: number
-  // Effect-choice picker mode (e.g. Butterfly's dismissByName): when set,
-  // the whole grid renders instead of a filtered list, so the player picks
-  // from the real board layout — only cards matching `choiceOptions` are
-  // clickable/priced at `choiceCost`, every other card (face-up or not)
-  // renders inert/greyed via the same Card `disabled` styling dismiss uses.
-  choiceOptions?: DismissTarget[]
-  choiceCost?: number
-  choiceDisabled?: boolean
-  onChoice?: (target: DismissTarget) => void
   // This board is being SHOWN, not played — an opponent's grid, or your own
   // outside the Market phase. Cards render as inert <div>s rather than
   // enabled-but-inactionable buttons, and nothing is greyed: a board at rest
@@ -42,7 +32,7 @@ export type SlotProps = {
 // unaffordable, caught by actions.ts's try/catch and surfaced in the log,
 // same as tui.ts's playerFacingMessage path — no client-side affordability
 // gate here. `fame` is only used to color the badge red as a heads-up.
-export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, choiceOptions, choiceCost, choiceDisabled, onChoice, readOnly }: SlotProps) {
+export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, readOnly }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
   }
@@ -52,22 +42,6 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
       {slot.cards.map((cardId, i) => {
         const faceUp = slot.faceUp[i]
         const card = cards[cardId]
-        if (choiceOptions) {
-          const target = faceUp
-            ? choiceOptions.find((t) => t.pos.section === pos.section && t.pos.row === pos.row && t.pos.col === pos.col && t.index === i)
-            : undefined
-          return (
-            <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={`${i}-${cardId ?? 'empty'}`}>
-              <Card
-                card={card}
-                faceUp={faceUp}
-                dismissCost={target ? choiceCost : undefined}
-                onClick={target && !choiceDisabled ? () => onChoice!(target) : undefined}
-                disabled={faceUp && (!target || !!choiceDisabled)}
-              />
-            </div>
-          )
-        }
         const dismissEntry = faceUp ? dismissEntries?.find((e) => e.pos.section === pos.section && e.pos.row === pos.row && e.pos.col === pos.col && e.stackIndex === i) : undefined
         const dismissCost = dismissEntry?.cost
         const immuneToDismiss = faceUp && card.immune?.includes('dismiss')

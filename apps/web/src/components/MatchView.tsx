@@ -6,7 +6,11 @@ import type { MatchAction } from '../../../../packages/engine/matchActions'
 import type { Action } from '../../../../packages/engine/actions'
 import type { LobbyState } from '../../../server/protocol'
 import { BoardPane } from './BoardPane'
+import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
+import { occupiedSlots } from '../../../../packages/engine/grid'
+import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
+import type { Phase } from '../../../../packages/engine/state'
 
 const cards = cardsById()
 
@@ -65,7 +69,9 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
     <div className="match" data-testid="match">
       <header className="match__header">
         <span className="match__round" data-testid="round">Round {match.shared.round}</span>
-        <span className="match__phase" data-testid="phase">{phase}</span>
+        {phaseLabel(phase) && (
+          <span className="match__phase" data-testid="phase">{phaseLabel(phase)}</span>
+        )}
         <TurnBanner phase={phase} isMyTurn={isMyTurn} activeName={nameOf(activeId)} />
       </header>
 
@@ -78,16 +84,26 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
           board. */}
       {me.pendingPostFameChoice && (
         <div className="match__prompt" data-testid="post-fame-prompt">
-          <p>
-            <strong>{cards[me.pendingPostFameChoice.ownerCardId].name}</strong>: you generated the least fame — dismiss a card.
-          </p>
-          <div className="match__prompt-options">
-            {me.pendingPostFameChoice.options.map((o, i) => (
-              <button key={i} type="button" data-testid={`post-fame-option-${i}`} onClick={() => onAct({ kind: 'resolvePostFameChoice', pos: o.pos, index: o.index })}>
-                {cards[o.cardId].name}
-              </button>
-            ))}
-          </div>
+          {/* The same component every other dismiss uses. Skunk's rule —
+              mandatory, free, any face-up card on your own board — is exactly
+              dismissChosenGridCard's with a cost of 0, so it needs no kind of
+              its own; only the REASON is Skunk-specific, and that rides in on
+              promptText. */}
+          <EffectChoicePrompt
+            cardName={cards[me.pendingPostFameChoice.ownerCardId].name}
+            promptText={`${cards[me.pendingPostFameChoice.ownerCardId].name}: you generated the least fame — dismiss a card.`}
+            choice={{ kind: 'dismissChosenGridCard', mandatory: true, cost: 0, options: me.pendingPostFameChoice.options }}
+            cards={cards}
+            fame={me.fame}
+            market={match.shared.market.slots}
+            onResolve={(selection) => {
+              // dismissChosenGridCard is mandatory and single-select, so the
+              // component can only ever hand back a DismissTarget here.
+              if (typeof selection !== 'object' || Array.isArray(selection)) return
+              const target = selection as { pos: GridPos; index: number }
+              onAct({ kind: 'resolvePostFameChoice', pos: target.pos, index: target.index })
+            }}
+          />
         </div>
       )}
 
@@ -161,6 +177,10 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
             // leaving a table whose active player had dropped with no way out
             // but closing the tab.
             controlsDisabled={!isMyTurn || me.pendingDeckPlacement !== null}
+            // The scoreboard above already draws this round's fame against the
+            // threshold, for every seat. Twice on one screen was the same
+            // number twice, which is what the scoreboard rework removed.
+            showRoundScore={false}
           />
         ) : (
           <BoardPane title="Your grid" grid={me.grid} cards={cards} deckCount={me.deck.length} readOnly />
@@ -170,6 +190,29 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
       <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} />
     </div>
   )
+}
+
+// Only the phases a player can actually SEE get a label. flip / checkFame /
+// cleanup / finalFlip exist for one server tick and never reach a client, and
+// postFameHooks is already spelled out by the Skunk prompt or the "waiting for
+// the other players" line right below — so the chip stays off rather than
+// printing an internal state name at anybody.
+function phaseLabel(phase: Phase): string | null {
+  switch (phase) {
+    case 'market':
+      return 'Market'
+    case 'ended':
+      return 'Game over'
+    default:
+      return null
+  }
+}
+
+// Cards on the board right now, stacks included. Deliberately NOT a count of
+// cards drawn this round: nothing in state tracks that, and a dismissal takes
+// a card off the board without putting it back in the deck.
+function boardCount(grid: GridData): number {
+  return occupiedSlots(grid).reduce((n, { slot }) => n + slot.cards.length, 0)
 }
 
 function TurnBanner({ phase, isMyTurn, activeName }: { phase: string; isMyTurn: boolean; activeName: string }) {
@@ -188,7 +231,13 @@ function TurnBanner({ phase, isMyTurn, activeName }: { phase: string; isMyTurn: 
 // Per-round fame only. There is deliberately NO cumulative total: fame is one
 // number that is simultaneously your score, your spending power and expiring
 // (§4.2), and the game keeps no running tally. Inventing one here would show
-// players a statistic the rules do not have.
+// players a statistic the rules do not have. The bar measures THIS round
+// against the endgame threshold — that comparison is what the rules actually
+// make, and it is why the bar resets every round instead of filling up.
+//
+// The old "To spend" column is gone: it equals the scored fame until someone
+// hires, so it read as the same number twice. Your own spendable fame is on
+// your board in RoundView, which is the only place you can spend it.
 function Scoreboard({
   match,
   nameOf,
@@ -200,13 +249,16 @@ function Scoreboard({
   myPlayerId: string
   fames: ReturnType<typeof matchRoundFame>
 }) {
+  const threshold = match.shared.fameToTriggerEndgame
   return (
     <table className="scoreboard" data-testid="scoreboard">
       <thead>
         <tr>
           <th>Player</th>
           <th>Fame this round</th>
-          <th>To spend</th>
+          <th>Deck</th>
+          <th>On board</th>
+          <th>Dismissed</th>
         </tr>
       </thead>
       <tbody>
@@ -224,12 +276,28 @@ function Scoreboard({
                 )}
               </td>
               <td data-testid={`fame-${p.playerId}`}>
-                {p.fameGeneratedThisRound}
+                <div
+                  className="scoreboard__progress"
+                  title={`${p.fameGeneratedThisRound} of ${threshold} fame needed to trigger the endgame`}
+                >
+                  <div
+                    className="scoreboard__progress-bar"
+                    style={{ width: `${Math.min(100, (p.fameGeneratedThisRound / threshold) * 100)}%` }}
+                  />
+                </div>
+                <span className="scoreboard__progress-text">
+                  {p.fameGeneratedThisRound} / {threshold}
+                </span>
+                {/* The bar's number is this round's scored fame; Critic's
+                    Choice adds on top of it at the Final Flip only, so it
+                    stays a separate chip rather than moving the bar. */}
                 {rf.fame.modifiers.map((m) => (
                   <span key={m.source} className="scoreboard__modifier"> +{m.amount}</span>
                 ))}
               </td>
-              <td>{p.fame}</td>
+              <td>{p.deck.length}</td>
+              <td>{boardCount(p.grid)}</td>
+              <td>{p.dismissed.length}</td>
             </tr>
           )
         })}
@@ -278,11 +346,6 @@ function OpponentBoards({
               cards={cards}
               deckCount={p.deck.length}
               readOnly
-              footer={
-                <p className="opponents__counts">
-                  dismissed {p.dismissed.length} · fame this round {p.fameGeneratedThisRound}
-                </p>
-              }
             />
           </div>
         ))}

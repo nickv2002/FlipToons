@@ -120,9 +120,13 @@ export async function describeStall(players: Player[]): Promise<string> {
     players.map(async ({ page, name }) => {
       // Bounded: this is the message that EXPLAINS a stall, so it must not
       // become part of one.
-      const phase = await page.getByTestId('phase').innerText({ timeout: 2000 }).catch(() => '(none)')
+      // The phase chip only renders for phases a player acts in (MatchView's
+      // phaseLabel), so a stall mid-postFameHooks shows no chip at all — the
+      // round is always there and keeps the line informative.
+      const round = await page.getByTestId('round').innerText({ timeout: 2000 }).catch(() => '(none)')
+      const phase = await page.getByTestId('phase').innerText({ timeout: 2000 }).catch(() => '(no phase chip)')
       const turn = await page.getByTestId('turn-indicator').innerText({ timeout: 2000 }).catch(() => '(none)')
-      return `  ${name}: phase=${phase} turn=${turn}`
+      return `  ${name}: ${round} phase=${phase} turn=${turn}`
     }),
   )
   return rows.join('\n')
@@ -141,7 +145,7 @@ export async function settleToMarket(players: Player[], timeoutMs = 20_000): Pro
     if (await visible(players[0].page, 'turn-indicator')) return
     let clicked = false
     for (const { page } of players) {
-      if (await tryClick(page, 'post-fame-option-0')) clicked = true
+      if (await tryClickFirst(page, '[data-testid="post-fame-prompt"] [data-testid^="effect-choice-option"]')) clicked = true
     }
     await players[0].page.waitForTimeout(clicked ? 80 : 150)
   }
@@ -261,7 +265,7 @@ export async function playToEnd(players: Player[], opts: PlayOptions = {}): Prom
       // had clicked; a stall now means a prompt nobody answered.
 
       // A mandatory Skunk dismissal blocks the whole table until answered.
-      if (await tryClick(page, 'post-fame-option-0')) {
+      if (await tryClickFirst(page, '[data-testid="post-fame-prompt"] [data-testid^="effect-choice-option"]')) {
         note(`${name}: answered a post-fame prompt`)
         acted = true
         break
@@ -440,8 +444,14 @@ async function promptCardName(page: Page): Promise<string | null> {
   return colon > 0 ? text.slice(0, colon).trim() : null
 }
 
+// The round, plus the phase chip when there is one. Reading the chip alone
+// went blank in every phase MatchView deliberately doesn't label, which took
+// the round changes out of the transcript with it.
 async function roundMarker(page: Page): Promise<string | null> {
-  return page.getByTestId('phase').innerText({ timeout: 1000 }).catch(() => null)
+  const round = await page.getByTestId('round').innerText({ timeout: 1000 }).catch(() => null)
+  const phase = await page.getByTestId('phase').innerText({ timeout: 500 }).catch(() => null)
+  if (!round) return phase
+  return phase ? `${round} · ${phase}` : round
 }
 
 // App.tsx renders server-sent errors in `match-error`. Record each distinct

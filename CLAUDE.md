@@ -153,6 +153,36 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
   `.round-view__controls:disabled .card:disabled { opacity: 1 }` (an
   it-isn't-your-turn grey says nothing, and made your own board look unlike
   the opponent boards next to it).
+- **Every dismiss prompt is drawn by one component too.** `EffectChoicePrompt`
+  renders Butterfly, Panther, Alligator AND the Skunk as one card row; the
+  Skunk synthesizes a `dismissChosenGridCard` with `cost: 0`, which is exactly
+  its rule (mandatory, free, any face-up card of yours), so it needs no kind of
+  its own. What differs between them is never the shape: the OPTIONS are
+  filtered by the engine, `choice.mandatory` decides the Skip, `choice.cost`
+  decides the badge, and `defaultConstraintNote` names the rule in force —
+  derived from the choice, so the UI can't claim a constraint the engine isn't
+  applying. Each option carries its grid position: the starting deck holds two
+  Caterpillars (Butterfly's own target), and which one you dismiss changes the
+  board, so identical names in a flat row are not interchangeable. Butterfly
+  used to render a whole `<Grid>` for that reason; the position captions
+  replaced it, and `Grid`/`Slot` no longer have a choice-picker mode at all.
+- **The phase chip only names phases a player can see.** `MatchView`'s
+  `phaseLabel` returns a label for `market` and `ended` and null for the rest —
+  it used to print the raw `Phase` union member, which showed players
+  `POSTFAMEHOOKS`. `postFameHooks` is the one non-transient phase left unnamed
+  on purpose: the Skunk prompt or the "waiting for the other players" line is
+  already saying what is happening.
+- **The scoreboard shows one fame number, not two.** "Fame this round" is a bar
+  against `shared.fameToTriggerEndgame` — the only comparison the rules make —
+  next to deck / on-board / dismissed counts. "On board" counts the grid
+  (stacks included), NOT cards drawn: nothing in state tracks draws, and a
+  dismissal takes a card off the board without returning it to the deck. The
+  old "To spend" column equalled the scored fame until someone hired, so it
+  read as the same number twice; your own spendable fame lives on your board in
+  `RoundView`, the only place you can spend it. `RoundView`'s own
+  `showRoundScore` header is off in multiplayer for the same reason — the
+  scoreboard is already drawing that bar, eight pixels above it. Solo has no
+  scoreboard, so it keeps the header.
 - **The table size is not declared when hosting.** A room always opens at
   `MAX_SEATS` and `buildNewMatch` is called with 4; `startRoom` rebuilds the
   match at however many seats actually turned up. That rebuild is the ORDINARY

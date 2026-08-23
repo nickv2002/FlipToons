@@ -43,6 +43,11 @@ export type RoundViewProps = {
   // exactly the players who most need it (an opponent who dropped mid-turn
   // leaves everyone else waiting with nothing to click).
   controlsDisabled?: boolean
+  // Multiplayer draws this round's fame against the endgame threshold once, in
+  // the scoreboard above every board — so the header's own copy of the same
+  // number and bar would be the second one on the screen. Solo has no
+  // scoreboard, so it keeps it.
+  showRoundScore?: boolean
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -51,7 +56,7 @@ export type RoundViewProps = {
 // cascades through automatically (see advanceThroughPassthroughPhases),
 // same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
 // just with zero intermediate screens shown in this UI.
-export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel, controlsDisabled = false }: RoundViewProps) {
+export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel, controlsDisabled = false, showRoundScore = true }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
   // hireChoices.ts). Rather than dispatching immediately, the click handlers
@@ -175,9 +180,11 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
     <div className="round-view">
       <div className="round-view__header">
         <span>Round {state.round}</span>
-        <span className="round-view__score">
-          Score this round: <strong>{state.fameGeneratedThisRound}</strong> / {state.fameToTriggerEndgame} to win
-        </span>
+        {showRoundScore && (
+          <span className="round-view__score">
+            Score this round: <strong>{state.fameGeneratedThisRound}</strong> / {state.fameToTriggerEndgame} to win
+          </span>
+        )}
         <button type="button" onClick={() => setListOverlay('dismissed')}>
           Dismissed cards ({state.dismissed.length})
         </button>
@@ -188,12 +195,14 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           {leaveLabel}
         </button>
       </div>
-      <div className="round-view__progress" title={`${state.fameGeneratedThisRound} of ${state.fameToTriggerEndgame} fame needed to win`}>
-        <div
-          className="round-view__progress-bar"
-          style={{ width: `${Math.min(100, (state.fameGeneratedThisRound / state.fameToTriggerEndgame) * 100)}%` }}
-        />
-      </div>
+      {showRoundScore && (
+        <div className="round-view__progress" title={`${state.fameGeneratedThisRound} of ${state.fameToTriggerEndgame} fame needed to win`}>
+          <div
+            className="round-view__progress-bar"
+            style={{ width: `${Math.min(100, (state.fameGeneratedThisRound / state.fameToTriggerEndgame) * 100)}%` }}
+          />
+        </div>
+      )}
 
       <fieldset className="round-view__controls" disabled={controlsDisabled} data-testid="my-controls">
       {state.phase === 'market' && alligatorChoice && (
@@ -203,7 +212,6 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           cards={cards}
           fame={state.fame}
           market={state.market.slots}
-          grid={state.grid}
           onResolve={resolveAlligatorChoice}
         />
       )}
@@ -230,7 +238,6 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           cards={cards}
           fame={state.fame}
           market={state.market.slots}
-          grid={state.grid}
           onResolve={resolvePending}
         />
       )}

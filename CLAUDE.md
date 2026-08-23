@@ -66,7 +66,7 @@ Referance/*.HEIC        Photos of the physical rulebook/cards (transcription sou
 - `make web` — web client only, local solo, no server
 - `make stop` — kill any repo process this Makefile started (web/server)
 - `make test` — `bun test` from repo root
-- `make typecheck` — `bunx tsc --noEmit -p .`
+- `make typecheck` — all three tsconfigs (root/`packages`, `apps/server`, `apps/web`). The root one covers `packages/**` ONLY; for a long time the target ran just that, so neither app was ever typechecked.
 - `make e2e` — Playwright browser tests; starts both servers itself
 
 Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
@@ -120,13 +120,26 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
   too. There is a compile-time guard that will name it if you forget —
   `satisfies` alone does not catch omissions, and a missing key is silently
   dropped on every commit.
+- **Two halves of the security boundary.** `attach` pins WHO a connection is
+  (`SocketData.seat`); `roomForConnection` pins WHICH ROOM it may touch. Post-
+  join messages carry a `roomCode`, but it is a client string and must never be
+  what the room is looked up by — seat ids are `p0..p3` in every room and every
+  creator is `p0`, so a lookup by message code let anyone start and act inside
+  anyone else's game.
+- **A seat names its own socket** (`Seat.socket`). Only that socket may report
+  the seat disconnected; a stale one closing after a reconnect is ignored. The
+  turn timeout depends on this — a false `connected: false` would skip a
+  present player's turn.
+- **The turn timeout gates on DISCONNECTION, never idleness.** A player who is
+  present and thinking is not on a clock. A skip that moves nothing does not
+  re-arm.
 - **No cumulative score anywhere.** Fame is one per-round number that is at
   once your score, your spending power, and expiring. The rules keep no
   running tally; don't invent one in the UI.
 
 ## Testing
 
-389 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 14
+410 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus 16
 Playwright browser tests in `e2e/`.
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s

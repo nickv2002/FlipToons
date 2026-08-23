@@ -64,6 +64,14 @@ export type ServerMessage =
   // Full match state. Everything in a FlipToons game is public (§3.3a: decks,
   // grids and dismissed piles may all be examined by any player), so there is
   // no per-connection filtering to do.
+  //
+  // This does go slightly further than §3.3a strictly grants, and the choice
+  // was made deliberately: PlayerState.rng rides along, and a deck is
+  // reshuffled from that stream at every Flip. Examining a deck shows you a
+  // SNAPSHOT; the rng state would let a modified client precompute every
+  // future reshuffle for every seat, for the rest of the match. Considered and
+  // accepted — this is a casual game among friends, and per-seat filtering
+  // would buy nothing anyone here needs. Not a finding; don't re-raise it.
   | { type: 'state'; match: Match; logLines: LogLine[]; debugLines: string[]; log?: LogLine[] }
   // Something the player did wrong (acting out of turn, joining a full room).
   // Distinct from 'serverError' so the client can show one quietly and shout

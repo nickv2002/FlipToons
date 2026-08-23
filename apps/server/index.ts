@@ -38,6 +38,30 @@ function attach(ws: Bun.ServerWebSocket<SocketData>, room: Room, roomCode: strin
   room.lastActivity = Date.now()
 }
 
+// The OTHER half of the security boundary. `attach` pins WHO a connection is;
+// this pins WHICH TABLE it may touch. Post-join messages carry a roomCode, but
+// it is a client-supplied string and must never be what we look the room up
+// by: seat ids are `p0..p3` in EVERY room (match.ts's turn order) and the
+// creator of any room is always `p0`, so a lookup by message code let a
+// connection seated as p0 of its own throwaway room start, and act inside,
+// anyone else's room. The connection's own roomCode is the only trustworthy
+// one; the message's is accepted only when it agrees with it.
+function roomForConnection(
+  ws: Bun.ServerWebSocket<SocketData>,
+  claimedRoomCode: string | undefined,
+): { ok: true; room: Room; roomCode: string } | { ok: false; reply: ServerMessage } {
+  const roomCode = ws.data.roomCode
+  // Never joined anything — say so plainly; there is no room to be secretive
+  // about.
+  if (!roomCode) return { ok: false, reply: { type: 'error', message: 'You are not seated in this room.' } }
+  // Seated elsewhere, or naming a room that has since been evicted. Both
+  // answer the same way: from this connection's point of view that room does
+  // not exist, and saying more would confirm it does.
+  const room = (claimedRoomCode ?? '').toUpperCase() === roomCode ? getRoom(roomCode) : undefined
+  if (!room) return { ok: false, reply: { type: 'error', code: 'noSuchRoom', message: `No room with code "${claimedRoomCode}".` } }
+  return { ok: true, room, roomCode }
+}
+
 // Pushes the whole match plus the full backlog to one connection — what a
 // joiner or reconnecting player needs to render the game from scratch.
 function sendFullState(ws: Bun.ServerWebSocket<SocketData>, room: Room): void {
@@ -98,11 +122,12 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
   }
 
   if (message.type === 'start') {
-    const room = getRoom(message.roomCode)
-    if (!room) {
-      send(ws, { type: 'error', code: 'noSuchRoom', message: `No room with code "${message.roomCode}".` })
+    const found = roomForConnection(ws, message.roomCode)
+    if (!found.ok) {
+      send(ws, found.reply)
       return
     }
+    const { room, roomCode } = found
     if (ws.data.seat !== room.hostPlayerId) {
       send(ws, { type: 'error', code: 'notHost', message: 'Only the host can start the game.' })
       return
@@ -112,17 +137,18 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       return
     }
     startRoom(room)
-    broadcast(room, { type: 'lobby', lobby: lobbyOf(room, message.roomCode) })
+    broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
     broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
     return
   }
 
   if (message.type === 'action') {
-    const room = getRoom(message.roomCode)
-    if (!room) {
-      send(ws, { type: 'error', code: 'noSuchRoom', message: `No room with code "${message.roomCode}".` })
+    const found = roomForConnection(ws, message.roomCode)
+    if (!found.ok) {
+      send(ws, found.reply)
       return
     }
+    const { room } = found
     if (!room.started) {
       send(ws, { type: 'error', message: 'The game has not started yet.' })
       return

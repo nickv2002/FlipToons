@@ -385,3 +385,58 @@ describe('the Pig prompt crosses the wire', () => {
     pair.guest.close()
   })
 })
+
+// The room a message claims is a client-supplied string; the room a connection
+// actually sits in is not. These stay separate because seat ids are `p0..p3`
+// in EVERY room and every room's creator is `p0` — so if the room were looked
+// up by the message's code, a connection could create a throwaway room, become
+// its p0, and then start (or act inside) anyone else's room by naming its code.
+describe('cross-room isolation', () => {
+  test('a connection cannot act in a room it is not seated in', async () => {
+    const victim = await seatedPair({ seed: 21 })
+    await startGame(victim)
+
+    // The attacker is p0 of its OWN room — the same seat id the victim's host
+    // holds, which is what used to make the check pass.
+    const attacker = await connect()
+    attacker.send({ type: 'create', name: 'Mallory', playerCount: 2, season: 1, seed: 22 })
+    const attackerSeat = await attacker.next('seated')
+    expect(attackerSeat.playerId).toBe('p0')
+
+    // advanceFlip is deliberately not turn-gated, so it is the action with the
+    // fewest preconditions standing between an outsider and the victim's game.
+    attacker.send({ type: 'action', roomCode: victim.roomCode, action: { kind: 'advanceFlip' } })
+    const refused = await attacker.next('error')
+    expect(refused.code).toBe('noSuchRoom')
+
+    // ...and the victim's table saw nothing at all.
+    expect(victim.host.inbox.some((m) => m.type === 'state')).toBe(false)
+
+    victim.host.close()
+    victim.guest.close()
+    attacker.close()
+  })
+
+  test('a connection cannot start a lobby it is not seated in', async () => {
+    const { getRoom } = await import('./rooms')
+    const victimHost = await connect()
+    victimHost.send({ type: 'create', name: 'Ana', playerCount: 2, season: 1, seed: 23 })
+    const victimSeat = await victimHost.next('seated')
+    const victimGuest = await connect()
+    victimGuest.send({ type: 'join', roomCode: victimSeat.roomCode, name: 'Bo' })
+    await victimGuest.next('seated')
+
+    const attacker = await connect()
+    attacker.send({ type: 'create', name: 'Mallory', playerCount: 2, season: 1, seed: 24 })
+    await attacker.next('seated')
+
+    attacker.send({ type: 'start', roomCode: victimSeat.roomCode })
+    const refused = await attacker.next('error')
+    expect(refused.code).toBe('noSuchRoom')
+    expect(getRoom(victimSeat.roomCode)!.started).toBe(false)
+
+    victimHost.close()
+    victimGuest.close()
+    attacker.close()
+  })
+})

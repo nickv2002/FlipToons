@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
+import { loadSettings, saveSettings } from '../settings'
 import { OptionCards } from './OptionCards'
 
 export type MultiplayerStartProps = {
@@ -17,7 +18,7 @@ export type MultiplayerStartProps = {
 }
 
 export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, initialRoomCode }: MultiplayerStartProps) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(() => loadSettings().lastName)
   const [season, setSeason] = useState<1 | 2>(1)
   const [seed, setSeed] = useState('')
   const [threshold, setThreshold] = useState('')
@@ -59,14 +60,15 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
             className="config-panel__confirm"
             data-testid="host-game"
             disabled={busy || name.trim() === ''}
-            onClick={() =>
+            onClick={() => {
+              saveSettings({ lastName: name.trim() })
               onHost({
                 name: name.trim(),
                 season,
                 seed: seed.trim() === '' ? undefined : Number(seed),
                 fameToTriggerEndgame: threshold.trim() === '' ? undefined : Number(threshold),
               })
-            }
+            }}
           >
             Host
           </button>
@@ -94,7 +96,10 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
             className="config-panel__confirm"
             data-testid="join-game"
             disabled={busy || name.trim() === '' || roomCode.trim().length !== 5}
-            onClick={() => onJoin(roomCode, name.trim())}
+            onClick={() => {
+              saveSettings({ lastName: name.trim() })
+              onJoin(roomCode, name.trim())
+            }}
           >
             Join
           </button>

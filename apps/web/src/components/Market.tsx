@@ -9,9 +9,12 @@ export type MarketProps = {
   cards: Record<CardId, CardData>
   fame: number
   onHire?: (slotIndex: number) => void
+  // See BoardPane's animateDeal — same "fresh deal this round" gate, since a
+  // dismiss-choice prompt resolving remounts this pane too, not just the grid.
+  animateDeal?: boolean
 }
 
-export function Market({ market, cards, fame, onHire }: MarketProps) {
+export function Market({ market, cards, fame, onHire, animateDeal = true }: MarketProps) {
   return (
     <div className="market">
       <div className="market__slots">
@@ -30,7 +33,7 @@ export function Market({ market, cards, fame, onHire }: MarketProps) {
               disabled={!card || !affordable}
               unaffordable={!!card && !affordable}
               compact
-              dealDelayMs={card ? i * DEAL_STAGGER_MS : undefined}
+              dealDelayMs={animateDeal && card ? i * DEAL_STAGGER_MS : undefined}
             />
           )
         })}

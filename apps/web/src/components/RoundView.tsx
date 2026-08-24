@@ -284,6 +284,7 @@ export function RoundView({
               market={state.market}
               cards={cards}
               fame={state.fame}
+              animateDeal={isFreshDeal}
               onHire={(slotIndex) => handleHire(slotIndex)}
             />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} endLabel={endMarketLabel} />

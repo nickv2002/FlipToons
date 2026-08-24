@@ -13,7 +13,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-(cd "$ROOT/apps/worker" && bunx wrangler dev) &
+(cd "$ROOT/apps/worker" && bunx wrangler dev --ip 0.0.0.0) &
 SERVER_PID=$!
 
 echo "Waiting for the server on port $SERVER_PORT..."

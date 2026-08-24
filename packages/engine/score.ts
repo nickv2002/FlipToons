@@ -77,6 +77,10 @@ export type FameBonusLine = {
 
 export type FameLine = {
   pos: GridPos
+  // Which card in a stacked slot this line belongs to — `pos` alone can't
+  // disambiguate two FameLines sharing one slot, and `cardId` doesn't help
+  // either since every card has `copies: 2`. Same index slotKey() uses.
+  stackIndex: number
   cardId: CardId
   name: string
   base: number | null // null when needsRuling — no single fame value is trustworthy
@@ -117,6 +121,32 @@ export type FameBreakdown = {
 // (formatBreakdown) can pair them up by string equality if needed.
 const DOG_ELSEWHERE_FALSE_LABEL = 'if no Dog elsewhere'
 const DOG_ELSEWHERE_TRUE_LABEL = 'if a Dog is present elsewhere'
+
+// Finds the FameLine for one card in a stacked slot — a per-card UI badge
+// (Card.tsx's roundFame) needs exactly one line, not the whole breakdown.
+export function findFameLine(breakdown: FameBreakdown, pos: GridPos, stackIndex: number): FameLine | undefined {
+  return breakdown.lines.find((l) => l.pos.section === pos.section && l.pos.row === pos.row && l.pos.col === pos.col && l.stackIndex === stackIndex)
+}
+
+// A per-card round-fame badge (findFameLine above) keys on `stackIndex`, but
+// dismissing a card SPLICES slot.cards/slot.faceUp (phases.ts's dismiss) —
+// the survivor's live array index shifts down, no longer matching the
+// snapshotted breakdown's stackIndex for it, which would otherwise show the
+// DISMISSED card's fame line on the SURVIVING card (a wrong number, not just
+// a missing one). There is no stable per-card identity to remap against
+// (cardId isn't unique — every card has `copies: 2`), so this only builds
+// the accessor for slots whose card count still matches the breakdown's —
+// any slot a dismissal has touched this round is left with no accessor
+// (Slot.tsx's badge simply doesn't render there), rather than guessing.
+export function roundFameLookup(breakdown: FameBreakdown, grid: Grid): (pos: GridPos, stackIndex: number) => number | undefined {
+  return (pos, stackIndex) => {
+    const slot = getSlot(grid, pos)
+    if (!slot) return undefined
+    const originalCount = breakdown.lines.filter((l) => l.pos.section === pos.section && l.pos.row === pos.row && l.pos.col === pos.col).length
+    if (slot.cards.length !== originalCount) return undefined
+    return findFameLine(breakdown, pos, stackIndex)?.total
+  }
+}
 
 // Bracket-notation reference to a slot — `base[1][2]`. NOT grid.ts's exported
 // posLabel ("row 1, col 2"), which is the prose form the resolve log uses;
@@ -668,7 +698,7 @@ export function scoreGrid(
       // number, and equally impossible for a flagged-but-numeric card to be
       // treated as dynamic.
       if (card.fame.base === '=') {
-        const line: FameLine = { pos, cardId, name: card.name, base: null, bonuses: [], total: 0 }
+        const line: FameLine = { pos, stackIndex: i, cardId, name: card.name, base: null, bonuses: [], total: 0 }
         lines.push(line)
         cowEntries.push({ key, pos, line })
         continue
@@ -676,6 +706,7 @@ export function scoreGrid(
       if (card.fameUnencodable) {
         lines.push({
           pos,
+          stackIndex: i,
           cardId,
           name: card.name,
           base: null,
@@ -697,6 +728,7 @@ export function scoreGrid(
         const trueBranch = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, true, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket)
         lines.push({
           pos,
+          stackIndex: i,
           cardId,
           name: card.name,
           base: falseBranch.base,
@@ -713,7 +745,7 @@ export function scoreGrid(
 
       const computed = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, externalState?.dogElsewhere, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket)
       resolvedTotals.set(key, computed.total)
-      lines.push({ pos, cardId, name: card.name, base: computed.base, bonuses: computed.bonusLines, total: computed.total })
+      lines.push({ pos, stackIndex: i, cardId, name: card.name, base: computed.base, bonuses: computed.bonusLines, total: computed.total })
     }
   }
 

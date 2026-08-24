@@ -10,6 +10,7 @@ import { BoardPane } from './BoardPane'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
 import { occupiedSlots } from '../../../../packages/engine/grid'
+import { roundFameLookup } from '../../../../packages/engine/score'
 import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
 import type { Phase } from '../../../../packages/engine/state'
 
@@ -196,13 +197,28 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             // threshold, for every seat. Twice on one screen was the same
             // number twice, which is what the scoreboard rework removed.
             showRoundScore={false}
+            isOwn
+            isActive={isMyTurn}
           />
         ) : (
-          <BoardPane title="Your grid" grid={me.grid} cards={cards} deckCount={me.deck.length} readOnly animateDeal={isFreshDeal} />
+          <BoardPane
+            title="Your grid"
+            grid={me.grid}
+            cards={cards}
+            deckCount={me.deck.length}
+            readOnly
+            animateDeal={isFreshDeal}
+            isOwn
+            // This branch only renders when phase !== 'market' (see the
+            // ternary above), so by isActive's own formula ("market phase
+            // AND this seat is active") no board is ever active here.
+            isActive={false}
+            roundFame={roundFameLookup(fames.find((f) => f.playerId === myPlayerId)!.fame.grid, me.grid)}
+          />
         )}
       </section>
 
-      <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} animateDeal={isFreshDeal} />
+      <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} animateDeal={isFreshDeal} fames={fames} />
     </div>
   )
 }
@@ -300,10 +316,11 @@ function Scoreboard({
                 {match.shared.endgameTriggered ? (
                   rf.fame.modifiers.length > 0 ? (
                     <span className="scoreboard__progress-text">
-                      {rf.fame.grid.total} <span className="scoreboard__modifier">+{rf.fame.modifiers[0].amount}</span> = {rf.fame.total}
+                      {rf.fame.grid.total} <span className="scoreboard__modifier">+{rf.fame.modifiers[0].amount}</span> ={' '}
+                      <span className="scoreboard__progress-value">{rf.fame.total}</span>
                     </span>
                   ) : (
-                    <span className="scoreboard__progress-text">{rf.fame.total}</span>
+                    <span className="scoreboard__progress-value">{rf.fame.total}</span>
                   )
                 ) : (
                   <>
@@ -317,7 +334,7 @@ function Scoreboard({
                       />
                     </div>
                     <span className="scoreboard__progress-text">
-                      {p.fameGeneratedThisRound} / {threshold}
+                      <span className="scoreboard__progress-value">{p.fameGeneratedThisRound}</span> / {threshold}
                     </span>
                   </>
                 )}
@@ -348,6 +365,7 @@ function OpponentBoards({
   activeId,
   phase,
   animateDeal,
+  fames,
 }: {
   match: Match
   myPlayerId: string
@@ -355,6 +373,7 @@ function OpponentBoards({
   activeId: string
   phase: string
   animateDeal: boolean
+  fames: ReturnType<typeof matchRoundFame>
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
   if (others.length === 0) return null
@@ -376,6 +395,9 @@ function OpponentBoards({
               deckCount={p.deck.length}
               readOnly
               animateDeal={animateDeal}
+              isOwn={false}
+              isActive={phase === 'market' && p.playerId === activeId}
+              roundFame={roundFameLookup(fames.find((f) => f.playerId === p.playerId)!.fame.grid, p.grid)}
             />
           </div>
         ))}

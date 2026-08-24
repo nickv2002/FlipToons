@@ -17,11 +17,17 @@ export type ChoicePromptProps = {
 export function ChoicePrompt({ state, onEndMarket, endLabel = 'End Market phase' }: ChoicePromptProps) {
   return (
     <div className="choice-prompt">
-      <div className="choice-prompt__summary">
-        Market actions remaining: <strong>{state.actionsRemaining}</strong> — spendable fame:{' '}
-        <strong className="choice-prompt__currency">{state.fame}</strong> (resets to 0 after this phase — spend it or
-        lose it)
+      <div className="choice-prompt__stats">
+        <div className="choice-prompt__stat">
+          <span className="choice-prompt__stat-label">Actions remaining</span>
+          <span className="choice-prompt__stat-value">{state.actionsRemaining}</span>
+        </div>
+        <div className="choice-prompt__stat">
+          <span className="choice-prompt__stat-label">Spendable fame</span>
+          <span className="choice-prompt__stat-value choice-prompt__currency">{state.fame}</span>
+        </div>
       </div>
+      <p className="choice-prompt__note">Fame resets to 0 after this phase — spend it or lose it.</p>
       <button type="button" className="choice-prompt__end" data-testid="end-turn" onClick={onEndMarket}>
         {endLabel}
       </button>

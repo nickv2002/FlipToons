@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { cardsById } from './setup'
 import { emptyGrid, placeCardFaceUp } from './grid'
-import { scoreGrid } from './score'
+import { scoreGrid, findFameLine, roundFameLookup } from './score'
 import type { Grid } from './types'
 
 const cards = cardsById()
@@ -798,4 +798,53 @@ describe('dismissed-pile fame queries (Cat/Tiger/Opossum), resolved via scoreGri
       expect(cards[id].immune).toContain('dismiss')
     })
   }
+})
+
+describe('FameLine.stackIndex — disambiguating two lines sharing one slot', () => {
+  test('a stacked slot produces two lines with distinct stackIndex, findable independently', () => {
+    const grid = emptyGrid()
+    grid.base[0][0] = { cards: ['bee', 'snail'], faceUp: [true, true] }
+    const pos = { section: 'base', row: 0, col: 0 } as const
+    const breakdown = scoreGrid(grid, cards)
+
+    const beeLine = breakdown.lines.find((l) => l.cardId === 'bee')!
+    const snailLine = breakdown.lines.find((l) => l.cardId === 'snail')!
+    expect(beeLine.stackIndex).toBe(0)
+    expect(snailLine.stackIndex).toBe(1)
+    expect(findFameLine(breakdown, pos, 0)).toBe(beeLine)
+    expect(findFameLine(breakdown, pos, 1)).toBe(snailLine)
+  })
+
+  // Dismissing the lower member of a stack SPLICES slot.cards/slot.faceUp
+  // (phases.ts's dismiss), so the survivor's live array index shifts down —
+  // no longer matching the FROZEN breakdown's stackIndex for it. Naively
+  // looking the survivor up by its new live index would return the
+  // DISMISSED card's line: a wrong fame number on a real card, not just a
+  // missing badge. roundFameLookup must refuse instead of guessing.
+  test('roundFameLookup withholds a slot whose card count no longer matches the snapshot, rather than misattributing a stale stackIndex', () => {
+    const grid = emptyGrid()
+    grid.base[0][0] = { cards: ['bee', 'snail'], faceUp: [true, true] }
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'caterpillar')
+    const pos0 = { section: 'base', row: 0, col: 0 } as const
+    const pos1 = { section: 'base', row: 0, col: 1 } as const
+    const breakdown = scoreGrid(grid, cards)
+
+    // Untouched grid: both slots' card counts match the snapshot.
+    const lookupBefore = roundFameLookup(breakdown, grid)
+    expect(lookupBefore(pos0, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'bee')!.total)
+    expect(lookupBefore(pos0, 1)).toBe(breakdown.lines.find((l) => l.cardId === 'snail')!.total)
+    expect(lookupBefore(pos1, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'caterpillar')!.total)
+
+    // Simulate a dismiss of the stack's bottom card (index 0), as
+    // phases.ts's dismiss does — splice, not null-out.
+    grid.base[0][0]!.cards.splice(0, 1)
+    grid.base[0][0]!.faceUp.splice(0, 1)
+    expect(grid.base[0][0]!.cards).toEqual(['snail']) // survivor is now live index 0
+
+    const lookupAfter = roundFameLookup(breakdown, grid)
+    // The touched slot withholds entirely — no badge, not the bee's stale total.
+    expect(lookupAfter(pos0, 0)).toBeUndefined()
+    // An untouched slot elsewhere on the same grid is unaffected.
+    expect(lookupAfter(pos1, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'caterpillar')!.total)
+  })
 })

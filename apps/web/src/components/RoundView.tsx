@@ -8,6 +8,7 @@ import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../pa
 import type { EffectChoices } from '../../../../packages/engine/cards/types'
 import { computePendingChoice, buildEffectChoices } from '../../../../packages/engine/hireChoices'
 import type { PendingChoice } from '../../../../packages/engine/hireChoices'
+import { roundFameLookup } from '../../../../packages/engine/score'
 import { BoardPane } from './BoardPane'
 import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
@@ -49,6 +50,11 @@ export type RoundViewProps = {
   // number and bar would be the second one on the screen. Solo has no
   // scoreboard, so it keeps it.
   showRoundScore?: boolean
+  // See BoardPane's isOwn/isActive. Default true/true: solo is always both —
+  // there's no "someone else's turn" to dim against. MatchView threads real
+  // values through here for the seated player's own board.
+  isOwn?: boolean
+  isActive?: boolean
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -65,6 +71,8 @@ export function RoundView({
   endMarketLabel,
   controlsDisabled = false,
   showRoundScore = true,
+  isOwn = true,
+  isActive = true,
 }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
@@ -89,6 +97,13 @@ export function RoundView({
   useEffect(() => {
     animatedRoundRef.current = state.round
   }, [state.round])
+
+  // Per-card "fame generated this round" badges. state.lastCheckFame is
+  // already the frozen Check-Fame-time snapshot fameGeneratedThisRound is
+  // computed from — reusing it means a dismissed card's badge just
+  // disappears along with the card (lastCheckFame doesn't track later
+  // dismissals), which is exactly the desired behavior, not a bug to guard.
+  const roundFame = state.lastCheckFame ? roundFameLookup(state.lastCheckFame, state.grid) : undefined
 
   // Dispatches the hire unless doing so would leave the round guaranteed
   // lost (toon deck too depleted for solo's per-round decay to refill) — in
@@ -202,7 +217,9 @@ export function RoundView({
         <span>Round {state.round}</span>
         {showRoundScore && (
           <span className="round-view__score">
-            Score this round: <strong>{state.fameGeneratedThisRound}</strong> / {state.fameToTriggerEndgame} to win
+            <span className="round-view__score-label">Score this round</span>
+            <span className="round-view__score-value">{state.fameGeneratedThisRound}</span>
+            <span className="round-view__score-of">/ {state.fameToTriggerEndgame} to win</span>
           </span>
         )}
         <button type="button" onClick={() => setListOverlay('dismissed')}>
@@ -272,6 +289,9 @@ export function RoundView({
             onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
             fame={state.fame}
             animateDeal={isFreshDeal}
+            isOwn={isOwn}
+            isActive={isActive}
+            roundFame={roundFame}
           />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">

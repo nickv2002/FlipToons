@@ -25,6 +25,8 @@ export type SlotProps = {
   readOnly?: boolean
   // See BoardPane's animateDeal.
   animateDeal?: boolean
+  // See BoardPane's roundFame.
+  roundFame?: (pos: GridPos, stackIndex: number) => number | undefined
 }
 
 // NOTE: dismiss cost is NOT gated on affordability the way Market.tsx gates
@@ -34,7 +36,7 @@ export type SlotProps = {
 // unaffordable, caught by actions.ts's try/catch and surfaced in the log via
 // its playerFacingMessage — no client-side affordability gate here. `fame` is
 // only used to color the badge red as a heads-up.
-export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, readOnly, animateDeal = true }: SlotProps) {
+export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, readOnly, animateDeal = true, roundFame }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
   }
@@ -59,6 +61,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
               disabled={faceUp && onDismiss !== undefined && (immuneToDismiss || !dismissEntry)}
               dealDelayMs={animateDeal && slotIndex !== undefined ? slotIndex * DEAL_STAGGER_MS : undefined}
               readOnly={readOnly}
+              roundFame={faceUp ? roundFame?.(pos, i) : undefined}
             />
           </div>
         )

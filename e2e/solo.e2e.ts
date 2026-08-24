@@ -36,7 +36,7 @@ test.describe('solo still works through the web UI', () => {
 
       // The board is dealt and the Market phase is live.
       await expect(page.getByRole('button', { name: 'End Market phase' })).toBeVisible()
-      await expect(page.getByText('Market actions remaining:')).toBeVisible()
+      await expect(page.getByText('Actions remaining')).toBeVisible()
 
       await playOneRound(page)
       // Round 2 deals automatically — solo never waits on anyone.

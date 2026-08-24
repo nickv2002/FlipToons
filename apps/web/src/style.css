@@ -338,8 +338,27 @@ button {
   margin-left: auto;
 }
 
-.round-view__score strong {
+.round-view__score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.round-view__score-label {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.round-view__score-value {
+  font-size: 1.6rem;
+  font-weight: 700;
   color: var(--color-accent);
+  line-height: 1;
+}
+
+.round-view__score-of {
+  font-size: 0.85rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
 }
 
 /* Score-this-round vs. win threshold — a quick visual read of round
@@ -581,6 +600,16 @@ button {
   opacity: 0.7;
 }
 
+/* Per-card "fame generated this round" badge — distinct from the static
+   card__fame line (which always shows the card's base fame value) both in
+   position (top-right corner, next to price) and color, so the two numbers
+   never look interchangeable. */
+.card__round-fame {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--color-warning);
+}
+
 .card--empty {
   display: flex;
   align-items: center;
@@ -591,14 +620,10 @@ button {
 
 .card--facedown {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.15rem;
   background: #3335;
-}
-
-.card__facedown-mark {
-  font-size: 1.5rem;
-  opacity: 0.6;
+  opacity: 0.45;
 }
 
 .card__top {
@@ -805,8 +830,36 @@ img.card__icon {
   padding: 0.5rem 1.2rem;
 }
 
+.choice-prompt__stats {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.choice-prompt__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.choice-prompt__stat-label {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.choice-prompt__stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .choice-prompt__currency {
   color: var(--color-positive);
+}
+
+.choice-prompt__note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, canvastext 60%, transparent);
 }
 
 /* ---------- Effect choice prompt ---------- */
@@ -1258,11 +1311,16 @@ img.card__icon {
 
 .match__turn {
   margin-left: auto;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
   color: color-mix(in srgb, canvastext 70%, transparent);
+  background: color-mix(in srgb, canvastext 6%, transparent);
 }
 
 .match__turn--mine {
-  color: var(--color-accent);
+  color: white;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
 /* Quiet on purpose: the last round is worth knowing about, not worth
@@ -1358,6 +1416,34 @@ img.card__icon {
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, canvastext 12%, transparent);
   background: color-mix(in srgb, canvastext 3%, transparent);
+  transition: opacity 0.2s ease;
+}
+
+/* This is the viewer's own board — independent of whose turn it is, so it
+   composes with --inactive below (own board, not your turn). */
+.round-view__grid-pane--own {
+  border-left: 4px solid var(--color-accent);
+}
+
+.round-view__grid-pane--own h2 {
+  color: var(--color-accent);
+}
+
+/* Not the active seat's board right now (Market phase only) — dims the
+   whole pane rather than individual cards, which stays
+   .round-view__controls:disabled .card:disabled's job (see that rule). */
+.round-view__grid-pane--inactive {
+  opacity: 0.6;
+  background: color-mix(in srgb, canvastext 1%, transparent);
+}
+
+/* CSS opacity compounds with an ancestor's: a face-down card (its own 0.45)
+   inside an inactive pane (0.6) would render at ~0.27 — too faint to read.
+   Counter it back up so a face-down card here reads about as dim as one on
+   an active board (0.6 * 0.75 ≈ 0.45), not dimmer just for sharing a pane
+   with other dimmed cards. */
+.round-view__grid-pane--inactive .card--facedown {
+  opacity: 0.75;
 }
 
 .round-view__grid-pane h2 {
@@ -1444,6 +1530,11 @@ img.card__icon {
 
 .scoreboard__progress-text {
   font-variant-numeric: tabular-nums;
+}
+
+.scoreboard__progress-value {
+  font-size: 1.3rem;
+  font-weight: 700;
 }
 
 /* A grid sizes itself to its container, so the SAME three columns came out at

@@ -56,6 +56,10 @@ export type CardProps = {
   // every opponent card, which is exactly the presentation mismatch this
   // pass exists to remove.
   readOnly?: boolean
+  // "Fame generated this round" for THIS card — a snapshot taken at the
+  // Flip→CheckFame transition, distinct from the static base-fame line
+  // (card.fame.base) that's always shown. Undefined renders no badge.
+  roundFame?: number
 }
 
 const immunePhrase: Record<string, string> = {
@@ -102,7 +106,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly, roundFame }: CardProps) {
   const clickable = !!onClick && !disabled && !readOnly
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
@@ -115,9 +119,18 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
   }
 
   if (!faceUp) {
+    // No hidden-information concern: the client already holds this card's
+    // real identity (face-down ids are never server-hidden), and a card is
+    // only ever flipped face-down after being revealed once — so showing its
+    // front dimmed leaks nothing the client doesn't already have. Omit
+    // fame/dismiss badges, which don't apply while face-down.
     return (
       <div data-testid={testId} className={`card card--facedown${dealDelayMs !== undefined ? ' card--dealt' : ''}`} style={dealStyle}>
-        <span className="card__facedown-mark">?</span>
+        <div className="card__name-row">
+          <CardIcon id={card.id} />
+          <div className="card__name">{card.name}</div>
+        </div>
+        <span className="card__rank">rank {card.rank}</span>
       </div>
     )
   }
@@ -141,6 +154,11 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
         <span className="card__rank">rank {card.rank}</span>
         {price !== undefined && (
           <span className={`card__price${unaffordable ? ' card__price--unaffordable' : ' card__price--affordable'}`}>{price} fame</span>
+        )}
+        {roundFame !== undefined && (
+          <span className="card__round-fame" title="Fame this card generated this round">
+            +{roundFame}
+          </span>
         )}
         {selected && (
           <span className="card__selected-mark" aria-hidden="true">

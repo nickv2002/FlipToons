@@ -31,18 +31,29 @@ export type BoardPaneProps = {
   // Defaults true so callers outside the round loop (the ended screen's final
   // grid) don't need to think about it.
   animateDeal?: boolean
+  // This is the viewer's own board, as opposed to an opponent's — a left
+  // accent border / heading tint, independent of whose turn it is.
+  isOwn?: boolean
+  // The active seat's board right now (Market phase only) — undimmed.
+  // Independent of `isOwn` so the two compose: a board can be own-and-
+  // inactive, opponent-and-active, etc. Undefined/true means "don't dim"
+  // (solo has no "not your turn" concept).
+  isActive?: boolean
+  // Per-slot "fame generated this round" lookup — see Grid/Slot/Card.
+  roundFame?: (pos: GridPos, stackIndex: number) => number | undefined
 }
 
-export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true }: BoardPaneProps) {
+export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true, isOwn, isActive = true, roundFame }: BoardPaneProps) {
+  const className = `round-view__grid-pane${isOwn ? ' round-view__grid-pane--own' : ''}${isActive ? '' : ' round-view__grid-pane--inactive'}`
   return (
-    <div className="round-view__grid-pane">
+    <div className={className}>
       <div className="round-view__grid-heading">
         <h2>{title}</h2>
         <span className="round-view__deck-count" title="Cards left undrawn in this player's deck">
           Deck: <strong>{deckCount}</strong> left
         </span>
       </div>
-      <Grid grid={grid} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} fame={fame} readOnly={readOnly} animateDeal={animateDeal} />
+      <Grid grid={grid} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} fame={fame} readOnly={readOnly} animateDeal={animateDeal} roundFame={roundFame} />
       {footer}
     </div>
   )

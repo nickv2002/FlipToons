@@ -73,8 +73,8 @@ export type MatchAction =
 // unreadable without a name attached.
 //
 // `round` is stamped at WRITE time, which fixes a real bug in the old
-// protocol: useRemoteGame.ts tagged every historical line with the room's
-// CURRENT round when a client joined, so a joiner's whole game history
+// protocol: the previous remote client tagged every historical line with the
+// room's CURRENT round when a client joined, so a joiner's whole game history
 // collapsed into one "Round N" bucket.
 export type LogLine = { playerId: PlayerId | null; round: number; text: string }
 

@@ -3,10 +3,9 @@ import type { GameState } from '../../../../packages/engine/state'
 // Market-phase action controls only (Market actions remaining / End Market).
 // Effect-specific player choices (Panther/Butterfly/Raccoon/Crow/Horse) are
 // handled separately, by EffectChoicePrompt.tsx — RoundView.tsx swaps this
-// out for that when a hire/dismiss needs one. tui.ts (the CLI client) still
-// never threads EffectChoices through hire()/dismiss(), so mandatory choice
-// effects (Panther) throw there and optional ones silently decline — that
-// gap is CLI-only now.
+// out for that when a hire/dismiss needs one. Threading EffectChoices through
+// hire()/dismiss() is what makes mandatory choice effects (Panther) resolvable
+// at all: without them the engine throws, and optional ones silently decline.
 export type ChoicePromptProps = {
   state: GameState
   onEndMarket: () => void

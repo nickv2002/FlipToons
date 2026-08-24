@@ -29,9 +29,9 @@ export type SlotProps = {
 // hire — the badge below shows each entry's real cost (DismissEntry.cost,
 // computed via phases.ts's dismissCostFor, including Ladybug-adjacency and
 // Rat-in-stack discounts), and clicking one still goes through even if it's
-// unaffordable, caught by actions.ts's try/catch and surfaced in the log,
-// same as tui.ts's playerFacingMessage path — no client-side affordability
-// gate here. `fame` is only used to color the badge red as a heads-up.
+// unaffordable, caught by actions.ts's try/catch and surfaced in the log via
+// its playerFacingMessage — no client-side affordability gate here. `fame` is
+// only used to color the badge red as a heads-up.
 export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, readOnly }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />

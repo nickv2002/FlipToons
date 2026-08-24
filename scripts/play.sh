@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GUI, hosted: starts apps/server (ws://localhost:8787) and apps/web
-# (http://localhost:5173) together, so "Host online" in the New Game form
+# (http://localhost:5173) together, so "Host a table" on the launch screen
 # has a server to talk to and a room-code game can be resumed from another
 # tab/device. Ctrl-C stops both.
 set -euo pipefail

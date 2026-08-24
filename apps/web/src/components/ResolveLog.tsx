@@ -6,12 +6,12 @@ export type ResolveLogProps = {
   debugLog: LogEntry[]
 }
 
-// Presentation-only classification of actions.ts's/tui.ts-mirrored log
-// strings, used purely to pick a CSS color class — never alters the text.
-// Keyed off the exact prefixes actions.ts pushes (see 'Hired ', 'Dismissed ',
-// "Can't do that:", 'YOU WIN'/'YOU LOSE', etc.) — those strings are asserted
-// on verbatim by packages/engine/tui.test.ts, so this only ever reads them,
-// it must never rewrite them.
+// Presentation-only classification of actions.ts's log strings, used purely
+// to pick a CSS color class — never alters the text. Keyed off the exact
+// prefixes actions.ts pushes (see 'Hired ', 'Dismissed ', "Can't do that:",
+// 'YOU WIN'/'YOU LOSE', etc.) — those strings are asserted on verbatim by
+// packages/engine/actions.test.ts, so this only ever reads them, it must
+// never rewrite them.
 type LineKind = 'win' | 'lose' | 'hire' | 'dismiss' | 'error' | 'round-complete' | 'flip-order' | 'phase-end' | 'new-game' | 'breakdown' | 'note' | 'default'
 
 function classify(text: string): LineKind {
@@ -70,11 +70,11 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
   )
 }
 
-// Mirrors what tui.ts's `out` callback prints to the terminal — the same
-// running log of flips/scoring/hires/dismisses, now grouped into
-// collapsible per-round sections (a flat ever-growing list stopped being
-// scannable once a real game's worth of lines piled up) with color coding
-// by line kind so wins/losses/hires/errors read at a glance.
+// The running log of flips/scoring/hires/dismisses, exactly as actions.ts
+// emits it — grouped into collapsible per-round sections (a flat
+// ever-growing list stopped being scannable once a real game's worth of
+// lines piled up) with color coding by line kind so wins/losses/hires/errors
+// read at a glance.
 export function ResolveLog({ log, debugLog }: ResolveLogProps) {
   const [collapsed, setCollapsed] = useState(false)
   // Per-round expand/collapse overrides. Default (no override) is: the

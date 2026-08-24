@@ -1,14 +1,11 @@
 import { expect, test } from '@playwright/test'
 import {
-  describeStall,
   hostRoom,
   joinRoom,
   openJoinPanel,
   openPlayer,
   playToEnd,
   settleToMarket,
-  tryClick,
-  visible,
   activePlayerIsMe,
 } from './helpers'
 

@@ -9,7 +9,6 @@ import {
   activePlayerId,
   buildNewMatch,
   endMarketTurn,
-  matchDismiss,
   matchHire,
   runMatchCheckFame,
   runMatchCleanup,

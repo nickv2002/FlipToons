@@ -2,7 +2,7 @@
 # test/typecheck checks. Each target just execs a scripts/*.sh wrapper (see
 # that directory for what each mode actually is); this file is the index.
 
-.PHONY: help web server play stop test typecheck e2e e2e-long
+.PHONY: help web server play stop test typecheck lint e2e e2e-long
 
 .DEFAULT_GOAL := help
 
@@ -14,7 +14,7 @@ help:
 web:
 	./scripts/web.sh
 
-## GUI: standalone WS server only (pair with `make web` and check "Host online")
+## GUI: standalone WS server only (pair with `make web`, then "Host a table")
 server:
 	./scripts/server.sh
 
@@ -38,6 +38,16 @@ typecheck:
 	bunx tsc --noEmit -p .
 	bunx tsc --noEmit -p apps/server/tsconfig.json
 	bunx tsc --noEmit -p apps/web/tsconfig.json
+
+## oxlint over the whole repo (config in .oxlintrc.json)
+# DEFAULT RECOMMENDED RULES ONLY, deliberately. The baseline when this landed
+# was 8 findings (5 unused imports, 3 statement-position ternaries) and is now
+# 0, so a non-zero exit here means something new. Stylistic/opinionated rule
+# sets are NOT enabled: this codebase is internally consistent, and switching
+# them on would produce an unbounded diff rather than find bugs. Type-aware
+# checking is `make typecheck`'s job — it covers all three tsconfigs.
+lint:
+	bunx --bun oxlint
 
 ## Browser end-to-end tests (Playwright starts both servers itself)
 e2e:

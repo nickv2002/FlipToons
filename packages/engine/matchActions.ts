@@ -45,8 +45,10 @@ import {
 } from './match'
 import type { DeckPlacementTarget } from './match'
 import { hireCost } from './market'
+import { hasAnyLegalMarketAction } from './phases'
 import { cardsById } from './setup'
 import type { Match, PlayerId } from './state'
+import { viewOf } from './state'
 import type { GridPos } from './types'
 
 const cards = cardsById()
@@ -268,6 +270,12 @@ function advanceFlip(
 
 // After a hire/dismiss: match.ts closes a seat's turn on its own once their
 // actions run out, which may in turn wrap the turn order and close the phase.
+// A seat can also be left with actions but no fame to spend any of them on
+// (every market slot and every dismissible grid card costs more than they
+// have) — nothing left to decide, so this auto-ends the turn the same way
+// solo's hasAnyLegalMarketAction drives useGame.ts's auto-end (see phases.ts;
+// GameState and PlayerView are the same shape, so the one predicate serves
+// both without matchActions.ts importing actions.ts — see this file's header).
 function afterMarketAction(
   match: Match,
   playerId: PlayerId,
@@ -275,21 +283,40 @@ function afterMarketAction(
   debugLines: string[],
   say: (text: string, who?: PlayerId | null) => void,
 ): MatchApplyResult {
-  const me = match.players[playerIndex(match, playerId)]
+  const index = playerIndex(match, playerId)
+  const me = match.players[index]
   // A Pig still owing a destination deck holds the turn open — ending it here
   // would strand the card outside every zone in the game.
   if (me.pendingDeckPlacement) return { match, logLines, debugLines }
-  if (match.shared.phase === 'market' && me.actionsRemaining <= 0 && !me.pendingPostMarketChoice && activePlayerId(match) === playerId) {
-    say('has no actions left — ending their turn.')
+  if (
+    match.shared.phase === 'market' &&
+    !me.pendingPostMarketChoice &&
+    activePlayerId(match) === playerId &&
+    (me.actionsRemaining <= 0 || !hasAnyLegalMarketAction(viewOf(match, index)))
+  ) {
+    say(me.actionsRemaining <= 0 ? 'has no actions left — ending their turn.' : 'can no longer afford any Market action — ending their turn.')
     return afterTurnBoundary(endMarketTurn(match, playerId), logLines, debugLines)
   }
   return { match, logLines, debugLines }
 }
 
-// Runs Cleanup automatically once the Market phase closes. Cleanup takes no
-// player input, so pausing there would only ask someone to click "continue"
-// for no reason.
+// Runs Cleanup automatically once the Market phase closes, and — before that
+// — skips any seat a turn boundary hands play to that already has no legal
+// Market action at the START of its turn (fame too low for every market slot
+// and every dismissible grid card, before it has acted at all). Loops: with
+// several seats all out of fame, each skip is itself a turn boundary that can
+// hand off to another seat in the same shape.
 function afterTurnBoundary(match: Match, logLines: LogLine[], debugLines: string[]): MatchApplyResult {
+  let current = match
+  while (current.shared.phase === 'market') {
+    const playerId = activePlayerId(current)
+    const index = playerIndex(current, playerId)
+    if (current.players[index].pendingPostMarketChoice || hasAnyLegalMarketAction(viewOf(current, index))) break
+    logLines.push({ playerId, round: current.shared.round, text: 'can no longer afford any Market action — ending their turn.' })
+    current = endMarketTurn(current, playerId)
+  }
+  match = current
+
   if (match.shared.phase !== 'cleanup') return { match, logLines, debugLines }
   const round = match.shared.round
   const next = runMatchCleanup(match)

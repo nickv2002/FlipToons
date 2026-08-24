@@ -5,20 +5,25 @@
 // this SAME module instead of each re-deriving the action vocabulary (see
 // flip-toonz-structure-plan.md §6's client/server split, and §8's original
 // key-files list, which named this file here from the start).
-import type { CardId, EffectChoices } from './cards/types'
-import { getSlot, occupiedSlots, posLabel } from './grid'
+import type { EffectChoices } from './cards/types'
+import { getSlot, posLabel } from './grid'
 import { hireCost } from './market'
 import {
   dismiss,
   dismissCostFor,
   endMarketPhase,
+  hasAnyLegalMarketAction,
   hire,
+  listDismissEntries,
   resolvePostMarketChoice,
   runCheckFame,
   runCleanup,
   runFlip,
   runPostFameHooks,
 } from './phases'
+import type { DismissEntry } from './phases'
+export { hasAnyLegalMarketAction, listDismissEntries }
+export type { DismissEntry }
 import { cardsById } from './setup'
 import { createSoloGameState } from './state'
 import type { GameState } from './state'
@@ -50,49 +55,6 @@ export function buildNewGameState(seed: number, difficulty: SoloDifficulty, seas
     toonDeck: setup.toonDeck,
     prices: setup.prices,
     fameToTriggerEndgame: setup.fameToTriggerEndgame,
-  })
-}
-
-// Reading-order index over every FACE-UP card in the grid, stacks expanded.
-// Both the display and the
-// dismiss action must use the SAME order, or the number shown wouldn't
-// match what gets dismissed.
-export type DismissEntry = { index: number; pos: GridPos; stackIndex: number; cardId: CardId; cost: number }
-
-export function listDismissEntries(state: GameState): DismissEntry[] {
-  const entries: DismissEntry[] = []
-  let i = 0
-  for (const { pos, slot } of occupiedSlots(state.grid)) {
-    slot.cards.forEach((cardId, stackIndex) => {
-      if (!slot.faceUp[stackIndex]) return
-      const cost = dismissCostFor(state.grid, pos, stackIndex, cards)
-      entries.push({ index: i, pos, stackIndex, cardId, cost })
-      i++
-    })
-  }
-  return entries
-}
-
-// Whether the player has ANY legal Market action left — a hireable slot
-// they can afford, or a dismissible (non-immune) grid card they can afford.
-// Drives the web UI's auto-end (useGame.ts): once this goes false there's
-// nothing left to decide, so sitting in the Market phase waiting for a
-// manual "End Market phase" click is pure friction, not a real choice.
-export function hasAnyLegalMarketAction(state: GameState): boolean {
-  // A pending post-Market choice (Alligator's stack-target pick) means
-  // hire()/dismiss() are already refusing to run (phases.ts) until it's
-  // resolved — false here regardless of actionsRemaining/affordability.
-  if (state.pendingPostMarketChoice) return false
-  if (state.phase !== 'market' || state.actionsRemaining <= 0) return false
-
-  const canHire = state.market.slots.some(
-    (cardId, slotIndex) => cardId !== null && state.fame >= hireCost(state.market, slotIndex),
-  )
-  if (canHire) return true
-
-  return listDismissEntries(state).some(({ cardId, cost }) => {
-    if (cards[cardId].immune?.includes('dismiss')) return false
-    return state.fame >= cost
   })
 }
 

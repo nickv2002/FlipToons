@@ -11,7 +11,9 @@ import { buildNewMatch, playerIndex } from './match'
 import { IllegalActionError, applyMatchAction, isPlayersTurn } from './matchActions'
 import type { LogLine, MatchAction } from './matchActions'
 import type { Match } from './state'
+import { viewOf } from './state'
 import { emptyGrid, placeCardFaceUp } from './grid'
+import { listDismissEntries } from './phases'
 
 // Plays a match to completion with a simple deterministic policy: answer any
 // prompt with its first legal option, never hire, just end each turn. Enough
@@ -145,8 +147,8 @@ function autoplayOneStep(m: Match): Match {
 }
 
 describe('turn ownership', () => {
-  function atMarket(seed = 11): Match {
-    let m = buildNewMatch(seed, 2, 1, { fameToTriggerEndgame: 999 })
+  function atMarket(seed = 11, playerCount = 2): Match {
+    let m = buildNewMatch(seed, playerCount, 1, { fameToTriggerEndgame: 999 })
     m = applyMatchAction(m, 'p0', { kind: 'advanceFlip' }).match
     for (const p of m.players) {
       const pending = m.players[playerIndex(m, p.playerId)].pendingPostFameChoice
@@ -187,6 +189,58 @@ describe('turn ownership', () => {
     const m = atMarket()
     const active = m.turnOrder[m.activePlayerIndex]
     expect(m.players[playerIndex(m, active)].actionsRemaining).toBe(2)
+  })
+
+  // Solo's hasAnyLegalMarketAction auto-ends a Market phase once nothing is
+  // affordable — DRY'd into matchActions.ts's afterMarketAction/
+  // afterTurnBoundary. Left-over fame that can't cover any market slot or any
+  // dismissible grid card must close the turn on its own, same as running out
+  // of actions does.
+  test('a turn with fame left but nothing affordable auto-ends, mid-turn', () => {
+    let m = atMarket()
+    const active = m.turnOrder[m.activePlayerIndex]
+    const index = playerIndex(m, active)
+    const entry = listDismissEntries(viewOf(m, index))[0]
+    expect(entry).toBeDefined()
+
+    // Exactly enough fame for one dismissal, and every market slot priced
+    // out of reach — after the dismissal there is nothing left to decide.
+    m = {
+      ...m,
+      players: m.players.map((p, i) => (i === index ? { ...p, fame: entry.cost } : p)),
+      shared: { ...m.shared, market: { ...m.shared.market, prices: m.shared.market.prices.map(() => 999) } },
+    }
+
+    const result = applyMatchAction(m, active, { kind: 'dismiss', pos: entry.pos, index: entry.stackIndex })
+    expect(result.logLines.some((l) => l.text.includes('afford any Market action'))).toBe(true)
+    if (result.match.shared.phase === 'market') {
+      expect(result.match.turnOrder[result.match.activePlayerIndex]).not.toBe(active)
+    }
+  })
+
+  test('a turn boundary skips straight past a seat that starts broke', () => {
+    // 3 seats so the second-in-order seat can be broke without a wrap
+    // (2-player end-of-round wrap already hides this case — see below).
+    let m = atMarket(11, 3)
+    const first = m.turnOrder[m.activePlayerIndex]
+    const broke = m.turnOrder[(m.activePlayerIndex + 1) % m.turnOrder.length]
+    const brokeIndex = playerIndex(m, broke)
+
+    // The seat right after `first` has 0 fame before it has acted at all,
+    // and nothing in the market or its own grid is free — its turn should
+    // never actually open; `first` ending its own turn should hand play
+    // straight past it to the third seat.
+    m = {
+      ...m,
+      players: m.players.map((p, i) => (i === brokeIndex ? { ...p, fame: 0 } : p)),
+      shared: { ...m.shared, market: { ...m.shared.market, prices: m.shared.market.prices.map(() => 999) } },
+    }
+
+    const result = applyMatchAction(m, first, { kind: 'endTurn' })
+    expect(result.logLines.some((l) => l.text.includes('afford any Market action') && l.playerId === broke)).toBe(true)
+    if (result.match.shared.phase === 'market') {
+      expect(result.match.turnOrder[result.match.activePlayerIndex]).not.toBe(broke)
+    }
   })
 
   test('the shared flip advance is NOT turn-gated — any seat may press it', () => {

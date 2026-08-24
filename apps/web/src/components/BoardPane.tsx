@@ -3,6 +3,7 @@ import type { Card as CardData, CardId } from '../../../../packages/engine/cards
 import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
 import type { DismissEntry } from '../../../../packages/engine/actions'
 import { Grid } from './Grid'
+import type { ZoomRequest } from './CardZoomSheet'
 
 // One definition of "a board on this table", so your grid and everyone else's
 // are drawn by the same code rather than by two layouts that drifted apart.
@@ -41,9 +42,15 @@ export type BoardPaneProps = {
   isActive?: boolean
   // Per-slot "fame generated this round" lookup — see Grid/Slot/Card.
   roundFame?: (pos: GridPos, stackIndex: number) => number | undefined
+  // Touch UI mode (settings.ts): a single tap on an actionable card opens a
+  // zoom sheet instead of firing hire/dismiss directly. `onZoom` bubbles the
+  // tapped card (plus its available action, if any) up to the caller, which
+  // owns rendering the CardZoomSheet itself.
+  touchMode?: boolean
+  onZoom?: (req: ZoomRequest) => void
 }
 
-export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true, isOwn, isActive = true, roundFame }: BoardPaneProps) {
+export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true, isOwn, isActive = true, roundFame, touchMode, onZoom }: BoardPaneProps) {
   const className = `round-view__grid-pane${isOwn ? ' round-view__grid-pane--own' : ''}${isActive ? '' : ' round-view__grid-pane--inactive'}`
   return (
     <div className={className}>
@@ -53,7 +60,18 @@ export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDis
           Deck: <strong>{deckCount}</strong> left
         </span>
       </div>
-      <Grid grid={grid} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} fame={fame} readOnly={readOnly} animateDeal={animateDeal} roundFame={roundFame} />
+      <Grid
+        grid={grid}
+        cards={cards}
+        dismissEntries={dismissEntries}
+        onDismiss={onDismiss}
+        fame={fame}
+        readOnly={readOnly}
+        animateDeal={animateDeal}
+        roundFame={roundFame}
+        touchMode={touchMode}
+        onZoom={onZoom}
+      />
       {footer}
     </div>
   )

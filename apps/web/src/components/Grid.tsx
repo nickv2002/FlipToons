@@ -2,6 +2,7 @@ import type { Card as CardData, CardId } from '../../../../packages/engine/cards
 import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
 import { Slot } from './Slot'
 import type { DismissEntry } from '../../../../packages/engine/actions'
+import type { ZoomRequest } from './CardZoomSheet'
 
 export type GridProps = {
   grid: GridData
@@ -15,12 +16,15 @@ export type GridProps = {
   animateDeal?: boolean
   // See BoardPane's roundFame.
   roundFame?: (pos: GridPos, stackIndex: number) => number | undefined
+  // See BoardPane's touchMode/onZoom.
+  touchMode?: boolean
+  onZoom?: (req: ZoomRequest) => void
 }
 
 // extraRows render ABOVE the base rows (grid.ts: "extraRows[0] sits directly
 // above base row 0, extraRows[1] above extraRows[0]"), so this maps them
 // top-to-bottom in reverse before the two base rows.
-export function Grid({ grid, cards, dismissEntries, onDismiss, fame, readOnly, animateDeal = true, roundFame }: GridProps) {
+export function Grid({ grid, cards, dismissEntries, onDismiss, fame, readOnly, animateDeal = true, roundFame, touchMode, onZoom }: GridProps) {
   const cols = (grid.extraRows[0] ?? grid.base[0] ?? []).length
   return (
     <div className="grid">
@@ -41,6 +45,8 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, fame, readOnly, a
                 readOnly={readOnly}
                 animateDeal={animateDeal}
                 roundFame={roundFame}
+                touchMode={touchMode}
+                onZoom={onZoom}
               />
             ))}
           </div>
@@ -61,6 +67,8 @@ export function Grid({ grid, cards, dismissEntries, onDismiss, fame, readOnly, a
               readOnly={readOnly}
               animateDeal={animateDeal}
               roundFame={roundFame}
+              touchMode={touchMode}
+              onZoom={onZoom}
             />
           ))}
         </div>

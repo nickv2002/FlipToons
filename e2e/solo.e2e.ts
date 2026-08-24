@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { disableTouchMode } from './helpers'
 
 // Solo regression, through the browser.
 //
@@ -13,6 +14,7 @@ import type { Page } from '@playwright/test'
 // regression would be most expensive.
 
 async function startSolo(page: Page, season: 1 | 2): Promise<void> {
+  await disableTouchMode(page)
   await page.goto('/')
   // Solo card -> config panel: season and difficulty are cards on the panel
   // now, not separate buttons on the picker.

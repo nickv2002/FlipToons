@@ -14,6 +14,9 @@ import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
 import { CardListOverlay } from './CardListOverlay'
+import { CardZoomSheet, type ZoomRequest } from './CardZoomSheet'
+import { TouchModeToggle } from './TouchModeToggle'
+import { loadSettings, saveSettings } from '../settings'
 
 const cards = cardsById()
 
@@ -86,6 +89,8 @@ export function RoundView({
   const [pending, setPending] = useState<Pending | null>(null)
   const [listOverlay, setListOverlay] = useState<ListOverlay>(null)
   const [hireWarning, setHireWarning] = useState<HireWarning | null>(null)
+  const [touchMode, setTouchMode] = useState(() => loadSettings().touchMode)
+  const [zoomRequest, setZoomRequest] = useState<ZoomRequest | null>(null)
 
   // The deal-in animation should play once per round's Flip, not every time
   // the grid re-renders — resolving a Butterfly/Panther dismiss-choice prompt
@@ -228,6 +233,13 @@ export function RoundView({
         <button type="button" onClick={() => setListOverlay('deck')}>
           Remaining deck ({state.deck.length})
         </button>
+        <TouchModeToggle
+          touchMode={touchMode}
+          onChange={(next) => {
+            setTouchMode(next)
+            saveSettings({ touchMode: next })
+          }}
+        />
         <button type="button" className="round-view__abandon" onClick={onAbandon}>
           {leaveLabel}
         </button>
@@ -292,6 +304,8 @@ export function RoundView({
             isOwn={isOwn}
             isActive={isActive}
             roundFame={roundFame}
+            touchMode={touchMode}
+            onZoom={setZoomRequest}
           />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
@@ -306,6 +320,8 @@ export function RoundView({
               fame={state.fame}
               animateDeal={isFreshDeal}
               onHire={(slotIndex) => handleHire(slotIndex)}
+              touchMode={touchMode}
+              onZoom={setZoomRequest}
             />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} endLabel={endMarketLabel} />
           </div>
@@ -318,6 +334,7 @@ export function RoundView({
       {listOverlay === 'deck' && (
         <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
       )}
+      {zoomRequest && <CardZoomSheet {...zoomRequest} onClose={() => setZoomRequest(null)} />}
     </div>
   )
 }

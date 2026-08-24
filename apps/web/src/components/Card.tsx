@@ -60,6 +60,12 @@ export type CardProps = {
   // Flip→CheckFame transition, distinct from the static base-fame line
   // (card.fame.base) that's always shown. Undefined renders no badge.
   roundFame?: number
+  // Double-Tap mode (TappableCard): suppresses the rules-text/warning lines
+  // in the grid/market's in-place card — those clutter a small card whose
+  // job there is just "what is this and can I act on it"; the zoom sheet's
+  // own Card render (CardZoomSheet.tsx) never sets this, so full text is
+  // still one tap away.
+  hideText?: boolean
 }
 
 const immunePhrase: Record<string, string> = {
@@ -106,7 +112,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly, roundFame }: CardProps) {
+export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly, roundFame, hideText }: CardProps) {
   const clickable = !!onClick && !disabled && !readOnly
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
@@ -186,8 +192,8 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
           </div>
         )
       )}
-      {bodyText && <div className="card__text">{bodyText}</div>}
-      {warningText && <div className="card__warning">{warningText}</div>}
+      {!hideText && bodyText && <div className="card__text">{bodyText}</div>}
+      {!hideText && warningText && <div className="card__warning">{warningText}</div>}
     </>
   )
 

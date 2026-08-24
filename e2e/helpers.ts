@@ -11,6 +11,23 @@ import type { Browser, Page } from '@playwright/test'
 
 export type Player = { page: Page; name: string }
 
+// settings.ts's storage key. Duplicated here rather than imported: e2e specs
+// don't otherwise reach into apps/web/src, and this is a stable, deliberately
+// versioned key (fliptoons.settings.v1).
+const SETTINGS_STORAGE_KEY = 'fliptoons.settings.v1'
+
+// Touch mode defaults ON (settings.ts) — every existing spec here clicks a
+// card directly to hire/dismiss, which touch mode would intercept into
+// opening the zoom sheet instead (see CardZoomSheet.tsx). Call BEFORE
+// page.goto so the setting is in localStorage before the app boots and reads
+// it; touch-mode.e2e.ts seeds `{ touchMode: true }` instead, deliberately.
+export async function disableTouchMode(page: Page): Promise<void> {
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [SETTINGS_STORAGE_KEY, JSON.stringify({ touchMode: false, lastName: '' })] as [string, string],
+  )
+}
+
 // The endgame threshold the standard suite uses. Deliberately far below the
 // rulebook's 30 so a full game finishes in a couple of rounds; the long-form
 // harness overrides it back up. That knob exists on the create-room message
@@ -26,6 +43,7 @@ export async function openPlayer(browser: Browser, name: string): Promise<Player
   // so hostRoom/joinRoom fill it.
   const context = await browser.newContext()
   const page = await context.newPage()
+  await disableTouchMode(page)
   await page.goto('/')
   return { page, name }
 }

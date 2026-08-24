@@ -455,6 +455,95 @@ button {
   gap: 0.75rem;
 }
 
+/* ---------- Card zoom sheet (touch mode) ---------- */
+
+.card-zoom-sheet__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 100;
+}
+
+.card-zoom-sheet {
+  background: canvas;
+  color: canvastext;
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: min(90vw, 360px);
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card-zoom-sheet__close {
+  align-self: flex-end;
+}
+
+.card-zoom-sheet__action {
+  font-size: 1.1rem;
+  padding: 0.6rem 1.25rem;
+}
+
+/* ---------- Touch mode toggle ---------- */
+
+.touch-mode-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.touch-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+/* A real <button>, not a hover-only `title` — a touch device has no hover to
+   trigger a title tooltip, so this has to be tappable to open/close. */
+.touch-mode-toggle__hint {
+  cursor: pointer;
+  background: none;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+  border: 1px solid color-mix(in srgb, canvastext 40%, transparent);
+  border-radius: 50%;
+  width: 1.3em;
+  height: 1.3em;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.touch-mode-toggle__popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.4rem;
+  z-index: 50;
+  width: max(220px, 60vw);
+  max-width: 320px;
+  background: canvas;
+  color: canvastext;
+  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
 .round-view__primary {
   font-size: 1.1rem;
   padding: 0.6rem 1.5rem;

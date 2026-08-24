@@ -46,14 +46,18 @@ export function useGame() {
   const [state, setState] = useState<GameState | null>(() => loadSavedState())
   const [log, setLog] = useState<LogEntry[]>([])
   const [debugLog, setDebugLog] = useState<LogEntry[]>([])
-  // runCleanup empties `grid` on every branch, win/loss included (the
-  // rulebook's "collect grid back into deck" applies on the ending round
-  // too — see phases.ts's runCleanup comment), so by the time phase is
-  // 'ended' the round's own grid is gone. Captured here, one dispatch
-  // early, so the end screen can still show what was actually on the board.
-  // Not restored across a page reload of an already-ended save — resuming
-  // straight into 'ended' has nothing left to capture.
+  // runCleanup empties `grid` AND folds it into `deck` on every branch,
+  // win/loss included (the rulebook's "collect grid back into deck" applies
+  // on the ending round too — see phases.ts's runCleanup comment), so by the
+  // time phase is 'ended' the round's own grid is gone and `state.deck`
+  // already counts the grid's cards a second time. Both captured together,
+  // one dispatch early, so the end screen shows the grid and the deck count
+  // as they stood at the SAME moment — pairing the frozen grid with the
+  // live (post-cleanup) deck count double-counted every card still on the
+  // board. Not restored across a page reload of an already-ended save —
+  // resuming straight into 'ended' has nothing left to capture.
   const [finalGrid, setFinalGrid] = useState<Grid | null>(null)
+  const [finalDeckCount, setFinalDeckCount] = useState<number | null>(null)
 
   useEffect(() => {
     saveState(state)
@@ -67,7 +71,10 @@ export function useGame() {
     (action: Action) => {
       if (!state) return
       const { state: next, logLines, debugLines } = applyAction(state, action)
-      if (next.phase === 'ended' && state.phase !== 'ended') setFinalGrid(state.grid)
+      if (next.phase === 'ended' && state.phase !== 'ended') {
+        setFinalGrid(state.grid)
+        setFinalDeckCount(state.deck.length)
+      }
       setState(next)
       if (logLines.length > 0) {
         // A single dispatch can now cascade across a round boundary (e.g.
@@ -120,6 +127,7 @@ export function useGame() {
     setLog([{ round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` }, ...logLines.map((text) => ({ round: next.round, text }))])
     setDebugLog(debugLines.map((text) => ({ round: next.round, text })))
     setFinalGrid(null)
+    setFinalDeckCount(null)
     setState(next)
   }, [])
 
@@ -128,7 +136,8 @@ export function useGame() {
     setLog([])
     setDebugLog([])
     setFinalGrid(null)
+    setFinalDeckCount(null)
   }, [])
 
-  return { state, log, debugLog, dispatch, startNewGame, abandonGame, finalGrid }
+  return { state, log, debugLog, dispatch, startNewGame, abandonGame, finalGrid, finalDeckCount }
 }

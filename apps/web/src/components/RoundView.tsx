@@ -54,6 +54,11 @@ export type RoundViewProps = {
   // the time phase is 'ended', so the end screen falls back to it — always
   // absent in multiplayer, which never renders RoundView at phase 'ended'.
   finalGrid?: Grid | null
+  // Paired with finalGrid, captured at the same moment. `state.deck.length`
+  // is already the POST-cleanup count (grid folded back in) by the time
+  // phase is 'ended' — pairing it with the pre-cleanup finalGrid would
+  // count every card still on the board twice.
+  finalDeckCount?: number | null
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -71,6 +76,7 @@ export function RoundView({
   controlsDisabled = false,
   showRoundScore = true,
   finalGrid = null,
+  finalDeckCount = null,
 }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
@@ -170,7 +176,7 @@ export function RoundView({
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
-          <BoardPane title="Final grid" grid={finalGrid ?? state.grid} cards={cards} deckCount={state.deck.length} readOnly />
+          <BoardPane title="Final grid" grid={finalGrid ?? state.grid} cards={cards} deckCount={finalDeckCount ?? state.deck.length} readOnly />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Final market</h2>

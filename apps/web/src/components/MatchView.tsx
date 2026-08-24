@@ -354,6 +354,26 @@ function OpponentBoards({
   )
 }
 
+// Who actually won, per the ENGINE — never recomputed from the fame totals.
+//
+// A tied Final Flip is settled by a re-flip among the tied seats only
+// (match.ts's runMatchFinalFlip), and that re-flip does NOT move any other
+// seat's fameGeneratedThisRound. So the naive argmax over matchRoundFame still
+// shows the original tie long after the engine broke it: across 1200 simulated
+// Final Flips at 2-4 seats, 32 ended with this screen announcing "a shared
+// win" — sometimes naming a seat that LOST the re-flip — while the log line
+// directly below it named the single winner the engine had picked.
+//
+// shared.winnerId is that answer. It is null in exactly one case: the tiebreak
+// exhausted MAX_TIEBREAK_ROUNDS (100 consecutive exact ties) and the engine
+// declared a co-win, which is the one situation where the tie set genuinely IS
+// the answer — so that, and only that, falls back to the totals.
+function finalWinners(match: Match, fames: ReturnType<typeof matchRoundFame>): string[] {
+  if (match.shared.winnerId) return [match.shared.winnerId]
+  const top = Math.max(...fames.map((f) => f.fame.total))
+  return fames.filter((f) => f.fame.total === top).map((f) => f.playerId)
+}
+
 function EndScreen({
   match,
   nameOf,
@@ -365,8 +385,7 @@ function EndScreen({
   myPlayerId: string
   fames: ReturnType<typeof matchRoundFame>
 }) {
-  const top = Math.max(...fames.map((f) => f.fame.total))
-  const winners = fames.filter((f) => f.fame.total === top).map((f) => f.playerId)
+  const winners = finalWinners(match, fames)
   const iWon = winners.includes(myPlayerId)
   return (
     <div className="match__end" data-testid="game-over">

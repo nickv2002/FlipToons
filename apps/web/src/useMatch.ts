@@ -112,7 +112,16 @@ export function useMatch() {
     })
 
     ws.addEventListener('message', (ev) => {
-      const message: ServerMessage = JSON.parse(ev.data as string)
+      // A frame that isn't JSON would otherwise throw straight out of the
+      // listener, where nothing catches it. The server guards its own parse
+      // the same way (apps/server/index.ts's handleMessage).
+      let message: ServerMessage
+      try {
+        message = JSON.parse(ev.data as string)
+      } catch {
+        setError('Received a malformed message from the server.')
+        return
+      }
       switch (message.type) {
         case 'seated': {
           setMyPlayerId(message.playerId)
@@ -167,13 +176,27 @@ export function useMatch() {
         setConnection('closed')
         return
       }
+      const seat = seatRef.current
+      // Only a SEATED connection can come back: reconnecting means rejoining a
+      // room with a token, and a create that never reached the server has
+      // neither. Claiming 'reconnecting' anyway was a dead end with no way out
+      // — the retry below was a no-op without a seat, so hosting against an
+      // unreachable server sat on "Reconnecting…" forever, and because
+      // MultiplayerStart derives `busy` from this state, the Host button that
+      // would let you try again was disabled the whole time. A page reload was
+      // the only escape.
+      if (!seat) {
+        setConnection('failed')
+        // The connect timeout may already have set a more specific message.
+        setError((prev) => prev ?? 'Could not reach the game server.')
+        return
+      }
       // Dropped while we still wanted to be in a game — come back on our own
       // rather than leaving every click a silent no-op.
       setConnection('reconnecting')
-      const seat = seatRef.current
       retryTimerRef.current = setTimeout(() => {
         if (!wantConnectedRef.current) return
-        if (seat) connect({ type: 'join', roomCode: seat.roomCode, name: seat.name, reconnectToken: seat.reconnectToken }, true)
+        connect({ type: 'join', roomCode: seat.roomCode, name: seat.name, reconnectToken: seat.reconnectToken }, true)
       }, RECONNECT_DELAY_MS)
     })
   }, [])
@@ -240,6 +263,10 @@ export function useMatch() {
     }
   }, [])
 
+  // Stable identity: an inline arrow here is a new function every render,
+  // which defeats memoization in anything that takes it as a prop.
+  const clearError = useCallback(() => setError(null), [])
+
   const storedSeat = seatRef.current
-  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, leave, storedSeat, clearError: () => setError(null) }
+  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, leave, storedSeat, clearError }
 }

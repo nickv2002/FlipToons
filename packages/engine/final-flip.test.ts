@@ -266,6 +266,47 @@ describe('the tiebreak re-flip loop (§3.2)', () => {
     }
   })
 
+  // REGRESSION (MatchView.tsx's EndScreen). A re-flip leaves every OTHER
+  // seat's fameGeneratedThisRound exactly where the first flip left it, so
+  // matchRoundFame keeps reporting the tie the engine has already broken. Any
+  // client that recomputes the winner from those totals contradicts both
+  // winnerId and the "X wins!" line the engine logged — which is precisely the
+  // bug this pins. The UI must read shared.winnerId; these seeds are what make
+  // the difference observable.
+  test('a settled tiebreak leaves matchRoundFame still showing a tie — read winnerId, not the totals', () => {
+    // Found by sweeping seeds 1-400 at 2/3/4 players: 32 of 1200 Final Flips
+    // land here. All three of these are 3-player; 2 players cannot produce it,
+    // because the re-flip winner is always the max of the two.
+    const disagreeing = [98, 138, 152]
+    for (const seed of disagreeing) {
+      const outcome = runMatchFinalFlip(atFinalFlip(seed, 3))
+
+      // The engine decided, and said so.
+      expect(outcome.winners).toHaveLength(1)
+      expect(outcome.match.shared.winnerId).toBe(outcome.winners[0])
+
+      // ...but the recorded totals still tie, so the naive argmax a client
+      // might reach for names more than one seat.
+      const fames = matchRoundFame(outcome.match)
+      const top = Math.max(...fames.map((f) => f.fame.total))
+      const argmax = fames.filter((f) => f.fame.total === top).map((f) => f.playerId)
+      expect(argmax.length).toBeGreaterThan(1)
+      expect(argmax).toContain(outcome.match.shared.winnerId!)
+    }
+  })
+
+  test('winnerId is set for every seed that resolves to one winner', () => {
+    // The client's fallback to the tie set is correct ONLY where winnerId is
+    // null, so a null with a single winner would silently route a decided
+    // match through the co-win branch.
+    for (const playerCount of [2, 3, 4]) {
+      for (let seed = 1; seed <= 60; seed++) {
+        const outcome = runMatchFinalFlip(atFinalFlip(seed, playerCount))
+        expect(outcome.match.shared.winnerId).toBe(outcome.winners.length === 1 ? outcome.winners[0] : null)
+      }
+    }
+  })
+
   test("spectators' state is untouched by a tiebreak they are not in", () => {
     // Three players; whoever is NOT tied must keep the exact board and score
     // their own Final Flip produced.

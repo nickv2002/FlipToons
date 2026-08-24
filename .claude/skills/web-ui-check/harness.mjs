@@ -106,11 +106,9 @@ function stopDevServer(proc) {
 async function startSoloGame(page, { seed = Date.now() >>> 0, difficulty = 'normal', season = 1 } = {}) {
   await page.getByTestId('mode-solo').click()
   await page.getByTestId(`season-${season}`).click()
-  await page
-    .getByRole('button', { name: new RegExp(`^${difficulty}$`, 'i') })
-    .click()
+  await page.getByTestId(`difficulty-${difficulty}`).click()
   await page.getByLabel('Seed').fill(String(seed))
-  await page.getByRole('button', { name: /Start Game/i }).click()
+  await page.getByTestId('start-solo').click()
 }
 
 // Advances N rounds the fast way: click "End Market phase" to skip every

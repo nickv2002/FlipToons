@@ -103,7 +103,7 @@ export function RoundView({
   // computed from — reusing it means a dismissed card's badge just
   // disappears along with the card (lastCheckFame doesn't track later
   // dismissals), which is exactly the desired behavior, not a bug to guard.
-  const roundFame = state.lastCheckFame ? roundFameLookup(state.lastCheckFame, state.grid) : undefined
+  const roundFame = state.lastCheckFame ? roundFameLookup(state.lastCheckFame, state.finalGrid ?? state.grid) : undefined
 
   // Dispatches the hire unless doing so would leave the round guaranteed
   // lost (toon deck too depleted for solo's per-round decay to refill) — in
@@ -190,7 +190,7 @@ export function RoundView({
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
-          <BoardPane title="Final grid" grid={state.finalGrid ?? state.grid} cards={cards} deckCount={state.finalDeckCount ?? state.deck.length} readOnly />
+          <BoardPane title="Final grid" grid={state.finalGrid ?? state.grid} cards={cards} deckCount={state.finalDeckCount ?? state.deck.length} roundFame={roundFame} readOnly />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Final market</h2>

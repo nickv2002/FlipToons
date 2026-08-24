@@ -555,7 +555,15 @@ button {
 }
 
 .card--dealt {
-  animation: card-deal-flip 0.3s ease-out both;
+  /* `backwards` (not `both`): the delay still holds the `from` frame, but the
+     animation must NOT hold `to`'s opacity:1 after it finishes — a disabled
+     (opacity:0.5) or face-down (opacity:0.45) card needs to fall back to its
+     own rule's opacity once the deal-in animation is done, not get stuck at
+     1. `useEffect`'s ref write doesn't trigger a re-render, so `card--dealt`
+     (and this fill) stayed on the element — looking undimmed — until
+     whatever the next unrelated re-render happened to be (e.g. a market
+     hire), which is what silently corrected it. */
+  animation: card-deal-flip 0.3s ease-out backwards;
   animation-delay: var(--deal-delay, 0ms);
 }
 
@@ -624,6 +632,28 @@ button {
   gap: 0.15rem;
   background: #3335;
   opacity: 0.45;
+}
+
+.card--facedown .card__icon {
+  filter: grayscale(1);
+}
+
+.card--facedown img.card__icon {
+  filter: grayscale(1) invert(0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .card--facedown img.card__icon {
+    filter: grayscale(1) invert(1);
+  }
+}
+
+.card__facedown-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.75;
 }
 
 .card__top {

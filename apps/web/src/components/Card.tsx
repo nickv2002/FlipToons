@@ -126,6 +126,7 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
     // fame/dismiss badges, which don't apply while face-down.
     return (
       <div data-testid={testId} className={`card card--facedown${dealDelayMs !== undefined ? ' card--dealt' : ''}`} style={dealStyle}>
+        <span className="card__facedown-tag">flipped down</span>
         <div className="card__name-row">
           <CardIcon id={card.id} />
           <div className="card__name">{card.name}</div>

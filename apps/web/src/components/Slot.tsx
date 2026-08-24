@@ -69,7 +69,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
               dismissImmune={onDismiss ? immuneToDismiss : undefined}
               dismissUnaffordable={onDismiss && dismissCost !== undefined ? dismissUnaffordable : undefined}
               onClick={canDismiss ? () => onDismiss(pos, dismissEntry.stackIndex) : undefined}
-              disabled={faceUp && onDismiss !== undefined && (immuneToDismiss || !dismissEntry)}
+              disabled={faceUp && onDismiss !== undefined && !dismissEntry}
               dealDelayMs={animateDeal && slotIndex !== undefined ? slotIndex * DEAL_STAGGER_MS : undefined}
               readOnly={readOnly}
               roundFame={faceUp ? roundFame?.(pos, i) : undefined}

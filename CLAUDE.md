@@ -28,7 +28,7 @@ play are deliberately out of scope but not designed out.
 packages/engine/     Pure TS, zero runtime deps. The rules engine.
   types.ts             Card, Grid, Slot schema
   cards/                season1.ts, season2.ts, index.ts — the 62-card table
-  grid.ts               3x2 board + extra row, stacks, adjacency
+  grid.ts               3x2 board + extra row, stacks, adjacency, posLabel
   score.ts              scoreGrid(grid) -> itemized FameBreakdown (pure, grid-only)
   flip.ts               shuffle/reveal/placement-effects loop
   market.ts             market slots, pricing, refill/decay
@@ -45,6 +45,7 @@ packages/engine/     Pure TS, zero runtime deps. The rules engine.
 apps/server/          Bun WS server. Room-code hosted/resumable games.
   rooms.ts               in-memory room state, applies actions from actions.ts
   protocol.ts             wire types shared with apps/web (no Bun-only types allowed)
+  log.ts                  timestamped console logging; every line names its room
 
 apps/web/             React + Vite client.
   src/useGame.ts          local solo game state + localStorage save/resume
@@ -67,6 +68,7 @@ Referance/*.HEIC        Photos of the physical rulebook/cards (transcription sou
 - `make stop` — kill any repo process this Makefile started (web/server)
 - `make test` — `bun test` from repo root
 - `make typecheck` — all three tsconfigs (root/`packages`, `apps/server`, `apps/web`). The root one covers `packages/**` ONLY; for a long time the target ran just that, so neither app was ever typechecked.
+- `make lint` — oxlint, **default recommended rules only** (`.oxlintrc.json`). The baseline is 0, so a finding here is always new. Stylistic rule sets are deliberately off; type-aware checking is `make typecheck`'s job.
 - `make e2e` — Playwright browser tests; starts both servers itself
 
 Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
@@ -191,13 +193,31 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
   shrinking leaves every seat holding the id its connection was pinned to at
   `attach` time. Do not recompute `hostPlayerId` there — `index.ts` may already
   have handed the role to a connected heir.
+- **The end screen reads `shared.winnerId`, never the fame totals.** A tied
+  Final Flip is broken by a re-flip among the tied seats only, and that
+  re-flip does not move any other seat's `fameGeneratedThisRound` — so
+  `matchRoundFame` keeps reporting the tie the engine already settled. Taking
+  the argmax of it made `MatchView`'s `EndScreen` announce "a shared win", once
+  naming a seat that LOST the re-flip, directly above a log line saying who
+  won: 32 of 1200 simulated Final Flips at 2-4 seats. `winnerId` is null in
+  exactly one case (the tiebreak exhausting `MAX_TIEBREAK_ROUNDS`), which is
+  the only case where the tie set is the real answer. Pinned by
+  `final-flip.test.ts` on seeds 98/138/152, all 3-player — 2 seats structurally
+  cannot produce the disagreement, which is why the e2e suite never saw it.
+- **A socket with no seat cannot "reconnect".** `useMatch`'s close handler
+  reconnects by REJOINING with a stored token, so a `create` that never
+  reached the server has nothing to replay. It used to claim `'reconnecting'`
+  anyway and schedule a retry guarded by `if (seat)` that therefore did
+  nothing — and because `MultiplayerStart` derives `busy` from that state, the
+  Host button you would use to try again was disabled too. Hosting against a
+  down server was an unrecoverable screen. No seat now means `'failed'`.
 - **No cumulative score anywhere.** Fame is one per-round number that is at
   once your score, your spending power, and expiring. The rules keep no
   running tally; don't invent one in the UI.
 
 ## Testing
 
-417 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus the 17
+422 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus the 17
 Playwright browser tests `make e2e` runs (the two long-form specs are skipped
 there; see `make e2e-long` below).
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —

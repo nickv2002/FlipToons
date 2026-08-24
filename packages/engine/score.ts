@@ -118,7 +118,12 @@ export type FameBreakdown = {
 const DOG_ELSEWHERE_FALSE_LABEL = 'if no Dog elsewhere'
 const DOG_ELSEWHERE_TRUE_LABEL = 'if a Dog is present elsewhere'
 
-function posLabel(pos: GridPos): string {
+// Bracket-notation reference to a slot — `base[1][2]`. NOT grid.ts's exported
+// posLabel ("row 1, col 2"), which is the prose form the resolve log uses;
+// this one doubles as a map key (slotKey below) AND as the aligned column in
+// formatBreakdown's text table, so its shape is load-bearing in two places.
+// Named apart from posLabel so the two can never be swapped by an import.
+function posRef(pos: GridPos): string {
   // BUG FIX (this pass): must include `row` for extra positions too, now
   // that extraRows can stack more than one — `extra[${col}]` alone
   // collapsed every row in a column to the same label, which fed slotKey()
@@ -132,7 +137,7 @@ function posLabel(pos: GridPos): string {
 }
 
 function slotKey(pos: GridPos, index: number): string {
-  return `${posLabel(pos)}#${index}`
+  return `${posRef(pos)}#${index}`
 }
 
 // All face-up (cardId, card) entries anywhere in the grid — base + extraRows,
@@ -795,7 +800,7 @@ export function scoreGrid(
     const srcCard = cardsById[src.cardId]
     entry.line.base = val
     entry.line.total = val
-    entry.line.bonuses = [{ reason: `copied from ${srcCard.name} at ${posLabel(src.pos)}`, amount: 0 }]
+    entry.line.bonuses = [{ reason: `copied from ${srcCard.name} at ${posRef(src.pos)}`, amount: 0 }]
     entry.line.copiedFrom = { cardId: src.cardId, name: srcCard.name, pos: src.pos }
   }
 
@@ -819,16 +824,16 @@ export function scoreGrid(
 export function formatBreakdown(breakdown: FameBreakdown): string {
   const rows = breakdown.lines.map((line) => {
     if (line.needsRuling) {
-      return `  ${posLabel(line.pos).padEnd(12)} ${line.name.padEnd(12)} NEEDS RULING (${line.needsRulingReason})`
+      return `  ${posRef(line.pos).padEnd(12)} ${line.name.padEnd(12)} NEEDS RULING (${line.needsRulingReason})`
     }
     if (line.dualBranch) {
       const branchText = line.dualBranch.map((b) => `${b.total} (${b.label})`).join(' | ')
-      return `  ${posLabel(line.pos).padEnd(12)} ${line.name.padEnd(12)} ${branchText}`
+      return `  ${posRef(line.pos).padEnd(12)} ${line.name.padEnd(12)} ${branchText}`
     }
     const bonusText = line.bonuses.length
       ? ' + ' + line.bonuses.map((b) => `${b.amount} (${b.reason})`).join(' + ') + ` = ${line.total}`
       : ''
-    return `  ${posLabel(line.pos).padEnd(12)} ${line.name.padEnd(12)} ${line.base}${bonusText}`
+    return `  ${posRef(line.pos).padEnd(12)} ${line.name.padEnd(12)} ${line.base}${bonusText}`
   })
   const totalText = breakdown.totalBranches
     ? breakdown.totalBranches.map((b) => `${b.total} (${b.label})`).join(' | ')

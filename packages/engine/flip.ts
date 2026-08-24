@@ -29,7 +29,7 @@
 // nothing, which is worse than a crash.
 
 import type { Card, CardId } from './cards/types'
-import { emptyGrid, extraRowSlotAbove, getSlot, isFull, nextEmptyBaseSlot, occupiedSlots, placeCardFaceUp, setSlot } from './grid'
+import { emptyGrid, extraRowSlotAbove, getSlot, isFull, nextEmptyBaseSlot, occupiedSlots, placeCardFaceUp, posLabel, setSlot } from './grid'
 import type { Deck, Grid, GridPos, Slot } from './types'
 
 // Group 3 addition (Snake/Mongoose) — the shared toon deck and dismissed
@@ -600,9 +600,6 @@ function applyOnPlaceEffects(
 // a mechanism for yet; see this pass's report).
 const MAX_FLIP_ITERATIONS = 500
 
-function posLabel(pos: GridPos): string {
-  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
-}
 
 function samePos(a: GridPos, b: GridPos): boolean {
   return a.section === b.section && a.row === b.row && a.col === b.col

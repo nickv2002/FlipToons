@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { GameState } from '../../../../packages/engine/state'
 import { cardsById } from '../../../../packages/engine/setup'
+import { getSlot } from '../../../../packages/engine/grid'
 import type { GridPos } from '../../../../packages/engine/types'
 import type { Action } from '../../../../packages/engine/actions'
 import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../packages/engine/actions'
@@ -53,9 +54,8 @@ export type RoundViewProps = {
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
 // ever rests at 'market' or 'ended' here — flip/checkFame/postFameHooks/
 // cleanup are no-decision pass-throughs that actions.ts's applyAction now
-// cascades through automatically (see advanceThroughPassthroughPhases),
-// same sequence tui.ts's runSoloGame loop drives directly against phases.ts,
-// just with zero intermediate screens shown in this UI.
+// cascades through automatically (see advanceThroughPassthroughPhases), so
+// none of them is ever a screen the player sees.
 export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel, controlsDisabled = false, showRoundScore = true }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
@@ -95,7 +95,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
   }
 
   function handleDismiss(pos: GridPos, index: number) {
-    const slot = pos.section === 'base' ? state.grid.base[pos.row]?.[pos.col] : state.grid.extraRows[pos.row]?.[pos.col]
+    const slot = getSlot(state.grid, pos)
     const cardId = slot?.cards[index]
     const card = cardId ? cards[cardId] : undefined
     const choice = card ? computePendingChoice(state, card.onDismiss, cards) : null

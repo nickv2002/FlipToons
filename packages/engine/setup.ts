@@ -20,9 +20,22 @@ export function buildSeason1StartingDeck(): CardId[] {
   return deck
 }
 
+// The card table, built once. `allCards` is a static import, so the answer can
+// never change within a process — and this used to allocate a fresh 62-entry
+// record on EVERY call, from fourteen separate call sites inside phases.ts
+// alone, several of them per-placement or per-scoring.
+//
+// Callers must treat the result as read-only. Nothing in the repo writes to it
+// (it is only ever read as `cards[id]`), and sharing one instance is what makes
+// the module-scope `const cards = cardsById()` pattern the rest of the engine
+// uses actually free.
+let cardTable: Record<CardId, Card> | null = null
+
 export function cardsById(): Record<CardId, Card> {
+  if (cardTable) return cardTable
   const map: Record<CardId, Card> = {}
   for (const card of allCards) map[card.id] = card
+  cardTable = map
   return map
 }
 

@@ -1,11 +1,10 @@
 import type { FameBreakdown as FameBreakdownData } from '../../../../packages/engine/score'
+// The SAME label the engine's own log lines use, so a row here and a line in
+// the resolve log name the same slot the same way.
+import { posLabel } from '../../../../packages/engine/grid'
 
 export type FameBreakdownProps = {
   breakdown: FameBreakdownData
-}
-
-function posLabel(pos: FameBreakdownData['lines'][number]['pos']): string {
-  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
 }
 
 // UI counterpart of score.ts's formatBreakdown — same information, itemized

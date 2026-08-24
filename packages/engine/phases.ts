@@ -16,18 +16,22 @@
 // data and never branches on Card.season.
 
 import type { Card, CardId, Effect, EffectChoices } from './cards/types'
-import { adjacentFaceUpCardIds, cloneGrid, emptyGrid, findLowestRankFaceUpCard, getSlot, occupiedSlots, setSlot } from './grid'
+import { adjacentFaceUpCardIds, cloneGrid, emptyGrid, findLowestRankFaceUpCard, getSlot, occupiedSlots, posLabel, setSlot } from './grid'
 import { flipDeck } from './flip'
 import { hireCost, refillMarket, soloMarketDecay } from './market'
 import { shuffleWithState } from './rng'
 import { scoreGrid } from './score'
 import { cardsById } from './setup'
-import type { GameState, PendingPostMarketChoice, PostMarketCandidate } from './state'
+
+// One shared card table for the whole module. This was thirteen separate
+// `const cards = cardsById()` lines, one per function — several of them on
+// per-placement and per-scoring paths, each rebuilding all 62 entries. The
+// table is static (setup.ts memoizes it now), so a module-level const is the
+// same value every one of those calls produced.
+const cards = cardsById()
+import type { GameState, PostMarketCandidate } from './state'
 import type { Grid, GridPos } from './types'
 
-function posLabel(pos: GridPos): string {
-  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
-}
 
 function samePos(a: GridPos, b: GridPos): boolean {
   return a.section === b.section && a.row === b.row && a.col === b.col
@@ -48,7 +52,6 @@ function assertPhase(state: GameState, phase: GameState['phase'], fn: string): v
 
 export function runFlip(state: GameState, logLines?: string[], debugLines?: string[]): GameState {
   assertPhase(state, 'flip', 'runFlip')
-  const cards = cardsById()
   const shuffled = shuffleWithState(state.deck, state.rng)
   const flipResult = flipDeck(shuffled.result, cards, { toonDeck: state.toonDeck, dismissed: state.dismissed })
   logLines?.push(...flipResult.flipNotes)
@@ -146,7 +149,6 @@ function henOrRoosterInMarketFromMarket(state: GameState, otherGrids: Grid[] = [
 
 export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameState {
   assertPhase(state, 'checkFame', 'runCheckFame')
-  const cards = cardsById()
   const breakdown = scoreGrid(state.grid, cards, state.deck.length, {
     dogElsewhere: dogElsewhereFromMarket(state, otherGrids),
     dismissed: state.dismissed,
@@ -196,7 +198,6 @@ export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameSta
 // for last means the hook does not fire for anyone.
 export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true): GameState {
   assertPhase(state, 'postFameHooks', 'runPostFameHooks')
-  const cards = cardsById()
 
   let fame = state.fame
   let pendingPostFameChoice = state.pendingPostFameChoice
@@ -275,7 +276,6 @@ export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; 
 
   // The hook has now fired, so re-running the pass would re-prompt off the
   // same Skunk. Open the Market phase directly instead.
-  const cards = cardsById()
   let next: GameState = {
     ...state,
     grid,
@@ -347,7 +347,6 @@ export function hire(state: GameState, slotIndex: number, choices?: EffectChoice
   marketAfterRemoval.slots[slotIndex] = null
   marketAfterRemoval.insertionSeq[slotIndex] = null
 
-  const cards = cardsById()
   const card = cards[cardId]
 
   const hired: GameState = {
@@ -417,7 +416,6 @@ function hasAnyDismissibleFaceUpCard(grid: Grid, cards: Record<CardId, Card>): b
 // protection scheme this pass doesn't otherwise need.
 export function applyEffects(state: GameState, card: Card, effects: Effect[] | undefined, choices?: EffectChoices): GameState {
   let next = state
-  const cards = cardsById()
 
   for (const effect of effects ?? []) {
     switch (effect.kind) {
@@ -667,7 +665,6 @@ export function dismiss(state: GameState, pos: GridPos, index?: number, choices?
   const cardId = slot.cards[idx]
   if (!slot.faceUp[idx]) throw new Error('phases.ts: dismiss — cannot dismiss a face-down card')
 
-  const cards = cardsById()
   const card = cards[cardId]
   if (card.immune?.includes('dismiss')) {
     throw new Error(`phases.ts: dismiss — ${card.name} is immune to dismiss`)
@@ -810,7 +807,6 @@ function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandi
 }
 
 export function runPostMarketHooks(state: GameState, logLines?: string[]): GameState {
-  const cards = cardsById()
 
   const candidates: PostMarketCandidate[] = []
   for (const { pos, slot } of occupiedSlots(state.grid)) {
@@ -843,7 +839,6 @@ export function runPostMarketHooks(state: GameState, logLines?: string[]): GameS
 // stays per-turn and the 1-2 player decay fires once, after the last seat.
 // runCleanup's `phase`/`round` writes have the same shape.
 function finishEndMarketPhase(state: GameState): GameState {
-  const cards = cardsById()
   const standardRefill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   const afterStandardRefill = { ...state, ...applyRefillResult(state, standardRefill) }
 
@@ -863,7 +858,6 @@ function finishEndMarketPhase(state: GameState): GameState {
 // two places a refill happens"). Solo still reaches it via
 // finishEndMarketPhase, unchanged.
 export function runStandardRefill(state: GameState): GameState {
-  const cards = cardsById()
   const refill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   return { ...state, ...applyRefillResult(state, refill) }
 }
@@ -874,7 +868,6 @@ export function runStandardRefill(state: GameState): GameState {
 // length-1 as leftmost/rightmost, which only means what it says once the
 // market is full.
 export function runMarketDecay(state: GameState): GameState {
-  const cards = cardsById()
   const decay = soloMarketDecay(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   return { ...state, ...applyRefillResult(state, decay) }
 }
@@ -915,7 +908,6 @@ export function resumePostMarketHooks(state: GameState, choice: { pos: GridPos; 
     throw new Error(`phases.ts: resolvePostMarketChoice — ${JSON.stringify(choice)} is not one of the ${pending.options.length} legal option(s)`)
   }
 
-  const cards = cardsById()
   const grid = cloneGrid(state.grid)
   const removedId = removeCardRaw(grid, target.pos, target.index)
   const next: GameState = {
@@ -968,7 +960,6 @@ function collectGridCards(grid: Grid): CardId[] {
 // Otherwise: fame resets to 0, round increments, back to Flip.
 export function runCleanup(state: GameState): GameState {
   assertPhase(state, 'cleanup', 'runCleanup')
-  const cards = cardsById()
 
   const collectedDeck = [...state.deck, ...collectGridCards(state.grid)]
   const refill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)

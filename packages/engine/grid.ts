@@ -57,13 +57,19 @@ export function nextEmptyBaseSlot(grid: Grid): { row: number; col: number } | nu
 }
 
 export function getSlot(grid: Grid, pos: GridPos): Slot | null {
-  if (pos.section === 'base') return grid.base[pos.row][pos.col]
+  // Out of range reads as "no slot there" in BOTH sections, never a throw.
+  // The extra-row arm has always been lazy-growth tolerant (below); the base
+  // arm used to index straight in, so an off-grid row threw a TypeError on
+  // `undefined[col]`. That matters because a GridPos can arrive from a client
+  // action (actions.ts / matchActions.ts dismiss), where an out-of-range one
+  // is a player mistake to be reported, not an engine fault to be shouted
+  // about — and the call sites read the slot BEFORE entering their try.
+  if (pos.section === 'base') return grid.base[pos.row]?.[pos.col] ?? null
   // A row that hasn't been created yet (pos.row >= extraRows.length) simply
-  // has no slot there — same as any other null — rather than an error, so
-  // callers can freely probe "is there anything above the top row" without
-  // special-casing lazy growth.
+  // has no slot there — same as any other null — so callers can freely probe
+  // "is there anything above the top row" without special-casing lazy growth.
   if (pos.row >= grid.extraRows.length) return null
-  return grid.extraRows[pos.row][pos.col]
+  return grid.extraRows[pos.row]?.[pos.col] ?? null
 }
 
 // Grows `extraRows` with empty rows, if needed, so index `row` exists.
@@ -234,4 +240,14 @@ export function occupiedSlots(grid: Grid): { pos: GridPos; slot: Slot }[] {
     }
   }
   return result
+}
+
+// A GridPos as a log line reads it. Deliberately 0-indexed and raw: these
+// strings go into the resolve log next to engine output, not onto a card in
+// the UI (EffectChoicePrompt renders its own 1-indexed "Row 1 · Col 2" form
+// for players choosing a target). Lived in four byte-identical copies —
+// flip.ts, phases.ts, actions.ts and the web's FameBreakdown — which is three
+// places for the format to drift out from under the log's own readers.
+export function posLabel(pos: GridPos): string {
+  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
 }

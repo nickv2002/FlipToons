@@ -6,7 +6,7 @@
 // flip-toonz-structure-plan.md §6's client/server split, and §8's original
 // key-files list, which named this file here from the start).
 import type { CardId, EffectChoices } from './cards/types'
-import { occupiedSlots } from './grid'
+import { getSlot, occupiedSlots, posLabel } from './grid'
 import { hireCost } from './market'
 import {
   dismiss,
@@ -109,9 +109,6 @@ function playerFacingMessage(err: unknown): string {
   return message.replace(/^phases\.ts: \w+ — /, '')
 }
 
-function posLabel(pos: GridPos): string {
-  return pos.section === 'base' ? `row ${pos.row}, col ${pos.col}` : `extra row ${pos.row}, col ${pos.col}`
-}
 
 // The UI never dispatches 'checkFame' / 'continueToMarket' / 'advanceCleanup'
 // directly any more (see the module comment on the Action union) — the goal
@@ -325,7 +322,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
   }
 
   if (action.kind === 'dismiss') {
-    const slot = action.pos.section === 'base' ? state.grid.base[action.pos.row]?.[action.pos.col] : state.grid.extraRows[action.pos.row]?.[action.pos.col]
+    const slot = getSlot(state.grid, action.pos)
     const cardId = slot?.cards[action.index]
     try {
       const cost = dismissCostFor(state.grid, action.pos, action.index, cards)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { adjacentFaceUpCardIds, adjacentPositions, emptyGrid, isFull, nextEmptyBaseSlot, placeCardFaceUp } from './grid'
+import { adjacentFaceUpCardIds, adjacentPositions, emptyGrid, getSlot, isFull, nextEmptyBaseSlot, placeCardFaceUp, posLabel } from './grid'
 
 describe('grid', () => {
   test('emptyGrid is not full and has no cards', () => {
@@ -66,5 +66,37 @@ describe('grid', () => {
 
     const adjToStack = adjacentFaceUpCardIds(grid, { section: 'base', row: 0, col: 0 })
     expect(adjToStack).toEqual(['z']) // neither x nor y (own stack) appear
+  })
+})
+
+describe('getSlot bounds', () => {
+  // Both dismiss paths (actions.ts, RoundView.tsx) read the slot BEFORE
+  // entering the try that turns a bad action into a player-facing log line,
+  // and a GridPos can arrive from a client. An off-grid position must read as
+  // "nothing there", never throw — the base arm used to index straight in and
+  // died on `undefined[col]`.
+  test('an off-grid position reads as empty in both sections, without throwing', () => {
+    const grid = emptyGrid()
+    expect(getSlot(grid, { section: 'base', row: 99, col: 0 })).toBeNull()
+    expect(getSlot(grid, { section: 'base', row: 0, col: 99 })).toBeNull()
+    expect(getSlot(grid, { section: 'extra', row: 99, col: 0 })).toBeNull()
+    expect(getSlot(grid, { section: 'extra', row: 0, col: 99 })).toBeNull()
+  })
+
+  test('an in-range empty slot is null and an occupied one comes back', () => {
+    const grid = emptyGrid()
+    expect(getSlot(grid, { section: 'base', row: 0, col: 0 })).toBeNull()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'caterpillar')
+    expect(getSlot(grid, { section: 'base', row: 0, col: 0 })?.cards).toEqual(['caterpillar'])
+  })
+})
+
+describe('posLabel', () => {
+  // One definition now, shared by flip.ts, phases.ts, actions.ts and the web's
+  // FameBreakdown — it used to be four byte-identical copies. Pinned so the
+  // log format cannot drift for only some of its readers.
+  test('names base and extra positions distinguishably, 0-indexed', () => {
+    expect(posLabel({ section: 'base', row: 1, col: 2 })).toBe('row 1, col 2')
+    expect(posLabel({ section: 'extra', row: 0, col: 1 })).toBe('extra row 0, col 1')
   })
 })

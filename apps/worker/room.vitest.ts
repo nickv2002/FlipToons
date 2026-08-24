@@ -33,7 +33,9 @@ async function connect(roomCode: string): Promise<Client> {
   if (!ws) throw new Error(`expected a WebSocket upgrade, got status ${res.status}`)
   ws.accept()
   const inbox: ServerMessage[] = []
-  ws.addEventListener('message', (ev: MessageEvent) => inbox.push(JSON.parse(ev.data as string)))
+  ws.addEventListener('message', (ev: MessageEvent) => {
+    inbox.push(JSON.parse(ev.data as string))
+  })
   return {
     ws,
     inbox,

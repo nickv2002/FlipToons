@@ -22,6 +22,27 @@ people in a room shared one grid and one fame pool. It is now a real seated
 match. Scope is 2-4 players, single season; 5-8 players and combined-season
 play are deliberately out of scope but not designed out.
 
+**The multiplayer server moved from a Bun process to Cloudflare Workers +
+Durable Objects**, one DO instance per room, to get real hosting
+(`fliptoons.towatchlist.com`) without running and babysitting a VPS/container.
+This was a genuine rewrite of the transport and state layers, not a
+deploy-target swap: `Bun.serve`'s callback-based WebSocket API became the
+Hibernation API (`ctx.acceptWebSocket`, `webSocketMessage`/`Close`/`Error`,
+`serializeAttachment`), the single in-process `Map<string, Room>` became one
+DO per room addressed by `env.ROOMS.getByName(roomCode)`, and `setTimeout`
+became `ctx.storage.setAlarm` (a DO gets exactly one alarm slot, so the old
+turn-timeout timer and the old cross-room staleness sweep are now one
+scheduled deadline per room — see the Multiplayer invariants below). Room
+state is now persisted to `ctx.storage` on every mutation, which it wasn't
+before: the Bun server was explicitly in-memory-only, but a Durable Object's
+JS heap **will** be evicted between messages while its hibernating
+WebSockets stay open, so anything not in `ctx.storage` is gone on the next
+wake. `packages/engine` and `apps/web` needed no changes — the wire protocol
+(`apps/worker/protocol.ts`) changed in exactly one place: room creation is
+now `POST /api/rooms` rather than a WebSocket message, because a Durable
+Object has to be addressed by room code before its socket can even upgrade,
+and the old protocol didn't have a room code yet at that point.
+
 ## Layout
 
 ```
@@ -42,10 +63,13 @@ packages/engine/     Pure TS, zero runtime deps. The rules engine.
   matchActions.ts       multiplayer action surface — SEPARATE from actions.ts on purpose (see below)
   roundFame.ts          scoreGrid + player-level modifiers (the Critic's Choice +3)
 
-apps/server/          Bun WS server. Room-code hosted/resumable games.
-  rooms.ts               in-memory room state, applies actions from actions.ts
-  protocol.ts             wire types shared with apps/web (no Bun-only types allowed)
-  log.ts                  timestamped console logging; every line names its room
+apps/worker/           Cloudflare Worker + Durable Object. Room-code hosted/resumable games.
+  room.ts                 RoomDurableObject — one instance per room, hibernatable WebSockets,
+                           state persisted to ctx.storage, alarm() drives turn-timeout + eviction
+  worker.ts                fetch entry: serves apps/web's build, POST /api/rooms, /ws routing
+  protocol.ts               wire types shared with apps/web (no Workers-only types allowed)
+  log.ts                    timestamped console logging; every line names its room
+  room.vitest.ts             DO tests via @cloudflare/vitest-plugin (NOT *.test.ts — see below)
 
 apps/web/             React + Vite client.
   src/useGame.ts          local solo game state + localStorage save/resume
@@ -63,15 +87,15 @@ Referance/*.HEIC        Photos of the physical rulebook/cards (transcription sou
 
 `make help` lists targets. Common ones:
 
-- `make play` — web client + WS server together (room-code hosted games)
+- `make play` — web client + Worker (`wrangler dev`) together (room-code hosted games)
 - `make web` — web client only, local solo, no server
 - `make stop` — kill any repo process this Makefile started (web/server)
-- `make test` — `bun test` from repo root
-- `make typecheck` — all three tsconfigs (root/`packages`, `apps/server`, `apps/web`). The root one covers `packages/**` ONLY; for a long time the target ran just that, so neither app was ever typechecked.
+- `make test` — `bun test` (the engine suite) plus `apps/worker`'s own DO test suite, run separately via `vitest` in that order (see Testing below) — Workers run on `workerd`, not Bun, so `bun test` itself can't collect `apps/worker`'s tests.
+- `make typecheck` — all three tsconfigs (root/`packages`, `apps/worker`, `apps/web`). The root one covers `packages/**` ONLY; for a long time the target ran just that, so neither app was ever typechecked.
 - `make lint` — oxlint, **default recommended rules only** (`.oxlintrc.json`). The baseline is 0, so a finding here is always new. Stylistic rule sets are deliberately off; type-aware checking is `make typecheck`'s job.
 - `make e2e` — Playwright browser tests; starts both servers itself
 
-Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
+Toolchain is **bun** — runtime, package manager, test runner — for `packages/engine` and `apps/web`. No node/npm/tsx. `apps/worker` additionally uses **wrangler** (Cloudflare's CLI: `wrangler dev`, `wrangler deploy`) and **vitest** (via `@cloudflare/vitest-plugin`) for its own DO test suite, since Workers run on `workerd`, not Bun — `cd apps/worker && bunx vitest run`.
 
 ## Engine invariants worth knowing before editing
 
@@ -116,31 +140,35 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
   The bonus gates on `shared.endgameTriggered`, NOT `phase === 'finalFlip'` —
   the flip hands off by setting `phase: 'checkFame'`, so the phase no longer
   reads `finalFlip` by the time anyone is scored.
-- **The acting player comes from `SocketData.seat`.** The `action` message
-  carries no `playerId`; a client-asserted one would let anyone act as anyone.
+- **The acting player comes from the socket's attachment.** `ws.serializeAttachment({ seat })`/`deserializeAttachment()` — hibernation drops any plain JS field on the socket object, so this can't be a bare `SocketData`-style struct the way the old Bun server had it. The `action` message still carries no `playerId`; a client-asserted one would let anyone act as anyone.
 - **Adding a field to `PlayerState`?** Add it to `PLAYER_FIELDS` in `state.ts`
   too. There is a compile-time guard that will name it if you forget —
   `satisfies` alone does not catch omissions, and a missing key is silently
   dropped on every commit.
-- **Two halves of the security boundary.** `attach` pins WHO a connection is
-  (`SocketData.seat`); `roomForConnection` pins WHICH ROOM it may touch. Post-
-  join messages carry a `roomCode`, but it is a client string and must never be
-  what the room is looked up by — seat ids are `p0..p3` in every room and every
-  creator is `p0`, so a lookup by message code let anyone start and act inside
-  anyone else's game.
-- **A seat names its own socket** (`Seat.socket`). Only that socket may report
-  the seat disconnected; a stale one closing after a reconnect is ignored. The
-  turn timeout depends on this — a false `connected: false` would skip a
-  present player's turn.
+- **Two halves of the security boundary, now split across two layers.** WHICH
+  ROOM a connection may touch is pinned by Durable Object routing itself: the
+  Worker resolves `?room=` to exactly one DO instance
+  (`env.ROOMS.getByName(roomCode)`) before the socket ever upgrades, so a
+  connection to one room's DO has no way to reach another room's state at
+  all — there is no per-connection room lookup left to get wrong. WHO a
+  connection is remains `join`'s job: it pins the seat onto the socket via
+  `serializeAttachment`, and every later message reads that, never a
+  client-supplied id.
+- **A reclaimed seat closes its previous socket**, rather than leaving it to
+  report a disconnection later on behalf of a player who has already come
+  back. `ctx.getWebSockets()` plus each socket's own attachment (there is no
+  `Seat.socket` field any more — sockets aren't tracked per-seat, they're
+  found by matching attachments) stands in for the same check.
 - **The turn timeout gates on DISCONNECTION, never idleness.** A player who is
   present and thinking is not on a clock. A skip that moves nothing does not
   re-arm.
 - **The SERVER runs the Flip, not a player.** `advanceFlip` was never turn- or
   host-gated — any seat could press it and one press flipped everyone — which
   made the button a shared control with no owner: first click won, everyone
-  else got "Nothing to reveal right now". `rooms.ts`'s `advanceSharedPhases`
-  drives it instead, from `startRoom` and from the tail of `applyRoomAction`,
-  so the reveal folds into the same broadcast as whatever caused it. There is
+  else got "Nothing to reveal right now". `apps/worker/room.ts`'s
+  `advanceSharedPhases` drives it instead, from `handleStart` and from the
+  tail of `handleAction`, so the reveal folds into the same broadcast as
+  whatever caused it. There is
   no client control for it, and `phase === 'finalFlip'` now exists only inside
   one server tick — the endgame arrives in the same message as the market
   action that triggered it. That is why the trigger round's Market phase
@@ -186,13 +214,13 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
   scoreboard is already drawing that bar, eight pixels above it. Solo has no
   scoreboard, so it keeps the header.
 - **The table size is not declared when hosting.** A room always opens at
-  `MAX_SEATS` and `buildNewMatch` is called with 4; `startRoom` rebuilds the
+  `MAX_SEATS` and `buildNewMatch` is called with 4; `handleStart` rebuilds the
   match at however many seats actually turned up. That rebuild is the ORDINARY
   path, not an edge case. It is safe only because seat ids are a fixed
   `p0..p{n-1}` (`match.ts`) and seats are never removed from `room.seats`, so
   shrinking leaves every seat holding the id its connection was pinned to at
-  `attach` time. Do not recompute `hostPlayerId` there — `index.ts` may already
-  have handed the role to a connected heir.
+  join time. Do not recompute `hostPlayerId` there — `webSocketClose` may
+  already have handed the role to a connected heir.
 - **The end screen reads `shared.winnerId`, never the fame totals.** A tied
   Final Flip is broken by a re-flip among the tied seats only, and that
   re-flip does not move any other seat's `fameGeneratedThisRound` — so
@@ -217,15 +245,27 @@ Toolchain is **bun** — runtime, package manager, test runner. No node/npm/tsx.
 
 ## Testing
 
-422 tests across 19 files (engine + `apps/server/rooms.test.ts`), plus the 17
-Playwright browser tests `make e2e` runs (the two long-form specs are skipped
-there; see `make e2e-long` below).
+382 tests across 18 files (the pure-engine suite) plus 20 tests in
+`apps/worker/room.vitest.ts` — `make test` runs both (the second via `cd
+apps/worker && bunx vitest run`, since it needs the real Workers runtime, not
+Bun; see Running Things above) — plus the 17 Playwright browser tests `make
+e2e` runs (the two long-form specs are skipped there; see `make e2e-long`
+below).
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
 oracle/fixtures design was superseded; tests just assert expected values
-inline). `apps/server/rooms.test.ts` runs a real `Bun.serve` over real WebSockets —
+inline). `room.vitest.ts` runs against a real Durable Object over real
+WebSockets (`SELF.fetch` with an `Upgrade` header, `response.webSocket`) —
 seat assignment, reconnect-by-token, and turn enforcement only exist at that
-layer. `e2e/` drives two browsers through a whole 2-player game; run `make e2e`
+layer, same reasoning the Bun-server predecessor's `rooms.test.ts` had before
+this project moved off Bun for the multiplayer server (see the Cloudflare
+Workers paragraph near the top of this file). It also covers two things that
+layer alone can prove: `runDurableObjectAlarm` (from `cloudflare:test`) force-
+fires the turn-timeout/eviction alarm without waiting out `TURN_TIMEOUT_MS`
+for real, and `evictDurableObject` tears down the resident instance and
+reconnects — proving `ctx.storage` persistence actually survives a
+constructor reload, not just that reconnect works within one still-resident
+instance (which every other reconnect test in the file does). `e2e/` drives two browsers through a whole 2-player game; run `make e2e`
 after any web change. `playToEnd` takes a policy: `'pass'` only presses the
 ends turns (proves the flow), `'buy'` actually spends fame —
 hire, dismiss, and the effect prompts they open. Use `'buy'` for anything

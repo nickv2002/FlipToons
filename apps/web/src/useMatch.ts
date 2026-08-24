@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Match } from '../../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../../packages/engine/matchActions'
-import { DEFAULT_PORT } from '../../server/protocol'
-import type { ClientMessage, LobbyState, ServerMessage } from '../../server/protocol'
+import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, ServerMessage } from '../../worker/protocol'
 
-const SERVER_URL = `ws://${window.location.hostname}:${DEFAULT_PORT}`
+// In production the Worker serves apps/web's build itself, so the page and
+// the API/WS are same-origin. In local dev, apps/web runs on Vite's own dev
+// server (port 5173) while apps/worker runs separately under `wrangler dev`
+// (port 8787, wrangler's default — see scripts/play.sh) — so dev needs an
+// explicit origin instead of `window.location.origin`.
+const WORKER_ORIGIN = import.meta.env.DEV ? `http://${window.location.hostname}:8787` : window.location.origin
+const WS_ORIGIN = WORKER_ORIGIN.replace(/^http/, 'ws')
 
 // Where a seat is remembered across reloads. Losing this means losing the
 // ability to get back into a live game: the old remote hook persisted nothing,
@@ -79,7 +84,7 @@ export function useMatch() {
   const wantConnectedRef = useRef(false)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const connect = useCallback((first: ClientMessage, reconnecting = false) => {
+  const connect = useCallback((roomCode: string, first: ClientMessage, reconnecting = false) => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
     wsRef.current?.close()
     openMessageRef.current = first
@@ -87,7 +92,7 @@ export function useMatch() {
     setConnection(reconnecting ? 'reconnecting' : 'connecting')
     if (!reconnecting) setError(null)
 
-    const ws = new WebSocket(SERVER_URL)
+    const ws = new WebSocket(`${WS_ORIGIN}/ws?room=${roomCode}`)
     wsRef.current = ws
 
     const timeout = setTimeout(() => {
@@ -114,7 +119,7 @@ export function useMatch() {
     ws.addEventListener('message', (ev) => {
       // A frame that isn't JSON would otherwise throw straight out of the
       // listener, where nothing catches it. The server guards its own parse
-      // the same way (apps/server/index.ts's handleMessage).
+      // the same way (apps/worker/room.ts's webSocketMessage).
       let message: ServerMessage
       try {
         message = JSON.parse(ev.data as string)
@@ -196,14 +201,37 @@ export function useMatch() {
       setConnection('reconnecting')
       retryTimerRef.current = setTimeout(() => {
         if (!wantConnectedRef.current) return
-        connect({ type: 'join', roomCode: seat.roomCode, name: seat.name, reconnectToken: seat.reconnectToken }, true)
+        connect(seat.roomCode, { type: 'join', name: seat.name, reconnectToken: seat.reconnectToken }, true)
       }, RECONNECT_DELAY_MS)
     })
   }, [])
 
+  // Room creation is HTTP, not a WebSocket message: the Worker has to know
+  // the room code to route to the right Durable Object BEFORE the socket
+  // upgrades, and there is no code yet until this call mints one (see
+  // apps/worker/protocol.ts).
   const createRoom = useCallback(
-    (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => {
-      connect({ type: 'create', ...opts })
+    async (opts: CreateRoomRequest) => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+      wsRef.current?.close()
+      wantConnectedRef.current = true
+      setConnection('connecting')
+      setError(null)
+      let created: CreateRoomResponse
+      try {
+        const res = await fetch(`${WORKER_ORIGIN}/api/rooms`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(opts),
+        })
+        if (!res.ok) throw new Error(`status ${res.status}`)
+        created = await res.json()
+      } catch {
+        setConnection('failed')
+        setError('Could not reach the game server.')
+        return
+      }
+      connect(created.roomCode, { type: 'join', name: opts.name, reconnectToken: created.reconnectToken })
     },
     [connect],
   )
@@ -215,30 +243,25 @@ export function useMatch() {
       // Reuse a stored token for THIS room, so a reload rejoins the seat you
       // already had instead of consuming a second one.
       const token = stored && stored.roomCode === code ? stored.reconnectToken : undefined
-      connect({ type: 'join', roomCode: code, name, reconnectToken: token })
+      connect(code, { type: 'join', name, reconnectToken: token })
     },
     [connect],
   )
 
   const startGame = useCallback(() => {
-    const code = lobby?.roomCode ?? seatRef.current?.roomCode
-    if (!code || !wsRef.current) return
-    wsRef.current.send(JSON.stringify({ type: 'start', roomCode: code } satisfies ClientMessage))
-  }, [lobby])
+    if (!wsRef.current) return
+    wsRef.current.send(JSON.stringify({ type: 'start' } satisfies ClientMessage))
+  }, [])
 
-  const act = useCallback(
-    (action: MatchAction) => {
-      const code = lobby?.roomCode ?? seatRef.current?.roomCode
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !code) {
-        // The old dispatch returned silently here, which turned every click
-        // into a permanent no-op with zero feedback.
-        setError('Not connected — trying to reconnect.')
-        return
-      }
-      wsRef.current.send(JSON.stringify({ type: 'action', roomCode: code, action } satisfies ClientMessage))
-    },
-    [lobby],
-  )
+  const act = useCallback((action: MatchAction) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      // The old dispatch returned silently here, which turned every click
+      // into a permanent no-op with zero feedback.
+      setError('Not connected — trying to reconnect.')
+      return
+    }
+    wsRef.current.send(JSON.stringify({ type: 'action', action } satisfies ClientMessage))
+  }, [])
 
   const leave = useCallback(() => {
     wantConnectedRef.current = false

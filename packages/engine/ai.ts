@@ -8,7 +8,7 @@
 // (continuing with a cheap random policy) and score by how often the
 // playout reaches a win. Reuses actions.ts's transport-free applyAction
 // reducer for every step, so this is the exact same state machine
-// apps/web and apps/server already drive — no separate simulation model to
+// apps/web and apps/worker already drive — no separate simulation model to
 // keep in sync.
 import { applyAction, listDismissEntries } from './actions'
 import type { Action } from './actions'

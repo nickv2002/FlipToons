@@ -1,4 +1,4 @@
-import type { LobbyState } from '../../../server/protocol'
+import type { LobbyState } from '../../../worker/protocol'
 import type { ConnectionState } from '../useMatch'
 
 export type LobbyProps = {

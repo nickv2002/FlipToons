@@ -14,7 +14,7 @@ export default defineConfig({
   // other's way by filename.
   testMatch: '**/*.e2e.ts',
   // Serial. The two "players" in a test are two browser contexts driving ONE
-  // shared server-side match, and the WS server holds rooms in process memory.
+  // shared server-side match, held by one Durable Object instance per room.
   workers: 1,
   fullyParallel: false,
   timeout: 90_000,
@@ -27,7 +27,8 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: 'bun run apps/server/index.ts',
+      command: 'bunx wrangler dev',
+      cwd: 'apps/worker',
       port: 8787,
       reuseExistingServer: !process.env.CI,
       stdout: 'pipe',

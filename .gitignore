@@ -1,6 +1,7 @@
 node_modules/
 apps/web/dist/
 apps/web/.vite/
+apps/worker/.wrangler/
 
 .env
 .env.local

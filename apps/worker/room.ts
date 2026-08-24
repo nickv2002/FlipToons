@@ -1,0 +1,606 @@
+// One Durable Object instance per room. Replaces apps/server/rooms.ts's
+// module-level `Map<string, Room>` (one process, every room) and the
+// socket-handling half of apps/server/index.ts.
+//
+// What changed and why:
+//  - Persistence. The old registry was explicitly in-memory only ("a process
+//    restart drops every in-progress room") because that was true of a single
+//    long-lived Bun process. It is NOT true of a Durable Object: the
+//    Hibernation API evicts the DO's JS heap between messages while its
+//    WebSockets stay open, so anything not in `ctx.storage` is gone the next
+//    time a message wakes this instance up. Room state is persisted after
+//    every mutation and reloaded in the constructor. This buys crash/restart
+//    resilience the Bun server never had, as a side effect of the platform's
+//    own execution model — not a scope addition.
+//  - Timers. `setTimeout` doesn't survive hibernation either. A DO gets ONE
+//    alarm slot, so the turn-timeout and the room's own staleness eviction —
+//    previously a per-room `setTimeout` plus a separate cross-room sweep in
+//    `evictStaleRooms` — are merged into one scheduled deadline: whichever of
+//    "the stranded seat's clock runs out" or "the room goes idle past its
+//    TTL" comes first.
+//  - Sockets. `ctx.getWebSockets()` replaces the `Set<ServerWebSocket>` —
+//    it's hibernation-aware, so it returns sockets that aren't necessarily
+//    resident on this exact tick.
+//  - Identity. `ws.serializeAttachment`/`deserializeAttachment` replaces
+//    `SocketData` (a plain JS field on the socket) for the same reason: it
+//    has to survive hibernation.
+import { DurableObject } from 'cloudflare:workers'
+import { buildNewMatch } from '../../packages/engine/match'
+import { IllegalActionError, applyMatchAction } from '../../packages/engine/matchActions'
+import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
+import type { Match } from '../../packages/engine/state'
+import { log } from './log'
+import { MAX_SEATS } from './protocol'
+import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
+
+export type Seat = {
+  playerId: string
+  name: string
+  // Opaque bearer token the client persists. Presenting it on a later `join`
+  // reclaims this seat — what makes a reload or a dropped connection
+  // survivable. Also what a `create`d connection presents to attach to the
+  // seat its own POST /api/rooms call just reserved (see protocol.ts).
+  reconnectToken: string
+  connected: boolean
+}
+
+// Everything about one room, as it's persisted to `ctx.storage`. No sockets
+// and no timer handle here — both live outside this shape (getWebSockets(),
+// the single alarm) precisely because neither survives hibernation.
+export type Room = {
+  code: string
+  match: Match
+  seats: Seat[]
+  hostPlayerId: string
+  started: boolean
+  season: 1 | 2
+  seed: number
+  fameToTriggerEndgame: number
+  log: LogLine[]
+  debugLog: string[]
+  lastActivity: number
+  // Set only while the table is waiting on a seat nobody is sitting in — see
+  // armTurnTimeout. Persisted (unlike the old `setTimeout` handle) so the
+  // alarm survives this DO being evicted and re-woken before it fires.
+  turnTimeoutDeadline?: number
+}
+
+// Rooms are evicted once they have been idle this long. "Idle" means nothing
+// has TOUCHED the room — creating it, seating a connection, starting it, or
+// applying an action all bump `lastActivity`. A client that keeps rejoining
+// without ever playing does hold a room open; what the window really bounds
+// is abandonment, and a rejoin is not that.
+export const ROOM_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+// Logs are capped too: a long match generates a lot of lines, and a client
+// only ever renders the recent tail.
+export const MAX_LOG_LINES = 2000
+// How long the table waits on a seat whose player has dropped before playing
+// that seat's turn for them.
+export const TURN_TIMEOUT_MS = 60 * 1000
+
+const STORAGE_KEY = 'room'
+
+// Per-connection identity, persisted via serializeAttachment so it survives
+// hibernation. `seat` is assigned on `join` and is the ONLY thing an action is
+// ever attributed to — the 'action' message deliberately carries no playerId,
+// or a client could act as any player.
+type SocketAttachment = { seat: string }
+
+function generateToken(): string {
+  return crypto.randomUUID()
+}
+
+function lobbyOf(room: Room): LobbyState {
+  const seats: SeatInfo[] = room.seats.map((s) => ({
+    playerId: s.playerId,
+    name: s.name,
+    connected: s.connected,
+    isHost: s.playerId === room.hostPlayerId,
+  }))
+  return {
+    roomCode: room.code,
+    seats,
+    started: room.started,
+    season: room.season,
+    fameToTriggerEndgame: room.fameToTriggerEndgame,
+    capacity: MAX_SEATS,
+  }
+}
+
+// The Flip is not a decision: nobody chooses anything, every seat reveals at
+// once, and the action was never turn- or host-gated — so it runs here,
+// server-side, the instant the phase is reached, rather than racing N clients
+// for a button with no owner.
+//
+// Consequence worth knowing: `phase === 'finalFlip'` only ever exists inside
+// one call to this function, so the endgame arrives in the SAME broadcast as
+// the market action that triggered it.
+function advanceSharedPhases(match: Match, logLines: LogLine[], debugLines: string[]): Match {
+  let next = match
+  for (let i = 0; i < 4; i++) {
+    const phase = next.shared.phase
+    if (phase !== 'flip' && phase !== 'finalFlip') return next
+    const result = applyMatchAction(next, next.turnOrder[0], { kind: 'advanceFlip' })
+    next = result.match
+    logLines.push(...result.logLines)
+    debugLines.push(...result.debugLines)
+  }
+  return next
+}
+
+export interface Env {
+  ROOMS: DurableObjectNamespace<RoomDurableObject>
+  ASSETS: Fetcher
+}
+
+export class RoomDurableObject extends DurableObject<Env> {
+  private room: Room | null = null
+  private loaded: Promise<void>
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    this.loaded = ctx.blockConcurrencyWhile(async () => {
+      this.room = (await ctx.storage.get<Room>(STORAGE_KEY)) ?? null
+    })
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.room) return
+    await this.ctx.storage.put(STORAGE_KEY, this.room)
+  }
+
+  private async scheduleAlarm(): Promise<void> {
+    if (!this.room) return
+    const staleAt = this.room.lastActivity + ROOM_TTL_MS
+    const next = this.room.turnTimeoutDeadline ? Math.min(this.room.turnTimeoutDeadline, staleAt) : staleAt
+    await this.ctx.storage.setAlarm(next)
+  }
+
+  private touch(): void {
+    if (!this.room) return
+    this.room.lastActivity = Date.now()
+  }
+
+  // ---------------------------------------------------------------------
+  // RPC surface — called by the Worker's fetch handler, not over the wire.
+  // ---------------------------------------------------------------------
+
+  // Mints the room and seats its creator as host. The Worker calls this from
+  // POST /api/rooms, after it has already picked which DO instance owns this
+  // room code — createRoom does not generate the code itself.
+  async createRoom(roomCode: string, params: CreateRoomRequest): Promise<CreateRoomResponse> {
+    await this.loaded
+    const seed = params.seed ?? Math.floor(Math.random() * 2 ** 31)
+    // Built at full capacity so joiners have seat ids to take; it isn't
+    // dealt until `start`, which rebuilds it at the size that showed up. A
+    // solo game never goes through a room at all — the browser runs it
+    // locally (apps/web/src/useGame.ts).
+    const match = buildNewMatch(seed, MAX_SEATS, params.season, { fameToTriggerEndgame: params.fameToTriggerEndgame })
+    const seat: Seat = { playerId: match.turnOrder[0], name: params.name, reconnectToken: generateToken(), connected: false }
+    const room: Room = {
+      code: roomCode,
+      match,
+      seats: [seat],
+      hostPlayerId: seat.playerId,
+      started: false,
+      season: params.season,
+      seed,
+      fameToTriggerEndgame: match.shared.fameToTriggerEndgame,
+      log: [],
+      debugLog: [],
+      lastActivity: Date.now(),
+    }
+    this.room = room
+    await this.persist()
+    await this.scheduleAlarm()
+    log('info', roomCode, `created by "${params.name}" — season ${params.season}, seed ${seed}, threshold ${room.fameToTriggerEndgame}`)
+    return { roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room) }
+  }
+
+  // Called by the Worker for a `/ws?room=...` upgrade request. The room code
+  // in the URL only ever picked the DO instance; nothing else about it
+  // matters once we're here.
+  async fetch(request: Request): Promise<Response> {
+    await this.loaded
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      return new Response('Expected a WebSocket upgrade.', { status: 400 })
+    }
+    const pair = new WebSocketPair()
+    const [client, server] = [pair[0], pair[1]]
+    this.ctx.acceptWebSocket(server)
+    // A room that doesn't exist (bad code, or evicted by the alarm) still
+    // accepts the upgrade — refusing it outright surfaces to a browser
+    // WebSocket as an opaque "connection failed", with no message the client
+    // can read. Accepting, then sending a real `error` frame before closing,
+    // matches what a client already knows how to render.
+    if (!this.room) {
+      // This DO instance has no state of its own to name the room by — the
+      // Worker's `?room=` query param, still on the forwarded request, is the
+      // only place the code the client actually typed survives to here.
+      const roomCode = new URL(request.url).searchParams.get('room') ?? ''
+      this.send(server, { type: 'error', code: 'noSuchRoom', message: `No room with code "${roomCode}".` })
+      server.close(1000, 'No such room.')
+    }
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  // ---------------------------------------------------------------------
+  // Hibernatable WebSocket lifecycle
+  // ---------------------------------------------------------------------
+
+  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    await this.loaded
+    const room = this.room
+    if (!room) {
+      this.send(ws, { type: 'error', code: 'noSuchRoom', message: 'No such room.' })
+      return
+    }
+
+    let message: ClientMessage
+    try {
+      message = JSON.parse(typeof raw === 'string' ? raw : new TextDecoder().decode(raw))
+    } catch {
+      this.send(ws, { type: 'error', message: 'Malformed message.' })
+      return
+    }
+
+    if (message.type === 'join') {
+      await this.handleJoin(ws, room, message.name || 'Player', message.reconnectToken)
+      return
+    }
+
+    // Every other message requires an attached seat already.
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null
+    if (!attachment) {
+      this.send(ws, { type: 'error', message: 'You are not seated in this room.' })
+      return
+    }
+
+    if (message.type === 'start') {
+      await this.handleStart(ws, room, attachment.seat)
+      return
+    }
+
+    if (message.type === 'action') {
+      await this.handleAction(ws, room, attachment.seat, message.action)
+      return
+    }
+
+    this.send(ws, { type: 'error', message: 'Unknown message type.' })
+  }
+
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    await this.loaded
+    const room = this.room
+    if (!room) return
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null
+    if (!attachment) return
+    // A seat has exactly one live connection (see handleJoin). If a newer
+    // socket has already reclaimed this seat, this close is the stale
+    // connection catching up — the player it belonged to is already back.
+    const stillCurrent = this.ctx.getWebSockets().some((other) => {
+      if (other === ws) return false
+      const otherAttachment = other.deserializeAttachment() as SocketAttachment | null
+      return otherAttachment?.seat === attachment.seat
+    })
+    if (stillCurrent) return
+
+    const seat = room.seats.find((s) => s.playerId === attachment.seat)
+    if (!seat) return
+    seat.connected = false
+    // Only the host can start a game, and nothing used to reassign that. A
+    // host who dropped before starting and could not get their token back
+    // left everyone else sitting in a lobby no one was allowed to start. It
+    // stays put once the game is underway — the role does nothing then, and
+    // moving it would only confuse the seat list.
+    if (!room.started && room.hostPlayerId === seat.playerId) {
+      const heir = room.seats.find((s) => s.connected)
+      if (heir) room.hostPlayerId = heir.playerId
+    }
+    this.touch()
+    await this.persist()
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+    await this.armTurnTimeout(room)
+  }
+
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    log('warn', this.room?.code ?? null, 'websocket error', error)
+  }
+
+  async alarm(): Promise<void> {
+    await this.loaded
+    const room = this.room
+    if (!room) return
+    const now = Date.now()
+
+    if (now - room.lastActivity >= ROOM_TTL_MS) {
+      log('info', room.code, `evicted — idle for ${Math.round((now - room.lastActivity) / 60000)} minute(s)`)
+      for (const ws of this.ctx.getWebSockets()) {
+        try {
+          ws.close(1000, 'Room evicted.')
+        } catch {
+          // Already closed.
+        }
+      }
+      await this.ctx.storage.deleteAll()
+      this.room = null
+      return
+    }
+
+    if (room.turnTimeoutDeadline && now >= room.turnTimeoutDeadline) {
+      room.turnTimeoutDeadline = undefined
+      await this.playForAbsentSeat(room, TURN_TIMEOUT_MS)
+      return
+    }
+
+    // Not actually due — a stale alarm firing early for some reason.
+    await this.scheduleAlarm()
+  }
+
+  // ---------------------------------------------------------------------
+  // Message handlers
+  // ---------------------------------------------------------------------
+
+  private async handleJoin(ws: WebSocket, room: Room, name: string, reconnectToken?: string): Promise<void> {
+    let seat: Seat | undefined
+    let reclaimed = false
+
+    if (reconnectToken) {
+      seat = room.seats.find((s) => s.reconnectToken === reconnectToken)
+      if (seat) {
+        reclaimed = true
+        if (name) seat.name = name
+      }
+    }
+
+    if (!seat) {
+      if (room.started) {
+        this.send(ws, { type: 'error', code: 'alreadyStarted', message: 'That game has already started.' })
+        return
+      }
+      if (room.seats.length >= MAX_SEATS) {
+        this.send(ws, { type: 'error', code: 'roomFull', message: 'That room is full.' })
+        return
+      }
+      seat = { playerId: room.match.turnOrder[room.seats.length], name, reconnectToken: generateToken(), connected: true }
+      room.seats.push(seat)
+      log('info', room.code, `${seat.playerId} ("${name}") joined — ${room.seats.length}/${MAX_SEATS} seated`)
+    } else {
+      seat.connected = true
+      log('info', room.code, `${seat.playerId} ("${seat.name}") ${reclaimed ? 'reclaimed their seat' : 'joined'}`)
+    }
+
+    // A seat has exactly one live connection. Reclaiming it hands the seat to
+    // this socket; any previous one is dropped now rather than left to report
+    // a disconnection later on behalf of a player who has already come back.
+    const attachment: SocketAttachment = { seat: seat.playerId }
+    for (const other of this.ctx.getWebSockets()) {
+      if (other === ws) continue
+      const otherAttachment = other.deserializeAttachment() as SocketAttachment | null
+      if (otherAttachment?.seat === seat.playerId) other.close(1000, 'Seat reclaimed by another connection.')
+    }
+    ws.serializeAttachment(attachment)
+
+    this.touch()
+    await this.persist()
+
+    this.send(ws, { type: 'seated', roomCode: room.code, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room) })
+    // A player rejoining a match in progress needs the board, not just the
+    // lobby.
+    if (room.started) this.send(ws, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    // Everyone else sees the seat list change — that's how a table notices
+    // someone dropped or came back.
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+    // They may be the seat everyone was waiting on; if so, stand the clock
+    // down.
+    await this.armTurnTimeout(room)
+  }
+
+  private async handleStart(ws: WebSocket, room: Room, seatId: string): Promise<void> {
+    if (seatId !== room.hostPlayerId) {
+      this.send(ws, { type: 'error', code: 'notHost', message: 'Only the host can start the game.' })
+      return
+    }
+    if (room.seats.length < 2) {
+      this.send(ws, { type: 'error', message: 'Need at least 2 players to start.' })
+      return
+    }
+    if (room.started) return
+
+    let dealt: Match
+    try {
+      dealt =
+        room.seats.length !== room.match.turnOrder.length
+          ? buildNewMatch(room.seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame })
+          : room.match
+      // Nothing is committed to `room` until the advance has finished — same
+      // discipline as handleAction — so an engine bug thrown mid-cascade
+      // leaves memory and storage agreeing the room never started, rather
+      // than memory saying started while storage (and a re-woken instance)
+      // still says not.
+      dealt = advanceSharedPhases(dealt, room.log, room.debugLog)
+    } catch (err) {
+      log('error', room.code, 'could not start the game', err)
+      this.send(ws, { type: 'serverError', message: 'Server error starting the game.' })
+      return
+    }
+    room.match = dealt
+    room.started = true
+    this.touch()
+    log('info', room.code, `started with ${room.seats.length} seat(s): ${room.seats.map((s) => `${s.playerId}="${s.name}"`).join(', ')}`)
+
+    await this.persist()
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    await this.armTurnTimeout(room)
+  }
+
+  private async handleAction(ws: WebSocket, room: Room, seatId: string, action: MatchAction): Promise<void> {
+    if (!room.started) {
+      this.send(ws, { type: 'error', message: 'The game has not started yet.' })
+      return
+    }
+    try {
+      const { match, logLines, debugLines } = applyMatchAction(room.match, seatId, action)
+      const advanced = advanceSharedPhases(match, logLines, debugLines)
+      room.match = advanced
+      room.log.push(...logLines)
+      room.debugLog.push(...debugLines)
+      if (room.log.length > MAX_LOG_LINES) room.log.splice(0, room.log.length - MAX_LOG_LINES)
+      if (room.debugLog.length > MAX_LOG_LINES) room.debugLog.splice(0, room.debugLog.length - MAX_LOG_LINES)
+      this.touch()
+      await this.persist()
+      this.broadcast(room, { type: 'state', match: room.match, logLines, debugLines })
+      await this.armTurnTimeout(room)
+    } catch (err) {
+      if (err instanceof IllegalActionError) {
+        this.send(ws, { type: 'error', code: 'illegalAction', message: err.message })
+        return
+      }
+      log('error', room.code, `engine bug applying action ${action.kind} from ${seatId}`, err)
+      this.send(ws, { type: 'serverError', message: 'Server error applying that action.' })
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Waiting on someone who isn't there
+  // ---------------------------------------------------------------------
+
+  private strandingSeat(room: Room): Seat | undefined {
+    if (!room.started) return undefined
+
+    // A post-fame choice (a mandatory Skunk dismissal, say) blocks the Market
+    // phase from opening for anyone until EVERY seat that owes one has
+    // answered, so the question is "is any owing seat empty", not "who is
+    // the one owing seat".
+    const owing = room.match.players.filter((p) => p.pendingPostFameChoice)
+    if (owing.length > 0) {
+      for (const p of owing) {
+        const seat = room.seats.find((s) => s.playerId === p.playerId)
+        if (seat && !seat.connected) return seat
+      }
+      return undefined
+    }
+
+    if (room.match.shared.phase !== 'market') return undefined
+    const seat = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
+    return seat && !seat.connected ? seat : undefined
+  }
+
+  // Re-evaluates whether the table is stranded and (re)schedules the alarm
+  // accordingly. Cheap and idempotent — call after anything that might have
+  // changed the answer: an action, a disconnection, a reconnection.
+  //
+  // The gate is DISCONNECTION, never idleness — a player who is present and
+  // thinking is not on a clock.
+  private async armTurnTimeout(room: Room, timeoutMs: number = TURN_TIMEOUT_MS): Promise<void> {
+    const seat = this.strandingSeat(room)
+    room.turnTimeoutDeadline = seat ? Date.now() + timeoutMs : undefined
+    await this.persist()
+    await this.scheduleAlarm()
+  }
+
+  // Plays the least the rules allow on behalf of a seat nobody is holding:
+  // answer whatever it owes with the first legal option, then end its turn.
+  // Buying nothing is always legal, so this can only cost that player the
+  // chance to spend — never a rule.
+  private async playForAbsentSeat(room: Room, timeoutMs: number): Promise<void> {
+    const seat = this.strandingSeat(room)
+    if (!seat) {
+      await this.scheduleAlarm()
+      return
+    }
+
+    const logLines: LogLine[] = []
+    const debugLines: string[] = []
+    let stalled = false
+    for (let step = 0; step < 8; step++) {
+      const player = room.match.players.find((p) => p.playerId === seat.playerId)
+      if (!player) break
+
+      let action: MatchAction
+      if (player.pendingPostFameChoice) {
+        const option = player.pendingPostFameChoice.options[0]
+        action = { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index }
+      } else if (player.pendingDeckPlacement) {
+        action = { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } }
+      } else if (player.pendingPostMarketChoice) {
+        const option = player.pendingPostMarketChoice.options[0]
+        action = { kind: 'resolvePostMarketChoice', pos: option.pos, index: option.index }
+      } else if (room.match.shared.phase === 'market' && room.match.turnOrder[room.match.activePlayerIndex] === seat.playerId) {
+        action = { kind: 'endTurn' }
+      } else {
+        break // no longer stranded on this seat
+      }
+
+      try {
+        const { match, logLines: applied, debugLines: appliedDebug } = applyMatchAction(room.match, seat.playerId, action)
+        const advanced = advanceSharedPhases(match, applied, appliedDebug)
+        room.match = advanced
+        room.log.push(...applied)
+        room.debugLog.push(...appliedDebug)
+        logLines.push(...applied)
+        debugLines.push(...appliedDebug)
+      } catch (err) {
+        if (err instanceof IllegalActionError) {
+          log('warn', room.code, `could not skip ${seat.playerId}'s turn — ${err.message}`)
+        } else {
+          log('error', room.code, `engine bug skipping absent seat ${seat.playerId} (${action.kind})`, err)
+        }
+        stalled = true
+        break
+      }
+    }
+
+    if (room.log.length > MAX_LOG_LINES) room.log.splice(0, room.log.length - MAX_LOG_LINES)
+    if (room.debugLog.length > MAX_LOG_LINES) room.debugLog.splice(0, room.debugLog.length - MAX_LOG_LINES)
+
+    if (logLines.length > 0 || debugLines.length > 0) {
+      const notice: LogLine = { playerId: seat.playerId, round: room.match.shared.round, text: 'was skipped — no one is connected to that seat.' }
+      room.log.push(notice)
+      log('info', room.code, `played ${seat.playerId}'s turn — seat empty for ${Math.round(timeoutMs / 1000)}s`)
+      this.touch()
+      await this.persist()
+      this.broadcast(room, { type: 'state', match: room.match, logLines: [notice, ...logLines], debugLines })
+    } else {
+      await this.persist()
+    }
+
+    // A skip that could not move anything must NOT re-arm on this deadline:
+    // nothing changed, so the next firing would find the same state and fail
+    // the same way, once a minute, forever. The room stays stranded either
+    // way — but stranded and quiet, with one line in the log saying why,
+    // beats a spin. The clock starts again on its own the next time anything
+    // happens in the room.
+    if (stalled) {
+      await this.scheduleAlarm()
+      return
+    }
+
+    // The seat this passed to may be empty too.
+    await this.armTurnTimeout(room, timeoutMs)
+  }
+
+  // ---------------------------------------------------------------------
+  // Sending
+  // ---------------------------------------------------------------------
+
+  private send(ws: WebSocket, message: ServerMessage): void {
+    ws.send(JSON.stringify(message))
+  }
+
+  private broadcast(room: Room, message: ServerMessage): void {
+    const json = JSON.stringify(message)
+    // One socket mid-close (a departing or just-reclaimed connection) must
+    // not stop the rest of the table from hearing about it — `send` throwing
+    // used to abort the whole `for` loop, silently dropping the broadcast for
+    // every socket that iterated after the dead one.
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(json)
+      } catch {
+        // Already closed; webSocketClose will clean up its seat.
+      }
+    }
+  }
+}

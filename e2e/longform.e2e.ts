@@ -139,7 +139,7 @@ test.describe('long-form game (debugging harness)', () => {
         expect(crashes).toEqual([])
 
         // An illegal-action banner is normal noise here — a click can land the
-        // instant the turn changes hands. A "Server error" one is apps/server's
+        // instant the turn changes hands. A "Server error" one is apps/worker's
         // response to a genuine engine throw, and on a first long run that is
         // more likely a real find than a harness bug. Read it before "fixing"
         // the test.

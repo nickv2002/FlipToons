@@ -87,7 +87,7 @@ describe('playAutomatically', () => {
     expect(result.logLines.length).toBeGreaterThan(0)
     expect(result.actionsTaken.length).toBeGreaterThan(0)
     // Every action actually taken came from the same vocabulary actions.ts
-    // (and thus apps/web / apps/server) already speak.
+    // (and thus apps/web / apps/worker) already speak.
     const kinds = new Set(result.actionsTaken.map((a) => a.kind))
     for (const k of kinds) {
       expect(['flip', 'checkFame', 'continueToMarket', 'hire', 'dismiss', 'endMarket', 'advanceCleanup']).toContain(k)

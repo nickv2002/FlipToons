@@ -1,7 +1,7 @@
 // The pure action layer between a transport (React state, a WebSocket
 // connection, a test) and the engine — the reducer shape
 // (state, action) -> { state, logLines } is transport-free and UI-free on
-// purpose, so apps/web's useGame.ts and apps/server's room loop both import
+// purpose, so apps/web's useGame.ts and apps/worker's room loop both import
 // this SAME module instead of each re-deriving the action vocabulary (see
 // flip-toonz-structure-plan.md §6's client/server split, and §8's original
 // key-files list, which named this file here from the start).

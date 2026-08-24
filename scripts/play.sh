@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# GUI, hosted: starts apps/server (ws://localhost:8787) and apps/web
-# (http://localhost:5173) together, so "Host a table" on the launch screen
-# has a server to talk to and a room-code game can be resumed from another
-# tab/device. Ctrl-C stops both.
+# GUI, hosted: starts apps/worker (ws://localhost:8787, via `wrangler dev`)
+# and apps/web (http://localhost:5173) together, so "Host a table" on the
+# launch screen has a server to talk to and a room-code game can be resumed
+# from another tab/device. Ctrl-C stops both.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_PORT=8787
@@ -13,7 +13,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-(cd "$ROOT/apps/server" && bun run index.ts) &
+(cd "$ROOT/apps/worker" && bunx wrangler dev) &
 SERVER_PID=$!
 
 echo "Waiting for the server on port $SERVER_PORT..."

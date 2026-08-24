@@ -141,7 +141,7 @@ export function App() {
         launchScreen
       ) : (
         <div className="app__game">
-          <RoundView state={local.state} dispatch={local.dispatch} onAbandon={local.abandonGame} />
+          <RoundView state={local.state} dispatch={local.dispatch} onAbandon={local.abandonGame} finalGrid={local.finalGrid} />
           <ResolveLog log={local.log} debugLog={local.debugLog} />
         </div>
       )}

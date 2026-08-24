@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GameState } from '../../../packages/engine/state'
+import type { Grid } from '../../../packages/engine/types'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
 import type { Action } from '../../../packages/engine/actions'
 import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
@@ -45,6 +46,14 @@ export function useGame() {
   const [state, setState] = useState<GameState | null>(() => loadSavedState())
   const [log, setLog] = useState<LogEntry[]>([])
   const [debugLog, setDebugLog] = useState<LogEntry[]>([])
+  // runCleanup empties `grid` on every branch, win/loss included (the
+  // rulebook's "collect grid back into deck" applies on the ending round
+  // too — see phases.ts's runCleanup comment), so by the time phase is
+  // 'ended' the round's own grid is gone. Captured here, one dispatch
+  // early, so the end screen can still show what was actually on the board.
+  // Not restored across a page reload of an already-ended save — resuming
+  // straight into 'ended' has nothing left to capture.
+  const [finalGrid, setFinalGrid] = useState<Grid | null>(null)
 
   useEffect(() => {
     saveState(state)
@@ -58,6 +67,7 @@ export function useGame() {
     (action: Action) => {
       if (!state) return
       const { state: next, logLines, debugLines } = applyAction(state, action)
+      if (next.phase === 'ended' && state.phase !== 'ended') setFinalGrid(state.grid)
       setState(next)
       if (logLines.length > 0) {
         // A single dispatch can now cascade across a round boundary (e.g.
@@ -109,6 +119,7 @@ export function useGame() {
     const { state: next, logLines, debugLines } = applyAction(initial, { kind: 'flip' })
     setLog([{ round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` }, ...logLines.map((text) => ({ round: next.round, text }))])
     setDebugLog(debugLines.map((text) => ({ round: next.round, text })))
+    setFinalGrid(null)
     setState(next)
   }, [])
 
@@ -116,7 +127,8 @@ export function useGame() {
     setState(null)
     setLog([])
     setDebugLog([])
+    setFinalGrid(null)
   }, [])
 
-  return { state, log, debugLog, dispatch, startNewGame, abandonGame }
+  return { state, log, debugLog, dispatch, startNewGame, abandonGame, finalGrid }
 }

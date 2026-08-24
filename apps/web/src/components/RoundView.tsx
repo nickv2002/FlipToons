@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { GameState } from '../../../../packages/engine/state'
 import { cardsById } from '../../../../packages/engine/setup'
 import { getSlot } from '../../../../packages/engine/grid'
-import type { GridPos } from '../../../../packages/engine/types'
+import type { Grid, GridPos } from '../../../../packages/engine/types'
 import type { Action } from '../../../../packages/engine/actions'
 import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../packages/engine/actions'
 import type { EffectChoices } from '../../../../packages/engine/cards/types'
@@ -49,6 +49,11 @@ export type RoundViewProps = {
   // number and bar would be the second one on the screen. Solo has no
   // scoreboard, so it keeps it.
   showRoundScore?: boolean
+  // Solo only (see useGame.ts): the round's grid as it stood right before
+  // runCleanup emptied it into the deck. `state.grid` is already empty by
+  // the time phase is 'ended', so the end screen falls back to it — always
+  // absent in multiplayer, which never renders RoundView at phase 'ended'.
+  finalGrid?: Grid | null
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -56,7 +61,17 @@ export type RoundViewProps = {
 // cleanup are no-decision pass-throughs that actions.ts's applyAction now
 // cascades through automatically (see advanceThroughPassthroughPhases), so
 // none of them is ever a screen the player sees.
-export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, leaveLabel = 'Abandon game', endMarketLabel, controlsDisabled = false, showRoundScore = true }: RoundViewProps) {
+export function RoundView({
+  state,
+  dispatch,
+  onAbandon,
+  soloWarnings = true,
+  leaveLabel = 'Abandon game',
+  endMarketLabel,
+  controlsDisabled = false,
+  showRoundScore = true,
+  finalGrid = null,
+}: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
   // hireChoices.ts). Rather than dispatching immediately, the click handlers
@@ -155,7 +170,7 @@ export function RoundView({ state, dispatch, onAbandon, soloWarnings = true, lea
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
-          <BoardPane title="Final grid" grid={state.grid} cards={cards} deckCount={state.deck.length} readOnly />
+          <BoardPane title="Final grid" grid={finalGrid ?? state.grid} cards={cards} deckCount={state.deck.length} readOnly />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">
               <h2>Final market</h2>

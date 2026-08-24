@@ -23,7 +23,13 @@ echo "Building apps/web..."
 echo "Deploying apps/worker..."
 (cd "$ROOT/apps/worker" && bunx wrangler deploy)
 
-local_hash="$(grep -o 'assets/index-[A-Za-z0-9]*\.js' "$ROOT/apps/web/dist/index.html")"
+# Vite/Rollup's content hash uses the base64url alphabet (letters, digits,
+# `_`, `-`), not just alphanumerics — a hash like index-G4Q_oCpy.js needs the
+# underscore in the class or the match truncates before `.js` and silently
+# fails to match at all (this bit a deploy: the old [A-Za-z0-9]-only class
+# matched "index-G4Q" and stopped, so `grep -o` returned nothing and `set -e`
+# killed the script right here with no "Verifying..." line ever printed).
+local_hash="$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' "$ROOT/apps/web/dist/index.html")"
 echo "Verifying $SITE_URL serves $local_hash..."
 # A first-ever deploy of a NEW custom domain also has to wait on the DNS
 # record itself, not just the deployed content — Cloudflare's custom_domain
@@ -37,7 +43,7 @@ for i in $(seq 1 "$attempts"); do
   if [[ -z "$response" ]]; then
     echo "  attempt $i/$attempts: not resolving/reachable yet, retrying..."
   else
-    live_hash="$(grep -o 'assets/index-[A-Za-z0-9]*\.js' <<<"$response" || true)"
+    live_hash="$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' <<<"$response" || true)"
     if [[ "$live_hash" == "$local_hash" ]]; then
       echo "verified: live site matches ($live_hash)"
       exit 0

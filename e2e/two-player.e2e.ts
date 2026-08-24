@@ -290,6 +290,55 @@ test.describe('a two-player game, played from both sides', () => {
     await guest.page.context().close()
   })
 
+  test('the host can start a rematch with the same seats from the end screen', async ({ browser }) => {
+    const host = await openPlayer(browser, 'Ana')
+    const roomCode = await hostRoom(host, { seed: '11' })
+    const guest = await openPlayer(browser, 'Bo')
+    await joinRoom(guest, roomCode)
+    await host.page.getByTestId('start-game').click()
+
+    for (const p of [host, guest]) await expect(p.page.getByTestId('match')).toBeVisible()
+    await playToEnd([host, guest], { policy: 'pass' })
+    for (const p of [host, guest]) await expect(p.page.getByTestId('game-over')).toBeVisible({ timeout: 20_000 })
+
+    // Only the host is offered the control; the guest just waits on it.
+    await expect(host.page.getByTestId('rematch')).toBeVisible()
+    await expect(guest.page.getByTestId('rematch')).toHaveCount(0)
+    await expect(guest.page.getByTestId('waiting-for-rematch')).toBeVisible()
+
+    await host.page.getByTestId('rematch').click()
+
+    // Both land back in a live match — no re-joining, no room code re-entry —
+    // and the round counter is back at 1, proving a fresh match was dealt
+    // rather than the ended one being redisplayed.
+    for (const p of [host, guest]) {
+      await expect(p.page.getByTestId('game-over')).toHaveCount(0, { timeout: 20_000 })
+      await expect(p.page.getByTestId('match')).toBeVisible()
+      await expect(p.page.getByTestId('round')).toHaveText('Round 1')
+    }
+
+    await host.page.context().close()
+    await guest.page.context().close()
+  })
+
+  test('"Return to main screen" from the end screen leaves the room', async ({ browser }) => {
+    const host = await openPlayer(browser, 'Ana')
+    const roomCode = await hostRoom(host, { seed: '11' })
+    const guest = await openPlayer(browser, 'Bo')
+    await joinRoom(guest, roomCode)
+    await host.page.getByTestId('start-game').click()
+
+    for (const p of [host, guest]) await expect(p.page.getByTestId('match')).toBeVisible()
+    await playToEnd([host, guest], { policy: 'pass' })
+    for (const p of [host, guest]) await expect(p.page.getByTestId('game-over')).toBeVisible({ timeout: 20_000 })
+
+    await host.page.getByTestId('return-to-menu').click()
+    await expect(host.page.getByTestId('mode-host')).toBeVisible()
+
+    await host.page.context().close()
+    await guest.page.context().close()
+  })
+
   // The endgame used to arrive with no warning: Cleanup latches the trigger
   // and hands straight to the Final Flip, which the server now resolves in the
   // same tick. A threshold of 1 makes round 1 the trigger round, so the notice

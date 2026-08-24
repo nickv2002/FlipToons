@@ -253,6 +253,11 @@ export function useMatch() {
     wsRef.current.send(JSON.stringify({ type: 'start' } satisfies ClientMessage))
   }, [])
 
+  const rematch = useCallback(() => {
+    if (!wsRef.current) return
+    wsRef.current.send(JSON.stringify({ type: 'rematch' } satisfies ClientMessage))
+  }, [])
+
   const act = useCallback((action: MatchAction) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       // The old dispatch returned silently here, which turned every click
@@ -291,5 +296,5 @@ export function useMatch() {
   const clearError = useCallback(() => setError(null), [])
 
   const storedSeat = seatRef.current
-  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, leave, storedSeat, clearError }
+  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, rematch, leave, storedSeat, clearError }
 }

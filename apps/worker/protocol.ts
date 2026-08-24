@@ -64,6 +64,9 @@ export type ClientMessage =
   // connection's assigned seat — a client-asserted id would let anyone act as
   // anyone.
   | { type: 'action'; action: MatchAction }
+  // Host-only, and only once the match has actually ended: deals a fresh
+  // match to the same seats without returning to the lobby.
+  | { type: 'rematch' }
 
 export type ServerMessage =
   // Sent once to the attaching/joining connection. `reconnectToken` is
@@ -86,5 +89,5 @@ export type ServerMessage =
   // Something the player did wrong (acting out of turn, joining a full room).
   // Distinct from 'serverError' so the client can show one quietly and shout
   // about the other.
-  | { type: 'error'; message: string; code?: 'noSuchRoom' | 'roomFull' | 'alreadyStarted' | 'notHost' | 'illegalAction' }
+  | { type: 'error'; message: string; code?: 'noSuchRoom' | 'roomFull' | 'alreadyStarted' | 'notHost' | 'illegalAction' | 'notEnded' }
   | { type: 'serverError'; message: string }

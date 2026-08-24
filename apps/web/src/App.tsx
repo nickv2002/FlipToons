@@ -110,6 +110,7 @@ export function App() {
               myPlayerId={match.myPlayerId}
               onAct={match.act}
               onLeave={leaveMatch}
+              onRematch={match.rematch}
             />
             <ResolveLog
               log={match.log.map((l) => ({

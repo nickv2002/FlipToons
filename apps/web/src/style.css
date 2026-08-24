@@ -1305,9 +1305,40 @@ img.card__icon {
   background: color-mix(in srgb, canvastext 5%, transparent);
 }
 
+.match__end h2 {
+  margin-top: 0;
+}
+
 .match__final-scores {
   margin: 0;
   padding-left: 1.25rem;
+}
+
+.match__end-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.match__rematch {
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.7rem 1.25rem;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-accent);
+  color: white;
+}
+
+.match__return {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
+  background: transparent;
+  color: canvastext;
 }
 
 .match__mine-title,
@@ -1385,7 +1416,7 @@ img.card__icon {
 .scoreboard__badge {
   margin-left: 0.5rem;
   font-size: 0.8rem;
-  color: var(--color-warning);
+  color: var(--color-positive);
 }
 
 .scoreboard__modifier {

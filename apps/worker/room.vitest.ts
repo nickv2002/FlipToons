@@ -296,6 +296,58 @@ describe('room lifecycle', () => {
   })
 })
 
+describe('rematch', () => {
+  test('the host can deal a fresh match to the same seats once the game has ended', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+    const firstMatch = await startGame(pair)
+
+    const stub = ROOMS.getByName(pair.roomCode)
+    await runInDO(stub, (instance: any) => {
+      instance.room.match.shared.phase = 'ended'
+      instance.room.log = [{ round: 1, text: 'stale line from the old game' }]
+    })
+
+    pair.host.send({ type: 'rematch' })
+    const lobby = await pair.host.next('lobby')
+    const state = await pair.host.next('state')
+    await pair.guest.next('lobby')
+    await pair.guest.next('state')
+
+    // Same two seats, but a newly dealt match — not the doctored 'ended' one.
+    expect(lobby.lobby.seats.map((s) => s.playerId).sort()).toEqual([pair.hostSeat.playerId, pair.guestSeat.playerId].sort())
+    expect(state.match.shared.phase).not.toBe('ended')
+    expect(state.match.players.map((p) => p.playerId).sort()).toEqual(firstMatch.players.map((p) => p.playerId).sort())
+    // The log resets rather than carrying the previous game's lines forward.
+    expect(state.log?.some((l) => l.text === 'stale line from the old game')).toBe(false)
+  })
+
+  test('only the host may call for a rematch', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+    await startGame(pair)
+
+    const stub = ROOMS.getByName(pair.roomCode)
+    await runInDO(stub, (instance: any) => {
+      instance.room.match.shared.phase = 'ended'
+    })
+
+    pair.guest.send({ type: 'rematch' })
+    const err = await pair.guest.next('error')
+    expect(err.code).toBe('notHost')
+  })
+
+  test('a rematch is refused before the game has ended', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+    await startGame(pair)
+
+    pair.host.send({ type: 'rematch' })
+    const err = await pair.host.next('error')
+    expect(err.code).toBe('notEnded')
+  })
+})
+
 describe('the Durable Object namespace', () => {
   test('two different room codes are two different rooms', async () => {
     const a = await createRoom({ name: 'A', season: 1, seed: 1 })

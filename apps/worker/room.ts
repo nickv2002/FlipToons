@@ -266,6 +266,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'rematch') {
+      await this.handleRematch(ws, room, attachment.seat)
+      return
+    }
+
     this.send(ws, { type: 'error', message: 'Unknown message type.' })
   }
 
@@ -428,6 +433,48 @@ export class RoomDurableObject extends DurableObject<Env> {
     room.started = true
     this.touch()
     log('info', room.code, `started with ${room.seats.length} seat(s): ${room.seats.map((s) => `${s.playerId}="${s.name}"`).join(', ')}`)
+
+    await this.persist()
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    await this.armTurnTimeout(room)
+  }
+
+  // "Play with group again": deals a fresh match to the same seats without
+  // dropping back to the lobby — no re-joining, no re-sharing the room code.
+  // Host-only for the same reason `start` is, and gated on the match actually
+  // having ended so a stray rematch mid-game can't blow away a live board.
+  private async handleRematch(ws: WebSocket, room: Room, seatId: string): Promise<void> {
+    if (seatId !== room.hostPlayerId) {
+      this.send(ws, { type: 'error', code: 'notHost', message: 'Only the host can start a rematch.' })
+      return
+    }
+    if (!room.started || room.match.shared.phase !== 'ended') {
+      this.send(ws, { type: 'error', code: 'notEnded', message: 'The game has not ended yet.' })
+      return
+    }
+
+    let dealt: Match
+    const seed = Math.floor(Math.random() * 2 ** 31)
+    const freshLog: LogLine[] = []
+    const freshDebugLog: string[] = []
+    try {
+      dealt = advanceSharedPhases(
+        buildNewMatch(seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame }),
+        freshLog,
+        freshDebugLog,
+      )
+    } catch (err) {
+      log('error', room.code, 'could not start the rematch', err)
+      this.send(ws, { type: 'serverError', message: 'Server error starting the rematch.' })
+      return
+    }
+    room.seed = seed
+    room.match = dealt
+    room.log = freshLog
+    room.debugLog = freshDebugLog
+    this.touch()
+    log('info', room.code, `rematch dealt with ${room.seats.length} seat(s), new seed ${seed}`)
 
     await this.persist()
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })

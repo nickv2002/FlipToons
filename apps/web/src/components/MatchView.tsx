@@ -20,6 +20,7 @@ export type MatchViewProps = {
   myPlayerId: string
   onAct: (action: MatchAction) => void
   onLeave: () => void
+  onRematch: () => void
 }
 
 // Translates the solo RoundView's Action vocabulary into MatchActions.
@@ -51,9 +52,10 @@ function toMatchAction(action: Action): MatchAction | null {
   }
 }
 
-export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchViewProps) {
+export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch }: MatchViewProps) {
   const myIndex = match.players.findIndex((p) => p.playerId === myPlayerId)
   const me = match.players[myIndex]
+  const isHost = lobby.seats.find((s) => s.playerId === myPlayerId)?.isHost ?? false
   const nameOf = (playerId: string) => lobby.seats.find((s) => s.playerId === playerId)?.name ?? playerId
   const activeId = match.turnOrder[match.activePlayerIndex]
   const isMyTurn = match.shared.phase === 'market' && activeId === myPlayerId
@@ -140,7 +142,9 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave }: MatchVie
         </div>
       )}
 
-      {phase === 'ended' && <EndScreen match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} />}
+      {phase === 'ended' && (
+        <EndScreen match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} isHost={isHost} onRematch={onRematch} onLeave={onLeave} />
+      )}
 
       {/* Your own board. Rendered through the same RoundView solo uses — a
           PlayerView is structurally the old GameState, so it needs no
@@ -276,24 +280,36 @@ function Scoreboard({
                 )}
               </td>
               <td data-testid={`fame-${p.playerId}`}>
-                <div
-                  className="scoreboard__progress"
-                  title={`${p.fameGeneratedThisRound} of ${threshold} fame needed to trigger the endgame`}
-                >
-                  <div
-                    className="scoreboard__progress-bar"
-                    style={{ width: `${Math.min(100, (p.fameGeneratedThisRound / threshold) * 100)}%` }}
-                  />
-                </div>
-                <span className="scoreboard__progress-text">
-                  {p.fameGeneratedThisRound} / {threshold}
-                </span>
-                {/* The bar's number is this round's scored fame; Critic's
-                    Choice adds on top of it at the Final Flip only, so it
-                    stays a separate chip rather than moving the bar. */}
-                {rf.fame.modifiers.map((m) => (
-                  <span key={m.source} className="scoreboard__modifier"> +{m.amount}</span>
-                ))}
+                {/* Once the endgame has triggered, 30 was only ever the
+                    trigger for the last round — comparing against it again
+                    here says nothing. The Critic's Choice bonus applies from
+                    that same point on, so the two share this branch: show the
+                    settled total (with its bonus spelled out) instead of a
+                    progress bar nobody needs to fill any more. */}
+                {match.shared.endgameTriggered ? (
+                  rf.fame.modifiers.length > 0 ? (
+                    <span className="scoreboard__progress-text">
+                      {rf.fame.grid.total} <span className="scoreboard__modifier">+{rf.fame.modifiers[0].amount}</span> = {rf.fame.total}
+                    </span>
+                  ) : (
+                    <span className="scoreboard__progress-text">{rf.fame.total}</span>
+                  )
+                ) : (
+                  <>
+                    <div
+                      className="scoreboard__progress"
+                      title={`${p.fameGeneratedThisRound} of ${threshold} fame needed to trigger the endgame`}
+                    >
+                      <div
+                        className="scoreboard__progress-bar"
+                        style={{ width: `${Math.min(100, (p.fameGeneratedThisRound / threshold) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="scoreboard__progress-text">
+                      {p.fameGeneratedThisRound} / {threshold}
+                    </span>
+                  </>
+                )}
               </td>
               <td>{p.deck.length}</td>
               <td>{boardCount(p.grid)}</td>
@@ -379,11 +395,17 @@ function EndScreen({
   nameOf,
   myPlayerId,
   fames,
+  isHost,
+  onRematch,
+  onLeave,
 }: {
   match: Match
   nameOf: (id: string) => string
   myPlayerId: string
   fames: ReturnType<typeof matchRoundFame>
+  isHost: boolean
+  onRematch: () => void
+  onLeave: () => void
 }) {
   const winners = finalWinners(match, fames)
   const iWon = winners.includes(myPlayerId)
@@ -402,6 +424,18 @@ function EndScreen({
           </li>
         ))}
       </ul>
+      <div className="match__end-actions">
+        {isHost ? (
+          <button type="button" className="match__rematch" data-testid="rematch" onClick={onRematch}>
+            Play with group again
+          </button>
+        ) : (
+          <p className="match__waiting" data-testid="waiting-for-rematch">Waiting for the host to start a rematch…</p>
+        )}
+        <button type="button" className="match__return" data-testid="return-to-menu" onClick={onLeave}>
+          Return to main screen
+        </button>
+      </div>
     </div>
   )
 }

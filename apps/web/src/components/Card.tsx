@@ -144,7 +144,11 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
 
   const structuredText = [...fameBonusText(card), ...(card.immune ?? []).map((i) => immunePhrase[i] ?? i)]
   const bannerText = card.rawBannerText ? sentenceCase(card.rawBannerText) : undefined
-  const bodyText = [bannerText, card.rawBodyText, ...structuredText].filter(Boolean).join(' — ')
+  // structuredText before rawBodyText: Donkey's rawBodyText is "If so,
+  // dismiss this card after the Market phase", referring back to its fame
+  // bonus condition ("+5 fame if in lower row") — the condition has to read
+  // first or "if so" dangles with nothing to refer to.
+  const bodyText = [bannerText, ...structuredText, card.rawBodyText].filter(Boolean).join(' — ')
   const warningText = card.unencodable
     ? `⚠ effect not simulated by the engine${card.unencodableReason ? ` (${card.unencodableReason})` : ''} — resolve it manually per the text above.`
     : null

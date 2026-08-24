@@ -22,6 +22,7 @@ import {
   startRoom,
 } from './rooms'
 import type { Room, SocketData } from './rooms'
+import { log } from './log'
 import { DEFAULT_PORT } from './protocol'
 import type { ClientMessage, ServerMessage } from './protocol'
 
@@ -106,9 +107,9 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
         fameToTriggerEndgame: Number.isFinite(Number(message.fameToTriggerEndgame)) ? Number(message.fameToTriggerEndgame) : undefined,
       })
       attach(ws, room, roomCode, seat.playerId)
-      send(ws, { type: 'seated', roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room, roomCode) })
+      send(ws, { type: 'seated', roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room) })
     } catch (err) {
-      console.error('apps/server: could not create a room', err)
+      log('error', null, 'could not create a room', err)
       send(ws, { type: 'error', message: 'Could not create that room.' })
     }
     return
@@ -132,14 +133,14 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       roomCode,
       playerId: outcome.seat.playerId,
       reconnectToken: outcome.seat.reconnectToken,
-      lobby: lobbyOf(room, roomCode),
+      lobby: lobbyOf(room),
     })
     // A player rejoining a match in progress needs the board, not just the
     // lobby.
     if (room.started) sendFullState(ws, room)
     // Everyone else sees the seat list change — that's how a table notices
     // someone dropped or came back.
-    broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
+    broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
     // They may be the seat everyone was waiting on; if so, stand the clock
     // down.
     armTurnTimeout(room)
@@ -152,7 +153,7 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       send(ws, found.reply)
       return
     }
-    const { room, roomCode } = found
+    const { room } = found
     if (ws.data.seat !== room.hostPlayerId) {
       send(ws, { type: 'error', code: 'notHost', message: 'Only the host can start the game.' })
       return
@@ -164,11 +165,11 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
     try {
       startRoom(room)
     } catch (err) {
-      console.error('apps/server: could not start the game', err)
+      log('error', found.room.code, 'could not start the game', err)
       send(ws, { type: 'serverError', message: 'Server error starting the game.' })
       return
     }
-    broadcast(room, { type: 'lobby', lobby: lobbyOf(room, roomCode) })
+    broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
     broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
     armTurnTimeout(room)
     return
@@ -205,7 +206,7 @@ function handleMessage(ws: Bun.ServerWebSocket<SocketData>, raw: string): void {
       armTurnTimeout(room)
     } catch (err) {
       // A genuine phase-machine bug — loud server-side, room state untouched.
-      console.error('apps/server: engine bug applying action', message.action, err)
+      log('error', room.code, `engine bug applying action ${message.action?.kind} from ${seat}`, err)
       send(ws, { type: 'serverError', message: 'Server error applying that action.' })
     }
     return
@@ -250,7 +251,7 @@ export function startServer(port: number = DEFAULT_PORT) {
           const heir = room.seats.find((s) => s.connected)
           if (heir) room.hostPlayerId = heir.playerId
         }
-        broadcast(room, { type: 'lobby', lobby: lobbyOf(room, ws.data.roomCode!) })
+        broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
         // If they were the seat the table was waiting on, start the clock.
         armTurnTimeout(room)
       },
@@ -260,5 +261,5 @@ export function startServer(port: number = DEFAULT_PORT) {
 
 if (import.meta.main) {
   const server = startServer()
-  console.log(`FlipToons server listening on ws://localhost:${server.port}`)
+  log('info', null, `listening on ws://localhost:${server.port}`)
 }

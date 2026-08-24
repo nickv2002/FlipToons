@@ -12,6 +12,7 @@ import { buildNewMatch } from '../../packages/engine/match'
 import { IllegalActionError, applyMatchAction } from '../../packages/engine/matchActions'
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Match } from '../../packages/engine/state'
+import { log } from './log'
 import { MAX_SEATS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from './protocol'
 import type { LobbyState, SeatInfo, ServerMessage } from './protocol'
 
@@ -36,6 +37,11 @@ export type Seat = {
 }
 
 export type Room = {
+  // The room's own code. The registry is keyed by it, but a Room handed to
+  // applyRoomAction or armTurnTimeout used to have no idea what it was called
+  // — which is why none of the server's error logging could say which room it
+  // came from.
+  code: string
   match: Match
   seats: Seat[]
   hostPlayerId: string
@@ -109,6 +115,7 @@ export function createRoom(params: {
 
   const seat: Seat = { playerId: match.turnOrder[0], name: params.name, reconnectToken: generateToken(), connected: true }
   const room: Room = {
+    code: roomCode,
     match,
     seats: [seat],
     hostPlayerId: seat.playerId,
@@ -122,6 +129,7 @@ export function createRoom(params: {
     lastActivity: Date.now(),
   }
   rooms.set(roomCode, room)
+  log('info', roomCode, `created by "${params.name}" — season ${params.season}, seed ${seed}, threshold ${room.fameToTriggerEndgame}`)
   return { roomCode, room, seat }
 }
 
@@ -161,6 +169,7 @@ export function evictStaleRooms(now: number = Date.now()): number {
     // the room gone either way; this makes that independent of timing.
     rooms.delete(code)
     evicted++
+    log('info', code, `evicted — idle for ${Math.round((now - room.lastActivity) / 60000)} minute(s)`)
     // Any connection still pointed at this room is now talking to nothing.
     // Closing it puts the client on its normal reconnect path, where the
     // rejoin answers `noSuchRoom` and the UI lets go of the seat — far better
@@ -183,6 +192,7 @@ export function joinRoom(room: Room, name: string, reconnectToken?: string): Joi
     if (existing) {
       existing.connected = true
       if (name) existing.name = name
+      log('info', room.code, `${existing.playerId} ("${existing.name}") reclaimed their seat`)
       return { ok: true, seat: existing, reclaimed: true }
     }
   }
@@ -204,10 +214,16 @@ export function joinRoom(room: Room, name: string, reconnectToken?: string): Joi
     connected: true,
   }
   room.seats.push(seat)
+  log('info', room.code, `${seat.playerId} ("${name}") joined — ${room.seats.length}/${MAX_SEATS} seated`)
   return { ok: true, seat, reclaimed: false }
 }
 
-export function lobbyOf(room: Room, roomCode: string): LobbyState {
+// The room's own `code` is the one used here — a caller-supplied second copy
+// was a chance for the lobby a client renders to disagree with the room it is
+// actually seated in, and one call site had to reach for a non-null assertion
+// on `ws.data.roomCode` to produce it.
+export function lobbyOf(room: Room): LobbyState {
+  const roomCode = room.code
   const seats: SeatInfo[] = room.seats.map((s) => ({
     playerId: s.playerId,
     name: s.name,
@@ -250,6 +266,7 @@ export function startRoom(room: Room): void {
   // time for the `state` broadcast index.ts sends straight after starting.
   room.match = advanceSharedPhases(room.match, room.log, room.debugLog)
   room.lastActivity = Date.now()
+  log('info', room.code, `started with ${room.seats.length} seat(s): ${room.seats.map((s) => `${s.playerId}="${s.name}"`).join(', ')}`)
 }
 
 // The Flip is not a decision. Nobody chooses anything, every seat reveals at
@@ -349,11 +366,22 @@ function strandingSeat(room: Room): Seat | undefined {
   if (!room.started) return undefined
 
   // A post-fame choice (a mandatory Skunk dismissal, say) blocks the Market
-  // phase from opening for anyone, and is owed by one particular player.
-  const owing = room.match.players.find((p) => p.pendingPostFameChoice)
-  if (owing) {
-    const seat = seatOf(room, owing.playerId)
-    return seat && !seat.connected ? seat : undefined
+  // phase from opening for anyone until EVERY seat that owes one has answered
+  // (match.ts's openMarketPhaseIfReady polls `players.some`). So the question
+  // is not "who is the one owing seat" but "is any owing seat empty" — the
+  // first match would otherwise let a present player mask an absent one behind
+  // them, and the table would wait out the 24h TTL with no clock ever armed.
+  //
+  // Today only one seat can owe at a time (strictlyLowestScorerIndex returns a
+  // single index), so this is equivalent — but that is an invariant in a
+  // different file, and this no longer depends on it.
+  const owing = room.match.players.filter((p) => p.pendingPostFameChoice)
+  if (owing.length > 0) {
+    for (const p of owing) {
+      const seat = seatOf(room, p.playerId)
+      if (seat && !seat.connected) return seat
+    }
+    return undefined
   }
 
   // Otherwise only the Market phase is strictly turn-based.
@@ -429,12 +457,12 @@ function playForAbsentSeat(room: Room, timeoutMs: number): void {
       // Same split as the action handler: a genuine engine fault is loud here
       // and leaves the room untouched, rather than taking the process down
       // from inside a timer.
-      console.error('apps/server: engine bug skipping an absent seat', action, err)
+      log('error', room.code, `engine bug skipping absent seat ${seat.playerId} (${action.kind})`, err)
       stalled = true
       break
     }
     if (!result.ok) {
-      console.error(`apps/server: could not skip ${seat.playerId}'s turn — ${result.message}`)
+      log('warn', room.code, `could not skip ${seat.playerId}'s turn — ${result.message}`)
       stalled = true
       break
     }
@@ -449,6 +477,7 @@ function playForAbsentSeat(room: Room, timeoutMs: number): void {
       text: `was skipped — no one is connected to that seat.`,
     }
     room.log.push(notice)
+    log('info', room.code, `played ${seat.playerId}'s turn — seat empty for ${Math.round(timeoutMs / 1000)}s`)
     broadcast(room, { type: 'state', match: room.match, logLines: [notice, ...logLines], debugLines })
   }
 

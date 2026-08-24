@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { LobbyState } from '../../../worker/protocol'
 import type { ConnectionState } from '../useMatch'
 
@@ -17,6 +18,18 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
   const isHost = me?.isHost ?? false
   const canStart = isHost && lobby.seats.length >= 2
   const shareUrl = `${window.location.origin}${window.location.pathname}?room=${lobby.roomCode}`
+  const [copied, setCopied] = useState(false)
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard access can be denied (permissions, insecure context); the
+      // link is still selectable text right next to the button.
+    }
+  }
 
   return (
     <div className="lobby" data-testid="lobby">
@@ -27,6 +40,9 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
       </p>
       <p className="lobby__share">
         Share this link: <code data-testid="room-link">{shareUrl}</code>
+        <button type="button" className="lobby__copy" data-testid="copy-link" onClick={copyLink}>
+          {copied ? 'Copied!' : 'Copy link'}
+        </button>
       </p>
 
       <p className="lobby__count" data-testid="seat-count">

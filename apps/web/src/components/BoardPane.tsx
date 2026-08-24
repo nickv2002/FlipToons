@@ -25,9 +25,15 @@ export type BoardPaneProps = {
   readOnly?: boolean
   // Anything that belongs under the grid: an opponent's dismissed count, say.
   footer?: ReactNode
+  // False replays no deal-in animation on this render — for a board that's
+  // redrawing because of a same-round face toggle (a dismiss-choice prompt
+  // resolving, another player's flip effect) rather than an actual new deal.
+  // Defaults true so callers outside the round loop (the ended screen's final
+  // grid) don't need to think about it.
+  animateDeal?: boolean
 }
 
-export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer }: BoardPaneProps) {
+export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true }: BoardPaneProps) {
   return (
     <div className="round-view__grid-pane">
       <div className="round-view__grid-heading">
@@ -36,7 +42,7 @@ export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDis
           Deck: <strong>{deckCount}</strong> left
         </span>
       </div>
-      <Grid grid={grid} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} fame={fame} readOnly={readOnly} />
+      <Grid grid={grid} cards={cards} dismissEntries={dismissEntries} onDismiss={onDismiss} fame={fame} readOnly={readOnly} animateDeal={animateDeal} />
       {footer}
     </div>
   )

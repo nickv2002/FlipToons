@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GameState } from '../../../../packages/engine/state'
 import { cardsById } from '../../../../packages/engine/setup'
 import { getSlot } from '../../../../packages/engine/grid'
@@ -78,6 +78,17 @@ export function RoundView({
   const [pending, setPending] = useState<Pending | null>(null)
   const [listOverlay, setListOverlay] = useState<ListOverlay>(null)
   const [hireWarning, setHireWarning] = useState<HireWarning | null>(null)
+
+  // The deal-in animation should play once per round's Flip, not every time
+  // the grid re-renders — resolving a Butterfly/Panther dismiss-choice prompt
+  // unmounts and remounts this whole subtree (see the `pending` branch
+  // below), which would otherwise replay it. `state.round` only changes once
+  // per Flip, so it's the signal for "this is actually a fresh deal."
+  const animatedRoundRef = useRef<number | null>(null)
+  const isFreshDeal = animatedRoundRef.current !== state.round
+  useEffect(() => {
+    animatedRoundRef.current = state.round
+  }, [state.round])
 
   // Dispatches the hire unless doing so would leave the round guaranteed
   // lost (toon deck too depleted for solo's per-round decay to refill) — in
@@ -260,6 +271,7 @@ export function RoundView({
             dismissEntries={listDismissEntries(state)}
             onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
             fame={state.fame}
+            animateDeal={isFreshDeal}
           />
           <div className="round-view__market-pane">
             <div className="round-view__grid-heading">

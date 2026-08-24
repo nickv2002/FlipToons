@@ -52,12 +52,13 @@ describe('Eagle — flipNextRevealed', () => {
     // placed card = eagle, via stackOnPreviousPlaced) — if turkey's ability
     // is suppressed by being flipped, it must land in a normal empty slot
     // instead, face-down.
-    const { grid } = place('eagle', 'turkey', 'bee', 'snail', 'dragonfly', 'skunk')
+    const { grid, flipNotes } = place('eagle', 'turkey', 'bee', 'snail', 'dragonfly', 'skunk')
     expect(grid.base[0][0]!.cards).toEqual(['eagle'])
     expect(grid.base[0][0]!.faceUp).toEqual([true])
     // turkey landed in the NEXT empty slot (not stacked on eagle), face-down
     expect(grid.base[0][1]!.cards).toEqual(['turkey'])
     expect(grid.base[0][1]!.faceUp).toEqual([false])
+    expect(flipNotes).toContain('Eagle flips Turkey face-down at row 0, col 1.')
   })
 
   test('immune target (Rabbit): Eagle has no effect, Rabbit resolves its own placement normally', () => {
@@ -178,11 +179,12 @@ describe('Monkey — moveToExtraRowIfUpperRow', () => {
 
 describe('Elephant — flipPreviousPlaced (LAST PLACED CARD by identity, surviving relocation)', () => {
   test('flips the immediately-previous placed card unless it is immune', () => {
-    const { grid } = place('bee', 'elephant', 'snail', 'dragonfly', 'skunk', 'caterpillar')
+    const { grid, flipNotes } = place('bee', 'elephant', 'snail', 'dragonfly', 'skunk', 'caterpillar')
     expect(grid.base[0][0]!.cards).toEqual(['bee'])
     expect(grid.base[0][0]!.faceUp).toEqual([false]) // flipped by elephant
     expect(grid.base[0][1]!.cards).toEqual(['elephant'])
     expect(grid.base[0][1]!.faceUp).toEqual([true]) // elephant itself is unaffected
+    expect(flipNotes).toContain('Elephant flips Bee face-down at row 0, col 0.')
   })
 
   test('ignored if Elephant is the first card placed', () => {

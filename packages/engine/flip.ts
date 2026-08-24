@@ -83,7 +83,7 @@ type CardPointer = { cardId: CardId; pos: GridPos; index: number }
 
 type Pending =
   | { kind: 'stack'; pos: GridPos }
-  | { kind: 'flip' }
+  | { kind: 'flip'; sourceName: string }
   | { kind: 'returnIfRankAtMost'; maxRank: number }
   | { kind: 'moveToExtraRow'; col: number } // Gorilla — see applyOnPlaceEffects's 'moveNextRevealedToExtraRowIfUpperRow'
   | null
@@ -345,7 +345,7 @@ function applyOnPlaceEffects(
         // Eagle: the NEXT revealed card gets flipped face-down unless
         // immune — see the immunity check in flipDeck, which is where this
         // is actually resolved (it depends on the target card, not Eagle).
-        pending = { kind: 'flip' }
+        pending = { kind: 'flip', sourceName: card.name }
         break
       }
       case 'moveToExtraRowIfUpperRow': {
@@ -668,6 +668,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
       // through to its own normal target-determination (which may itself be
       // Rabbit's stack-search, Turkey's stack-on-previous, or the default
       // next-empty-slot) exactly as if Eagle had never been placed.
+      const flipSourceName = pending.sourceName
       pending = null
       if (isImmuneTo(card, 'flip')) {
         targetPos = determineTarget(card, grid, lastPlaced, cardsById, remainingDeck, flipNotes, debugNotes)
@@ -679,6 +680,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
         forceFaceDown = true
         suppressOwnOnPlace = true // "its ability does not activate" (Eagle's own text)
         debugNotes.push(`${card.name}: Eagle's deferred flip forces face-down placement at ${posLabel(targetPos)}, own onPlace suppressed`)
+        flipNotes.push(`${flipSourceName} flips ${card.name} face-down at ${posLabel(targetPos)}.`)
       }
     } else if (pending?.kind === 'stack') {
       // Ostrich's deferred stack. Unlike Eagle, the stacked card's own
@@ -753,6 +755,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
         const targetCard = targetCardId ? cardsById[targetCardId] : undefined
         if (targetSlot && targetCard && !isImmuneTo(targetCard, 'flip')) {
           targetSlot.faceUp[previousPlaced.index] = false
+          flipNotes.push(`${card.name} flips ${targetCard.name} face-down at ${posLabel(previousPlaced.pos)}.`)
         }
       }
 

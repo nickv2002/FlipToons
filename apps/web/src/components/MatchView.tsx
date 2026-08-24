@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { cardsById } from '../../../../packages/engine/setup'
 import { deckPlacementTargets, matchRoundFame } from '../../../../packages/engine/match'
 import { viewOf } from '../../../../packages/engine/state'
@@ -66,6 +67,16 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
   }
 
   const fames = matchRoundFame(match)
+
+  // Same "fresh deal this round" gate as RoundView (see its comment) — for
+  // boards NOT rendered through RoundView here: opponent boards, and this
+  // player's own board when it falls back to the read-only BoardPane outside
+  // Market phase.
+  const animatedRoundRef = useRef<number | null>(null)
+  const isFreshDeal = animatedRoundRef.current !== match.shared.round
+  useEffect(() => {
+    animatedRoundRef.current = match.shared.round
+  }, [match.shared.round])
 
   return (
     <div className="match" data-testid="match">
@@ -187,11 +198,11 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             showRoundScore={false}
           />
         ) : (
-          <BoardPane title="Your grid" grid={me.grid} cards={cards} deckCount={me.deck.length} readOnly />
+          <BoardPane title="Your grid" grid={me.grid} cards={cards} deckCount={me.deck.length} readOnly animateDeal={isFreshDeal} />
         )}
       </section>
 
-      <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} />
+      <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} animateDeal={isFreshDeal} />
     </div>
   )
 }
@@ -336,12 +347,14 @@ function OpponentBoards({
   nameOf,
   activeId,
   phase,
+  animateDeal,
 }: {
   match: Match
   myPlayerId: string
   nameOf: (id: string) => string
   activeId: string
   phase: string
+  animateDeal: boolean
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
   if (others.length === 0) return null
@@ -362,6 +375,7 @@ function OpponentBoards({
               cards={cards}
               deckCount={p.deck.length}
               readOnly
+              animateDeal={animateDeal}
             />
           </div>
         ))}

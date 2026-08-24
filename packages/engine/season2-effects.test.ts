@@ -72,7 +72,7 @@ describe('Starfish — stackOnPreviousPlaced + flipPreviousPlaced (composite of 
 
 describe('Swordfish — flipPreviousPlaced + flipNextRevealed (dual flip, two existing primitives)', () => {
   test('flips BOTH the previous placed card and the next revealed card', () => {
-    const { grid } = place('bee', 'swordfish', 'snail', 'caterpillar', 'skunk', 'dragonfly')
+    const { grid, flipNotes } = place('bee', 'swordfish', 'snail', 'caterpillar', 'skunk', 'dragonfly')
     expect(grid.base[0][0]!.cards).toEqual(['bee'])
     expect(grid.base[0][0]!.faceUp).toEqual([false]) // flipped by swordfish (previous)
     expect(grid.base[0][1]!.cards).toEqual(['swordfish'])
@@ -81,6 +81,10 @@ describe('Swordfish — flipPreviousPlaced + flipNextRevealed (dual flip, two ex
     expect(grid.base[0][2]!.faceUp).toEqual([false]) // flipped by swordfish (next revealed)
     // snail's own onPlace (none) is irrelevant; it lands in a normal slot, just face-down
     expect(grid.base[1][0]!.cards).toEqual(['caterpillar']) // unaffected, placed normally after
+    // both flip effects fire from the same Swordfish placement, at different
+    // points in the loop — two separate flipNotes lines, not a duplicate
+    expect(flipNotes).toContain('Swordfish flips Bee face-down at row 0, col 0.')
+    expect(flipNotes).toContain('Swordfish flips Snail face-down at row 0, col 2.')
   })
 
   test('as the first card placed: no previous card to flip, next-revealed flip still applies', () => {

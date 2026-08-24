@@ -1020,10 +1020,10 @@ export function runCleanup(state: GameState): GameState {
   // leaving it populated on the win/loss branches would double-count every
   // grid card (once in collectedDeck, once still sitting in the old grid).
   if (won) {
-    return { ...state, ...refillFields, deck: collectedDeck, grid: emptyGrid(), phase: 'ended', result: 'win' }
+    return { ...state, ...refillFields, deck: collectedDeck, grid: emptyGrid(), phase: 'ended', result: 'win', finalGrid: state.grid, finalDeckCount: state.deck.length }
   }
   if (lost) {
-    return { ...state, ...refillFields, deck: collectedDeck, grid: emptyGrid(), phase: 'ended', result: 'loss' }
+    return { ...state, ...refillFields, deck: collectedDeck, grid: emptyGrid(), phase: 'ended', result: 'loss', finalGrid: state.grid, finalDeckCount: state.deck.length }
   }
 
   return {

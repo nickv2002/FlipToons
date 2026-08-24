@@ -223,7 +223,20 @@ export type SharedState = {
 // One player's transient working view: their private slice joined with the
 // shared state. Structurally identical to the pre-split flat GameState, which
 // is why phases.ts/flip.ts operate on it unchanged.
-export type PlayerView = PlayerState & Omit<SharedState, 'viewEpoch'> & { viewEpoch?: number }
+//
+// finalGrid/finalDeckCount: set only by solo's runCleanup (phases.ts), never
+// by multiplayer's separate runMatchCleanup (match.ts) — a snapshot of
+// `grid`/`deck.length` taken the instant before Cleanup empties the grid and
+// folds it into the deck, for the win/loss branches only. Captured inside
+// the engine, atomically with the transition to 'ended', so it can't go
+// stale even when a single dispatch cascades through an extra round (see
+// actions.ts's advanceThroughPassthroughPhases) — reconstructing it in the
+// UI from before/after closures is what used to desync it by a round.
+export type PlayerView = PlayerState & Omit<SharedState, 'viewEpoch'> & {
+  viewEpoch?: number
+  finalGrid?: Grid | null
+  finalDeckCount?: number | null
+}
 
 // Back-compat alias. Solo is the 1-player case of the same machine, so
 // everything that used to take a GameState takes a PlayerView.

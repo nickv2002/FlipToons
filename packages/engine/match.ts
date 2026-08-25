@@ -283,7 +283,35 @@ export function matchResolvePostFameChoice(match: Match, playerId: PlayerId, cho
 
 export function matchHire(match: Match, playerId: PlayerId, slotIndex: number, choices?: EffectChoices): Match {
   const index = assertActive(match, playerId, 'matchHire')
-  return withPlayer(match, index, (view) => hire(view, slotIndex, choices))
+  return withPlayer(applyCrossPlayerHireFromDismissed(match, playerId, choices), index, (view) => hire(view, slotIndex, choices))
+}
+
+// Raccoon's "you may hire ANY dismissed card" (cards/types.ts's Effect
+// comment) reaches across the table, but phases.ts's applyEffects only ever
+// touches the acting player's own PlayerView.dismissed — same split as Pig's
+// placeSelfInAnyDeck. When the choice names another seat's pile
+// (EffectChoices.hireFromDismissed.ownerPlayerId), pull the card out of that
+// seat's PlayerState here and hand it to the acting player's view first, so
+// applyEffects's existing `next.dismissed.indexOf(...)` finds it exactly as
+// it would a card from their own pile — the card passes through the acting
+// player's dismissed pile only transiently (added here, removed by
+// applyEffects in the same withPlayer call), never actually landing there.
+function applyCrossPlayerHireFromDismissed(match: Match, playerId: PlayerId, choices?: EffectChoices): Match {
+  const pull = choices?.hireFromDismissed
+  if (!pull || pull === 'decline' || !pull.ownerPlayerId || pull.ownerPlayerId === playerId) return match
+  const ownerIndex = playerIndex(match, pull.ownerPlayerId)
+  const ownerDismissed = match.players[ownerIndex].dismissed
+  const cardIndex = ownerDismissed.indexOf(pull.cardId)
+  if (cardIndex === -1) {
+    throw new Error(`match.ts: matchHire — ${pull.cardId} is not in ${pull.ownerPlayerId}'s dismissed pile`)
+  }
+  const nextOwnerDismissed = ownerDismissed.slice()
+  nextOwnerDismissed.splice(cardIndex, 1)
+  const players = match.players.slice()
+  players[ownerIndex] = { ...players[ownerIndex], dismissed: nextOwnerDismissed }
+  const actingIndex = playerIndex(match, playerId)
+  players[actingIndex] = { ...players[actingIndex], dismissed: [...players[actingIndex].dismissed, pull.cardId] }
+  return { ...match, players }
 }
 
 export function matchDismiss(match: Match, playerId: PlayerId, pos: GridPos, cardIndex?: number, choices?: EffectChoices): Match {

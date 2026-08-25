@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { Card as CardData, CardId } from '../../../../packages/engine/cards/types'
 import type { GridPos } from '../../../../packages/engine/types'
-import type { DismissTarget, PendingChoice } from '../../../../packages/engine/hireChoices'
+import type { DismissTarget, HireFromDismissedTarget, PendingChoice } from '../../../../packages/engine/hireChoices'
 import { Card } from './Card'
 
-export type EffectChoiceSelection = DismissTarget | CardId | number | number[] | 'skip'
+export type EffectChoiceSelection = DismissTarget | HireFromDismissedTarget | number | number[] | 'skip'
 
 export type EffectChoicePromptProps = {
   cardName: string
@@ -21,6 +21,13 @@ export type EffectChoicePromptProps = {
   // Alligator is one specific stack, Panther/Skunk are the whole board — and
   // the option list alone doesn't say which rule produced it.
   constraintNote?: string
+  // Raccoon at a table: hireFromDismissed's options can come from more than
+  // one seat's pile (see hireChoices.ts's HireFromDismissedTarget). When
+  // both of these are supplied, options are grouped by owner and labeled by
+  // name; when either is absent (solo — there's only ever one pile) they
+  // render as one flat list, same as every other choice kind.
+  nameOf?: (playerId: string) => string
+  myPlayerId?: string
 }
 
 // Same visual language as the Market panel (Card.tsx's front face — name,
@@ -39,7 +46,7 @@ export type EffectChoicePromptProps = {
 // ones, which suppresses the badge). Butterfly used to get a whole <Grid>
 // instead; the row keeps position legible through posLabel rather than by
 // redrawing the board.
-export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onResolve, promptText, constraintNote }: EffectChoicePromptProps) {
+export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onResolve, promptText, constraintNote, nameOf, myPlayerId }: EffectChoicePromptProps) {
   const [selectedSlots, setSelectedSlots] = useState<number[]>([])
 
   const affordable = choice.kind === 'discardMarketAndRefill' ? true : fame >= choice.cost
@@ -85,43 +92,76 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
         )}
       </p>
       {note}
-      <div className="effect-choice__cards">
-        {isDismiss &&
-          choice.options.map((t, n) => (
-            <div className="effect-choice__option" key={`${t.pos.section}-${t.pos.row}-${t.pos.col}-${t.index}`}>
-              <Card
-                testId={`effect-choice-option-${n}`}
-                card={cards[t.cardId]}
-                compact
-                dismissCost={choice.cost === 0 ? undefined : choice.cost}
-                disabled={!affordable}
-                onClick={() => onResolve(t)}
-              />
-              {/* Which one. Two cards of the same name sit on the board all the
-                  time — the Season 1 starting deck holds two Caterpillars, and
-                  Caterpillar is exactly what Butterfly targets — and the choice
-                  between them is not arbitrary, since adjacency drives scoring. */}
-              <span className="effect-choice__pos">{posLabel(t.pos, t.index)}</span>
+      {choice.kind === 'hireFromDismissed' && nameOf && myPlayerId ? (
+        groupByOwner(choice.options, myPlayerId).map(([ownerId, group]) => (
+          <div className="effect-choice__group" key={ownerId} data-testid={`effect-choice-group-${ownerId}`}>
+            <h4 className="effect-choice__group-title">
+              {ownerId === myPlayerId ? 'Your dismissed cards' : `${nameOf(ownerId)}'s dismissed cards`}
+            </h4>
+            <div className="effect-choice__cards">
+              {group.map((opt, i) => (
+                <Card
+                  key={`${opt.cardId}-${i}`}
+                  testId={`effect-choice-option-${ownerId}-${i}`}
+                  card={cards[opt.cardId]}
+                  compact
+                  price={choice.cost}
+                  unaffordable={!affordable}
+                  disabled={!affordable}
+                  onClick={() => onResolve(opt)}
+                />
+              ))}
             </div>
-          ))}
-        {choice.kind === 'hireFromDismissed' &&
-          choice.options.map((id, i) => (
-            <Card key={`${id}-${i}`} testId={`effect-choice-option-${i}`} card={cards[id]} compact price={choice.cost} unaffordable={!affordable} disabled={!affordable} onClick={() => onResolve(id)} />
-          ))}
-        {choice.kind === 'hireFromMarketAndRefill' &&
-          choice.options.map((i, n) => (
-            <Card
-              key={i}
-              testId={`effect-choice-option-${n}`}
-              card={cards[market[i]!]}
-              compact
-              price={choice.cost}
-              unaffordable={!affordable}
-              disabled={!affordable}
-              onClick={() => onResolve(i)}
-            />
-          ))}
-      </div>
+          </div>
+        ))
+      ) : (
+        <div className="effect-choice__cards">
+          {isDismiss &&
+            choice.options.map((t, n) => (
+              <div className="effect-choice__option" key={`${t.pos.section}-${t.pos.row}-${t.pos.col}-${t.index}`}>
+                <Card
+                  testId={`effect-choice-option-${n}`}
+                  card={cards[t.cardId]}
+                  compact
+                  dismissCost={choice.cost === 0 ? undefined : choice.cost}
+                  disabled={!affordable}
+                  onClick={() => onResolve(t)}
+                />
+                {/* Which one. Two cards of the same name sit on the board all the
+                    time — the Season 1 starting deck holds two Caterpillars, and
+                    Caterpillar is exactly what Butterfly targets — and the choice
+                    between them is not arbitrary, since adjacency drives scoring. */}
+                <span className="effect-choice__pos">{posLabel(t.pos, t.index)}</span>
+              </div>
+            ))}
+          {choice.kind === 'hireFromDismissed' &&
+            choice.options.map((opt, i) => (
+              <Card
+                key={`${opt.cardId}-${i}`}
+                testId={`effect-choice-option-${i}`}
+                card={cards[opt.cardId]}
+                compact
+                price={choice.cost}
+                unaffordable={!affordable}
+                disabled={!affordable}
+                onClick={() => onResolve(opt)}
+              />
+            ))}
+          {choice.kind === 'hireFromMarketAndRefill' &&
+            choice.options.map((i, n) => (
+              <Card
+                key={i}
+                testId={`effect-choice-option-${n}`}
+                card={cards[market[i]!]}
+                compact
+                price={choice.cost}
+                unaffordable={!affordable}
+                disabled={!affordable}
+                onClick={() => onResolve(i)}
+              />
+            ))}
+        </div>
+      )}
       {!choice.mandatory && (
         <button type="button" className="effect-choice__skip" data-testid="effect-choice-skip" onClick={() => onResolve('skip')}>
           Skip
@@ -147,6 +187,23 @@ function defaultConstraintNote(choice: PendingChoice, cards: Record<CardId, Card
     default:
       return null
   }
+}
+
+// Groups Raccoon's options by owner, own pile first, then every other seat
+// in the order their first offered card appears — stable and independent of
+// player-list order, which matters nowhere else but reads oddly if it jumps
+// around between renders.
+function groupByOwner(options: HireFromDismissedTarget[], myPlayerId: string): [string, HireFromDismissedTarget[]][] {
+  const groups = new Map<string, HireFromDismissedTarget[]>()
+  for (const opt of options) {
+    const ownerId = opt.ownerPlayerId ?? myPlayerId
+    const group = groups.get(ownerId)
+    if (group) group.push(opt)
+    else groups.set(ownerId, [opt])
+  }
+  const entries = [...groups.entries()]
+  entries.sort((a, b) => (a[0] === myPlayerId ? -1 : b[0] === myPlayerId ? 1 : 0))
+  return entries
 }
 
 function posLabel(pos: GridPos, index: number): string {

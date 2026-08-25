@@ -130,7 +130,12 @@ describe('hireChoices.ts — computePendingChoice / buildEffectChoices', () => {
     test('every card in the dismissed pile is offered', () => {
       const state = marketState(410)
       const choice = computePendingChoice({ ...state, dismissed: ['bee', 'snail'] }, cards['raccoon'].onHire, cards, 0)
-      expect(choice).toEqual({ kind: 'hireFromDismissed', mandatory: false, cost: 0, options: ['bee', 'snail'] })
+      expect(choice).toEqual({
+        kind: 'hireFromDismissed',
+        mandatory: false,
+        cost: 0,
+        options: [{ cardId: 'bee' }, { cardId: 'snail' }],
+      })
     })
 
     test('an empty dismissed pile — null', () => {

@@ -5,7 +5,7 @@ import { getSlot } from '../../../../packages/engine/grid'
 import type { GridPos } from '../../../../packages/engine/types'
 import type { Action } from '../../../../packages/engine/actions'
 import { listDismissEntries, wouldHireEndInGuaranteedLoss } from '../../../../packages/engine/actions'
-import type { EffectChoices } from '../../../../packages/engine/cards/types'
+import type { CardId, EffectChoices } from '../../../../packages/engine/cards/types'
 import { computePendingChoice, buildEffectChoices } from '../../../../packages/engine/hireChoices'
 import type { PendingChoice } from '../../../../packages/engine/hireChoices'
 import { roundFameLookup } from '../../../../packages/engine/score'
@@ -58,6 +58,13 @@ export type RoundViewProps = {
   // values through here for the seated player's own board.
   isOwn?: boolean
   isActive?: boolean
+  // Raccoon at a table: MatchView threads the other seats' dismissed piles
+  // through here so computePendingChoice (hireChoices.ts) can offer "any
+  // dismissed card" rather than just this player's own. Solo omits both —
+  // there is only ever one pile, so there is nothing to group by owner.
+  otherDismissedPiles?: { playerId: string; cards: CardId[] }[]
+  nameOf?: (playerId: string) => string
+  myPlayerId?: string
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
@@ -76,6 +83,9 @@ export function RoundView({
   showRoundScore = true,
   isOwn = true,
   isActive = true,
+  otherDismissedPiles,
+  nameOf,
+  myPlayerId,
 }: RoundViewProps) {
   // Some cards' onHire/onDismiss effects need a player choice before the
   // action can resolve (Butterfly/Panther/Raccoon/Crow/Horse — see
@@ -126,7 +136,7 @@ export function RoundView({
   function handleHire(slotIndex: number) {
     const cardId = state.market.slots[slotIndex]
     const card = cardId ? cards[cardId] : undefined
-    const choice = card ? computePendingChoice(state, card.onHire, cards, slotIndex) : null
+    const choice = card ? computePendingChoice(state, card.onHire, cards, slotIndex, otherDismissedPiles) : null
     if (!choice || !card) {
       dispatchOrWarnHire(slotIndex, card?.name ?? String(cardId))
       return
@@ -227,9 +237,6 @@ export function RoundView({
             <span className="round-view__score-of">/ {state.fameToTriggerEndgame} to win</span>
           </span>
         )}
-        <button type="button" onClick={() => setListOverlay('dismissed')}>
-          Dismissed cards ({state.dismissed.length})
-        </button>
         <button type="button" onClick={() => setListOverlay('deck')}>
           Remaining deck ({state.deck.length})
         </button>
@@ -253,45 +260,58 @@ export function RoundView({
         </div>
       )}
 
-      <fieldset className="round-view__controls" disabled={controlsDisabled} data-testid="my-controls">
       {state.phase === 'market' && alligatorChoice && (
-        <EffectChoicePrompt
-          cardName={cards[alligatorChoice.ownerCardId].name}
-          choice={{ kind: 'dismissAlligatorTarget', mandatory: true, cost: 0, options: alligatorChoice.options }}
-          cards={cards}
-          fame={state.fame}
-          market={state.market.slots}
-          onResolve={resolveAlligatorChoice}
-        />
+        <fieldset className="round-view__controls" disabled={controlsDisabled}>
+          <EffectChoicePrompt
+            cardName={cards[alligatorChoice.ownerCardId].name}
+            choice={{ kind: 'dismissAlligatorTarget', mandatory: true, cost: 0, options: alligatorChoice.options }}
+            cards={cards}
+            fame={state.fame}
+            market={state.market.slots}
+            onResolve={resolveAlligatorChoice}
+          />
+        </fieldset>
       )}
       {state.phase === 'market' && !alligatorChoice && !pending && hireWarning && (
-        <div className="hire-warning">
-          <p className="hire-warning__prompt">
-            Hiring {hireWarning.cardName} leaves too few cards in the toon deck for the market to refill this round — you'll lose as
-            soon as the Market phase ends, and nothing else you do this round can change that.
-          </p>
-          <div className="hire-warning__actions">
-            <button type="button" onClick={() => setHireWarning(null)}>
-              Cancel
-            </button>
-            <button type="button" className="hire-warning__confirm" onClick={confirmHireWarning}>
-              Hire anyway
-            </button>
+        <fieldset className="round-view__controls" disabled={controlsDisabled}>
+          <div className="hire-warning">
+            <p className="hire-warning__prompt">
+              Hiring {hireWarning.cardName} leaves too few cards in the toon deck for the market to refill this round — you'll lose as
+              soon as the Market phase ends, and nothing else you do this round can change that.
+            </p>
+            <div className="hire-warning__actions">
+              <button type="button" onClick={() => setHireWarning(null)}>
+                Cancel
+              </button>
+              <button type="button" className="hire-warning__confirm" onClick={confirmHireWarning}>
+                Hire anyway
+              </button>
+            </div>
           </div>
-        </div>
+        </fieldset>
       )}
       {state.phase === 'market' && !alligatorChoice && pending && (
-        <EffectChoicePrompt
-          cardName={pending.cardName}
-          choice={pending.choice}
-          cards={cards}
-          fame={state.fame}
-          market={state.market.slots}
-          onResolve={resolvePending}
-        />
+        <fieldset className="round-view__controls" disabled={controlsDisabled}>
+          <EffectChoicePrompt
+            cardName={pending.cardName}
+            choice={pending.choice}
+            cards={cards}
+            fame={state.fame}
+            market={state.market.slots}
+            onResolve={resolvePending}
+            nameOf={nameOf}
+            myPlayerId={myPlayerId}
+          />
+        </fieldset>
       )}
       {state.phase === 'market' && !alligatorChoice && !pending && (
         <div className="round-view__phase round-view__phase--market">
+          {/* The dismiss-pile button lives in BoardPane's own heading (see
+              its controlsDisabled prop), which sits OUTSIDE this fieldset on
+              purpose — viewing a public pile is not a turn action, so it
+              stays clickable even while this player's controls are
+              disabled, same as the Leave button above. Only the Grid itself
+              (inside BoardPane) is gated by controlsDisabled. */}
           <BoardPane
             title="Your grid"
             grid={state.grid}
@@ -300,14 +320,17 @@ export function RoundView({
             dismissEntries={listDismissEntries(state)}
             onDismiss={(pos: GridPos, index: number) => handleDismiss(pos, index)}
             fame={state.fame}
+            dismissedCount={state.dismissed.length}
+            onShowDismissed={() => setListOverlay('dismissed')}
             animateDeal={isFreshDeal}
             isOwn={isOwn}
             isActive={isActive}
             roundFame={roundFame}
             touchMode={touchMode}
             onZoom={setZoomRequest}
+            controlsDisabled={controlsDisabled}
           />
-          <div className="round-view__market-pane">
+          <fieldset className="round-view__market-pane" disabled={controlsDisabled} data-testid="my-controls">
             <div className="round-view__grid-heading">
               <h2>Market</h2>
               <span className="round-view__deck-count" title="Cards left in the toon deck the market refills from">
@@ -324,10 +347,9 @@ export function RoundView({
               onZoom={setZoomRequest}
             />
             <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} endLabel={endMarketLabel} />
-          </div>
+          </fieldset>
         </div>
       )}
-      </fieldset>
       {listOverlay === 'dismissed' && (
         <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
       )}

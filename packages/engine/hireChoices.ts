@@ -18,15 +18,20 @@
 // before their card's own onHire/onDismiss fires.
 import type { Card, CardId, Effect, EffectChoices } from './cards/types'
 import { occupiedSlots } from './grid'
-import type { GameState } from './state'
+import type { GameState, PlayerId } from './state'
 import type { GridPos } from './types'
 
 export type DismissTarget = { pos: GridPos; index: number; cardId: CardId }
 
+// ownerPlayerId is only set when this option comes from another seat's pile
+// (a multiplayer caller passed it via `otherDismissed`) — absent means the
+// acting player's own dismissed pile, the only case solo ever produces.
+export type HireFromDismissedTarget = { cardId: CardId; ownerPlayerId?: PlayerId }
+
 export type PendingChoice =
   | { kind: 'dismissByName'; mandatory: false; cost: number; options: DismissTarget[] }
   | { kind: 'dismissChosenGridCard'; mandatory: true; cost: number; options: DismissTarget[] }
-  | { kind: 'hireFromDismissed'; mandatory: false; cost: number; options: CardId[] }
+  | { kind: 'hireFromDismissed'; mandatory: false; cost: number; options: HireFromDismissedTarget[] }
   | { kind: 'hireFromMarketAndRefill'; mandatory: false; cost: number; options: number[] }
   | { kind: 'discardMarketAndRefill'; mandatory: false; options: number[] }
   // Alligator's dismissAdjacentRight postMarketHook, when its target is a
@@ -66,6 +71,10 @@ export function computePendingChoice(
   effects: Effect[] | undefined,
   cards: Record<CardId, Card>,
   excludeMarketSlot?: number,
+  // Other seats' dismissed piles, for Raccoon at a table — solo/single-player
+  // callers omit this, matching the rulebook: "ANY dismissed card" only
+  // means more than one pile when there's more than one player.
+  otherDismissed?: { playerId: PlayerId; cards: CardId[] }[],
 ): PendingChoice | null {
   for (const effect of effects ?? []) {
     switch (effect.kind) {
@@ -80,8 +89,13 @@ export function computePendingChoice(
         return { kind: 'dismissChosenGridCard', mandatory: true, cost: effect.cost, options }
       }
       case 'hireFromDismissed': {
-        if (state.dismissed.length === 0) continue
-        return { kind: 'hireFromDismissed', mandatory: false, cost: effect.cost, options: state.dismissed.slice() }
+        const own: HireFromDismissedTarget[] = state.dismissed.map((cardId) => ({ cardId }))
+        const others: HireFromDismissedTarget[] = (otherDismissed ?? []).flatMap((p) =>
+          p.cards.map((cardId) => ({ cardId, ownerPlayerId: p.playerId })),
+        )
+        const options = [...own, ...others]
+        if (options.length === 0) continue
+        return { kind: 'hireFromDismissed', mandatory: false, cost: effect.cost, options }
       }
       case 'hireFromMarketAndRefill': {
         const options = occupiedMarketSlots(state, excludeMarketSlot)
@@ -103,7 +117,7 @@ export function computePendingChoice(
 // Builds the EffectChoices object hire()/dismiss() expect from a player's
 // resolved selection (or an explicit skip, for every kind but Panther's
 // mandatory one — callers must not offer a skip option for 'mandatory: true').
-export function buildEffectChoices(choice: PendingChoice, selection: DismissTarget | CardId | number | number[] | 'skip'): EffectChoices {
+export function buildEffectChoices(choice: PendingChoice, selection: DismissTarget | HireFromDismissedTarget | number | number[] | 'skip'): EffectChoices {
   if (selection === 'skip') {
     if (choice.kind === 'discardMarketAndRefill') return { discardMarketSlots: [] }
     return {}
@@ -118,7 +132,8 @@ export function buildEffectChoices(choice: PendingChoice, selection: DismissTarg
       return { dismissGridPos: { pos: target.pos, index: target.index } }
     }
     case 'hireFromDismissed': {
-      return { hireFromDismissed: { cardId: selection as CardId } }
+      const target = selection as HireFromDismissedTarget
+      return { hireFromDismissed: { cardId: target.cardId, ownerPlayerId: target.ownerPlayerId } }
     }
     case 'hireFromMarketAndRefill': {
       return { hireFromMarketSlot: { slotIndex: selection as number } }

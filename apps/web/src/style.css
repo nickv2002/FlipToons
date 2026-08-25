@@ -1048,6 +1048,19 @@ img.card__icon {
   color: color-mix(in srgb, canvastext 60%, transparent);
 }
 
+/* Raccoon at a table: each owner's pile gets its own labeled group instead
+   of one flat row, so it's clear which dismissed cards are whose. */
+.effect-choice__group + .effect-choice__group {
+  margin-top: 0.6rem;
+}
+
+.effect-choice__group-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: color-mix(in srgb, canvastext 70%, transparent);
+}
+
 .effect-choice__option {
   display: flex;
   flex-direction: column;
@@ -1579,20 +1592,35 @@ img.card__icon {
   color: var(--color-accent);
 }
 
-/* Not the active seat's board right now (Market phase only) — dims the
-   whole pane rather than individual cards, which stays
-   .round-view__controls:disabled .card:disabled's job (see that rule). */
-.round-view__grid-pane--inactive {
+/* Not the active seat's board right now (Market phase only) — dims the grid
+   body only, NOT the heading above it (deck count, dismissed-pile button),
+   which stays .round-view__grid-body:disabled .card:disabled's job (see
+   that rule below) for individual-card dimming. The heading stays out of
+   this element on purpose so the dismissed-cards button never reads as
+   deactivated. */
+/* Grid body and market pane are <fieldset>s now (see BoardPane.tsx /
+   RoundView.tsx — a fieldset is what lets each scope its own disabled state
+   without an ancestor fieldset swallowing the heading's buttons too).
+   Undo the browser's default fieldset chrome so neither reads as a form. */
+.round-view__grid-body,
+.round-view__market-pane {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.round-view__grid-body--inactive {
   opacity: 0.6;
   background: color-mix(in srgb, canvastext 1%, transparent);
 }
 
 /* CSS opacity compounds with an ancestor's: a face-down card (its own 0.45)
-   inside an inactive pane (0.6) would render at ~0.27 — too faint to read.
+   inside an inactive body (0.6) would render at ~0.27 — too faint to read.
    Counter it back up so a face-down card here reads about as dim as one on
    an active board (0.6 * 0.75 ≈ 0.45), not dimmer just for sharing a pane
    with other dimmed cards. */
-.round-view__grid-pane--inactive .card--facedown {
+.round-view__grid-body--inactive .card--facedown {
   opacity: 0.75;
 }
 
@@ -1617,8 +1645,7 @@ img.card__icon {
   font-weight: 400;
 }
 
-.opponents__dismissed-button {
-  margin: 0.5rem 0 0;
+.round-view__dismissed-button {
   font-size: 0.85rem;
 }
 
@@ -1704,7 +1731,16 @@ img.card__icon {
    turn" is not — when the WHOLE board is off, every card is equally inert, so
    greying them all says nothing and, worse, makes your own grid look unlike
    the opponent grids sitting right next to it at rest. Cancel the grey when
-   the fieldset is what disabled it; the fieldset still blocks the clicks. */
-.round-view__controls:disabled .card:disabled {
+   a fieldset is what disabled it; the fieldset still blocks the clicks.
+   Three separate fieldsets can be the disabling ancestor now — the effect-
+   choice prompts (.round-view__controls), the grid body
+   (.round-view__grid-body, BoardPane.tsx), and the market pane
+   (.round-view__market-pane, RoundView.tsx) — split apart so the
+   dismissed-pile button in BoardPane's heading is never a descendant of any
+   of them (a fieldset's disabled cascades to every descendant button no
+   matter how deeply nested, so that button has to sit outside all three). */
+.round-view__controls:disabled .card:disabled,
+.round-view__grid-body:disabled .card:disabled,
+.round-view__market-pane:disabled .card:disabled {
   opacity: 1;
 }

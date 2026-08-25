@@ -80,6 +80,12 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
     animatedRoundRef.current = match.shared.round
   }, [match.shared.round])
 
+  // One overlay, keyed by whichever player's dismissed pile was opened —
+  // covers your own board's non-market fallback and every opponent board, so
+  // "whose pile is this" isn't duplicated per caller.
+  const [dismissedOverlayFor, setDismissedOverlayFor] = useState<string | null>(null)
+  const dismissedOverlayPlayer = match.players.find((p) => p.playerId === dismissedOverlayFor)
+
   return (
     <div className="match" data-testid="match">
       <header className="match__header">
@@ -200,6 +206,9 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             showRoundScore={false}
             isOwn
             isActive={isMyTurn}
+            otherDismissedPiles={match.players.filter((p) => p.playerId !== myPlayerId).map((p) => ({ playerId: p.playerId, cards: p.dismissed }))}
+            nameOf={nameOf}
+            myPlayerId={myPlayerId}
           />
         ) : (
           <BoardPane
@@ -215,11 +224,35 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             // AND this seat is active") no board is ever active here.
             isActive={false}
             roundFame={roundFameLookup(fames.find((f) => f.playerId === myPlayerId)!.fame.grid, me.grid)}
+            dismissedCount={me.dismissed.length}
+            onShowDismissed={() => setDismissedOverlayFor(myPlayerId)}
           />
         )}
       </section>
 
-      <OpponentBoards match={match} myPlayerId={myPlayerId} nameOf={nameOf} activeId={activeId} phase={phase} animateDeal={isFreshDeal} fames={fames} />
+      <OpponentBoards
+        match={match}
+        myPlayerId={myPlayerId}
+        nameOf={nameOf}
+        activeId={activeId}
+        phase={phase}
+        animateDeal={isFreshDeal}
+        fames={fames}
+        onShowDismissed={setDismissedOverlayFor}
+      />
+
+      {dismissedOverlayPlayer && (
+        <CardListOverlay
+          title={
+            dismissedOverlayPlayer.playerId === myPlayerId
+              ? 'Your dismissed cards'
+              : `${nameOf(dismissedOverlayPlayer.playerId)}'s dismissed cards`
+          }
+          cardIds={dismissedOverlayPlayer.dismissed}
+          cards={cards}
+          onClose={() => setDismissedOverlayFor(null)}
+        />
+      )}
     </div>
   )
 }
@@ -367,6 +400,7 @@ function OpponentBoards({
   phase,
   animateDeal,
   fames,
+  onShowDismissed,
 }: {
   match: Match
   myPlayerId: string
@@ -375,11 +409,10 @@ function OpponentBoards({
   phase: string
   animateDeal: boolean
   fames: ReturnType<typeof matchRoundFame>
+  onShowDismissed: (playerId: string) => void
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
-  const [dismissedOverlayFor, setDismissedOverlayFor] = useState<string | null>(null)
   if (others.length === 0) return null
-  const overlayPlayer = others.find((p) => p.playerId === dismissedOverlayFor)
   return (
     <section className="opponents" data-testid="opponent-boards">
       <h3>Other players</h3>
@@ -401,28 +434,12 @@ function OpponentBoards({
               isOwn={false}
               isActive={phase === 'market' && p.playerId === activeId}
               roundFame={roundFameLookup(fames.find((f) => f.playerId === p.playerId)!.fame.grid, p.grid)}
-              footer={
-                <button
-                  type="button"
-                  className="opponents__dismissed-button"
-                  data-testid={`opponent-dismissed-${p.playerId}`}
-                  onClick={() => setDismissedOverlayFor(p.playerId)}
-                >
-                  Dismissed cards ({p.dismissed.length})
-                </button>
-              }
+              dismissedCount={p.dismissed.length}
+              onShowDismissed={() => onShowDismissed(p.playerId)}
             />
           </div>
         ))}
       </div>
-      {overlayPlayer && (
-        <CardListOverlay
-          title={`${nameOf(overlayPlayer.playerId)}'s dismissed cards`}
-          cardIds={overlayPlayer.dismissed}
-          cards={cards}
-          onClose={() => setDismissedOverlayFor(null)}
-        />
-      )}
     </section>
   )
 }

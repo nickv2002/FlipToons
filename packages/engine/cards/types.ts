@@ -112,7 +112,14 @@ export type Effect =
   | { kind: 'bonusMarketAction'; amount: number } // Peacock — OPTIONAL; additive on top of hire()'s own actionsRemaining decrement
   | { kind: 'dismissByName'; targetCardId: CardId; cost: number } // Butterfly — OPTIONAL, targets a face-up card matching targetCardId
   | { kind: 'dismissChosenGridCard'; cost: number } // Panther — MANDATORY (throws if declined while any legal target exists)
-  | { kind: 'hireFromDismissed'; cost: number } // Raccoon — OPTIONAL, targets a card in GameState.dismissed
+  // Raccoon — OPTIONAL, targets a card in GameState.dismissed. "ANY dismissed
+  // card" (rawBannerText) means any player's at a table, not just the
+  // hirer's own pile — like Pig above, phases.ts only ever removes from the
+  // ACTING player's own view; match.ts's matchHire is what pulls a card out
+  // of another seat's dismissed pile and hands it to this player's view
+  // before applyEffects runs, via EffectChoices.hireFromDismissed's
+  // ownerPlayerId below.
+  | { kind: 'hireFromDismissed'; cost: number }
   | { kind: 'hireFromMarketAndRefill'; cost: number } // Crow — OPTIONAL, targets a market slot
   | { kind: 'discardMarketAndRefill' } // Horse — OPTIONAL, targets any number of market slots
   // Pig — MANDATORY, and the only effect in the vocabulary that reaches
@@ -131,7 +138,12 @@ export type Effect =
 export type EffectChoices = {
   dismissByName?: { pos: GridPos; index: number } // Butterfly's target Caterpillar slot; absent = decline
   dismissGridPos?: { pos: GridPos; index: number } // Panther's mandatory target
-  hireFromDismissed?: { cardId: CardId } | 'decline' // Raccoon
+  // Raccoon. ownerPlayerId names whose dismissed pile the card is coming
+  // from — a PlayerId (state.ts), spelled as `string` here to avoid a
+  // circular import (state.ts imports this file, not the reverse). Absent
+  // means "the acting player's own pile", which is the only case solo ever
+  // produces.
+  hireFromDismissed?: { cardId: CardId; ownerPlayerId?: string } | 'decline'
   hireFromMarketSlot?: { slotIndex: number } | 'decline' // Crow
   discardMarketSlots?: number[] // Horse — empty/absent = decline
 }

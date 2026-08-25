@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from 'bun:test'
 import { buildNewGameState } from './actions'
+import { matchHire } from './match'
 import { commitView, makeMatch, viewOf } from './state'
+import type { Match } from './state'
 
 function twoPlayerMatch() {
   return makeMatch(buildNewGameState(1234, 'normal', 1), [{ playerId: 'p1', startingDeck: ['caterpillar', 'bee', 'snail'], seed: 5678 }])
@@ -154,5 +156,47 @@ describe('makeMatch', () => {
     // Round-tripping solo through the Match boundary changes nothing.
     const { viewEpoch: _epoch, ...roundTripped } = viewOf(match, 0)
     expect(roundTripped).toEqual(solo)
+  })
+})
+
+// Raccoon's "you may hire ANY dismissed card" (cards/types.ts's Effect
+// comment) reaches across the table — phases.ts's hire() only ever touches
+// the acting player's own PlayerView.dismissed, so matchHire is what has to
+// pull the card out of another seat's pile first. hireChoices.test.ts covers
+// the same-seat/solo case; this covers the cross-seat one.
+describe('matchHire — Raccoon pulling from another seat’s dismissed pile', () => {
+  function raccoonMatch(): Match {
+    const state = buildNewGameState(9001, 'normal', 1)
+    const withMarket = { ...state, phase: 'market' as const, actionsRemaining: 2, fame: 50, market: { prices: [3], slots: ['raccoon'], insertionSeq: [0] } }
+    return makeMatch(withMarket, [{ playerId: 'p1', startingDeck: ['caterpillar', 'bee', 'snail'], seed: 9002 }])
+  }
+
+  test('removes the card from the OTHER seat’s pile and hires it into the acting seat’s deck', () => {
+    let match = raccoonMatch()
+    match = { ...match, players: match.players.map((p, i) => (i === 1 ? { ...p, dismissed: ['bee'] } : p)) }
+
+    const deckBefore = match.players[0].deck.length
+    const next = matchHire(match, 'p0', 0, { hireFromDismissed: { cardId: 'bee', ownerPlayerId: 'p1' } })
+
+    expect(next.players[1].dismissed).not.toContain('bee')
+    expect(next.players[0].dismissed).not.toContain('bee')
+    expect(next.players[0].deck.length).toBe(deckBefore + 2) // raccoon itself + bee
+  })
+
+  test('throws if the named card is not actually in that seat’s pile', () => {
+    const match = raccoonMatch()
+    expect(() => matchHire(match, 'p0', 0, { hireFromDismissed: { cardId: 'bee', ownerPlayerId: 'p1' } })).toThrow(
+      /not in p1's dismissed pile/,
+    )
+  })
+
+  test('an explicit ownerPlayerId matching the acting seat resolves locally, same as omitting it', () => {
+    let match = raccoonMatch()
+    match = { ...match, players: match.players.map((p, i) => (i === 0 ? { ...p, dismissed: ['bee'] } : p)) }
+
+    const next = matchHire(match, 'p0', 0, { hireFromDismissed: { cardId: 'bee', ownerPlayerId: 'p0' } })
+
+    expect(next.players[0].dismissed).not.toContain('bee')
+    expect(next.players[1].dismissed).toEqual([])
   })
 })

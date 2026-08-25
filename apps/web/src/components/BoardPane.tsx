@@ -24,8 +24,14 @@ export type BoardPaneProps = {
   onDismiss?: (pos: GridPos, index: number) => void
   fame?: number
   readOnly?: boolean
-  // Anything that belongs under the grid: an opponent's dismissed count, say.
-  footer?: ReactNode
+  // Dismissed-pile count + opener, rendered in the heading next to the deck
+  // count — every player's dismissed pile is public (§3.3a), so this is
+  // shown for every board, not just an opponent's. It lives in the heading
+  // (never dimmed — see round-view__grid-body--inactive below) rather than
+  // under the grid, so it stays clickable and legible even when this board
+  // isn't the active seat's.
+  dismissedCount?: number
+  onShowDismissed?: () => void
   // False replays no deal-in animation on this render — for a board that's
   // redrawing because of a same-round face toggle (a dismiss-choice prompt
   // resolving, another player's flip effect) rather than an actual new deal.
@@ -48,10 +54,20 @@ export type BoardPaneProps = {
   // owns rendering the CardZoomSheet itself.
   touchMode?: boolean
   onZoom?: (req: ZoomRequest) => void
+  // Disables the Grid's own dismiss clicks (e.g. it isn't this seat's turn).
+  // Scoped to a fieldset around the grid body ONLY — never the heading —
+  // because a fieldset's `disabled` cascades to every descendant button
+  // regardless of nesting, and the heading's dismiss-pile button must stay
+  // clickable throughout (viewing a public pile isn't a turn action).
+  controlsDisabled?: boolean
 }
 
-export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, footer, animateDeal = true, isOwn, isActive = true, roundFame, touchMode, onZoom }: BoardPaneProps) {
-  const className = `round-view__grid-pane${isOwn ? ' round-view__grid-pane--own' : ''}${isActive ? '' : ' round-view__grid-pane--inactive'}`
+export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, dismissedCount, onShowDismissed, animateDeal = true, isOwn, isActive = true, roundFame, touchMode, onZoom, controlsDisabled }: BoardPaneProps) {
+  const className = `round-view__grid-pane${isOwn ? ' round-view__grid-pane--own' : ''}`
+  // Only the grid itself dims for "not this seat's turn" — the heading (deck
+  // count, dismissed-pile button) sits outside round-view__grid-body so it
+  // stays fully legible and clickable regardless of whose turn it is.
+  const bodyClassName = `round-view__grid-body${isActive ? '' : ' round-view__grid-body--inactive'}`
   return (
     <div className={className}>
       <div className="round-view__grid-heading">
@@ -59,20 +75,26 @@ export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDis
         <span className="round-view__deck-count" title="Cards left undrawn in this player's deck">
           Deck: <strong>{deckCount}</strong> left
         </span>
+        {onShowDismissed && (
+          <button type="button" className="round-view__dismissed-button" onClick={onShowDismissed}>
+            Dismissed cards ({dismissedCount ?? 0})
+          </button>
+        )}
       </div>
-      <Grid
-        grid={grid}
-        cards={cards}
-        dismissEntries={dismissEntries}
-        onDismiss={onDismiss}
-        fame={fame}
-        readOnly={readOnly}
-        animateDeal={animateDeal}
-        roundFame={roundFame}
-        touchMode={touchMode}
-        onZoom={onZoom}
-      />
-      {footer}
+      <fieldset className={bodyClassName} disabled={controlsDisabled}>
+        <Grid
+          grid={grid}
+          cards={cards}
+          dismissEntries={dismissEntries}
+          onDismiss={onDismiss}
+          fame={fame}
+          readOnly={readOnly}
+          animateDeal={animateDeal}
+          roundFame={roundFame}
+          touchMode={touchMode}
+          onZoom={onZoom}
+        />
+      </fieldset>
     </div>
   )
 }

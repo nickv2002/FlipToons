@@ -132,6 +132,7 @@ button {
 .mode-card--solo {
   --mode-card-color: var(--color-accent);
   --mode-card-bg: var(--color-accent-bg);
+  grid-column: 1 / -1;
 }
 
 .mode-card--host {
@@ -142,7 +143,6 @@ button {
 .mode-card--join {
   --mode-card-color: var(--color-warning);
   --mode-card-bg: var(--color-warning-bg);
-  grid-column: 1 / -1;
 }
 
 .mode-card__icon {

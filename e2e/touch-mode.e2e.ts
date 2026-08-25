@@ -35,7 +35,7 @@ function firstDismissable(page: Page) {
 test.describe('touch mode', () => {
   test('single tap opens the zoom sheet with card text and a contextual action', async ({ page }) => {
     await startSolo(page)
-    await expect(page.getByTestId('touch-mode-toggle').locator('input')).toBeChecked()
+    await expect(page.getByTestId('touch-mode-toggle').locator('input')).not.toBeChecked()
 
     const card = firstDismissable(page)
     await expect(card).toBeVisible()
@@ -68,10 +68,10 @@ test.describe('touch mode', () => {
     await expect(page.getByRole('button', { name: /Dismissed cards/ })).not.toHaveText(dismissedBefore)
   })
 
-  test('turning touch mode off from the header restores direct clicks', async ({ page }) => {
+  test('turning Single-Tap Mode on from the header restores direct clicks', async ({ page }) => {
     await startSolo(page)
 
-    await page.getByTestId('touch-mode-toggle').locator('input').uncheck()
+    await page.getByTestId('touch-mode-toggle').locator('input').check()
 
     const card = firstDismissable(page)
     await expect(card).toBeVisible()

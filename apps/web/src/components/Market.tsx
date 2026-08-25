@@ -35,7 +35,7 @@ export function Market({ market, cards, fame, onHire, animateDeal = true, touchM
               price={price}
               emptyLabel={`${price} fame`}
               onClick={canHire ? () => onHire(i) : undefined}
-              // Double-Tap mode keeps an unaffordable card tappable so its
+              // The tap-to-preview flow keeps an unaffordable card tappable so its
               // detail view is still reachable — only the real hire (and the
               // non-touch-mode direct click it stands in for) stays gated on
               // affordability.

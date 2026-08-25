@@ -232,6 +232,7 @@ export const season1Cards: Card[] = [
   {
     id: 'turkey', name: 'Turkey', season: 1, rank: 20, copies: 2,
     fame: { base: 5 },
+    rawBodyText: 'Stack this card on the last card placed',
     onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     faqNote: 'FAQ: "If a turkey is the first card placed in a player\'s grid, ignore its ability. A turkey is stacked on the last placed card, even if that card has moved to a new position in the grid." Matches Elephant\'s parallel clarification above.',
   },

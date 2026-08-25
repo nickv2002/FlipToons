@@ -60,7 +60,7 @@ export type CardProps = {
   // Flip→CheckFame transition, distinct from the static base-fame line
   // (card.fame.base) that's always shown. Undefined renders no badge.
   roundFame?: number
-  // Double-Tap mode (TappableCard): suppresses the rules-text/warning lines
+  // Tap-to-preview flow (TappableCard, Single-Tap Mode off): suppresses the rules-text/warning lines
   // in the grid/market's in-place card — those clutter a small card whose
   // job there is just "what is this and can I act on it"; the zoom sheet's
   // own Card render (CardZoomSheet.tsx) never sets this, so full text is
@@ -93,10 +93,18 @@ function sentenceCase(text: string): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }
 
+// Rooster/Hen (score.ts) encode a per-card COUNT bonus as `ifCondition` with
+// a condition name that itself starts with "per" (see score.ts's comment on
+// perCardRank13OrLowerIncludingSelf) — displaying that as "if per card..."
+// reads as a typo, so strip the "if" for conditions already phrased as "per".
 function fameBonusText(card: CardData): string[] {
-  return (card.fame.bonuses ?? []).map((b) =>
-    b.kind === 'ifCondition' ? `+${b.amount} fame if ${humanize(b.condition)}` : `+${b.amount} fame per ${humanize(b.query)}`,
-  )
+  return (card.fame.bonuses ?? []).map((b) => {
+    if (b.kind === 'ifCondition') {
+      const words = humanize(b.condition)
+      return words.startsWith('per ') ? `+${b.amount} fame ${words}` : `+${b.amount} fame if ${words}`
+    }
+    return `+${b.amount} fame per ${humanize(b.query)}`
+  })
 }
 
 function CardIcon({ id }: { id: string }) {

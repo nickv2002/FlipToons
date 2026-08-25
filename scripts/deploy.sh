@@ -15,7 +15,7 @@
 # because "deployed" and "edge is serving it" are different claims.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SITE_URL="https://fliptoons.towatchlist.com/"
+SITE_URL="https://fliptoons.win/"
 
 echo "Building apps/web..."
 (cd "$ROOT/apps/web" && bun run build)

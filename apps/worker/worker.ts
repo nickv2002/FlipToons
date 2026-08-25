@@ -68,6 +68,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
 
+    if (url.hostname === 'www.fliptoons.win') {
+      url.hostname = 'fliptoons.win'
+      return Response.redirect(url.toString(), 301)
+    }
+
     if (url.pathname === '/api/rooms' && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS })
     }

@@ -24,7 +24,7 @@ play are deliberately out of scope but not designed out.
 
 **The multiplayer server moved from a Bun process to Cloudflare Workers +
 Durable Objects**, one DO instance per room, to get real hosting
-(`fliptoons.towatchlist.com`) without running and babysitting a VPS/container.
+(`fliptoons.win`) without running and babysitting a VPS/container.
 This was a genuine rewrite of the transport and state layers, not a
 deploy-target swap: `Bun.serve`'s callback-based WebSocket API became the
 Hibernation API (`ctx.acceptWebSocket`, `webSocketMessage`/`Close`/`Error`,

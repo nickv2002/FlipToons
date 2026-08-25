@@ -15,7 +15,7 @@ import { advanceThroughPassthroughPhases, applyAction } from './actions'
 import { runCheckFame, runFlip } from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
-import type { GameState } from './state'
+import type { EngineLogLine, GameState } from './state'
 
 const cards = cardsById()
 
@@ -60,14 +60,14 @@ describe('guaranteed-loss short circuit vs. a real win (Snake + deferred Peacock
     state = runCheckFame(state)
     // Enter the cascade already at 'postFameHooks', same as a caller landing
     // here mid-sequence (advanceThroughPassthroughPhases handles any prefix).
-    const logLines: string[] = []
+    const logLines: EngineLogLine[] = []
     const final = advanceThroughPassthroughPhases(state, logLines)
 
     expect(final.fame).toBe(30) // 28 + Peacock's deferred +2
     expect(final.phase).toBe('ended')
     expect(final.result).toBe('win')
-    expect(logLines.some((l) => l.includes('YOU WIN'))).toBe(true)
-    expect(logLines.some((l) => l.includes('YOU LOSE'))).toBe(false)
+    expect(logLines.some((l) => l.text.includes('YOU WIN'))).toBe(true)
+    expect(logLines.some((l) => l.text.includes('YOU LOSE'))).toBe(false)
   })
 
   test('the flip action end-to-end (applyAction), the real dispatch path the UI uses, also resolves a WIN', () => {
@@ -76,7 +76,7 @@ describe('guaranteed-loss short circuit vs. a real win (Snake + deferred Peacock
 
     expect(result.state.phase).toBe('ended')
     expect(result.state.result).toBe('win')
-    expect(result.logLines.some((l) => l.includes('YOU WIN'))).toBe(true)
+    expect(result.logLines.some((l) => l.text.includes('YOU WIN'))).toBe(true)
   })
 
   test("the 'continueToMarket' action (ai.ts's autoplay entry point) resolves the same WIN, not the guaranteed-loss path", () => {
@@ -112,13 +112,13 @@ describe('a genuine guaranteed loss (no fame divergence) still loses, with a spe
     state = runCheckFame(state)
     expect(state.fameGeneratedThisRound).toBeLessThan(state.fameToTriggerEndgame)
 
-    const logLines: string[] = []
+    const logLines: EngineLogLine[] = []
     const final = advanceThroughPassthroughPhases(state, logLines)
 
     expect(final.phase).toBe('ended')
     expect(final.result).toBe('loss')
-    const lossLine = logLines.find((l) => l.includes('YOU LOSE'))
+    const lossLine = logLines.find((l) => l.text.includes('YOU LOSE'))
     expect(lossLine).toBeDefined()
-    expect(lossLine).toContain(`${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame}`)
+    expect(lossLine?.text).toContain(`${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame}`)
   })
 })

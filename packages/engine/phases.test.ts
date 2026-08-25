@@ -3,7 +3,7 @@ import { emptyGrid, getSlot, occupiedSlots, placeCardFaceUp } from './grid'
 import { dismiss, endMarketPhase, hire, resolvePostMarketChoice, runCheckFame, runCleanup, runFlip, runPostFameHooks, runPostMarketHooks } from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
-import type { GameState } from './state'
+import type { EngineLogLine, GameState } from './state'
 
 const cards = cardsById()
 
@@ -739,11 +739,11 @@ describe('Group 2 — postMarket self/other-triggered hooks (donkey, alligator, 
       const grid = emptyGrid()
       placeCardFaceUp(grid, { section: 'base', row: 1, col: 0 }, 'donkey')
       state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
-      const logLines: string[] = []
+      const logLines: EngineLogLine[] = []
       state = endMarketPhase(state, logLines)
       expect(state.dismissed).toContain('donkey')
       expect(occupiedSlots(state.grid).length).toBe(0)
-      expect(logLines.some((l) => l.includes('Dismissed Donkey') && l.includes('Donkey'))).toBe(true)
+      expect(logLines.some((l) => l.text.includes('Dismissed Donkey') && l.text.includes('Donkey'))).toBe(true)
     })
 
     test('in the upper row, is NOT dismissed', () => {
@@ -853,14 +853,14 @@ describe('Group 2 — postMarket self/other-triggered hooks (donkey, alligator, 
       state = endMarketPhase(state)
       const beeOption = state.pendingPostMarketChoice!.options.find((o) => o.cardId === 'bee')!
 
-      const logLines: string[] = []
+      const logLines: EngineLogLine[] = []
       state = resolvePostMarketChoice(state, { pos: beeOption.pos, index: beeOption.index }, logLines)
 
       expect(state.pendingPostMarketChoice).toBeNull()
       expect(state.phase).toBe('cleanup') // resumed and completed the rest of endMarketPhase
       expect(state.dismissed).toContain('bee')
       expect(state.dismissed).not.toContain('sheep')
-      expect(logLines.some((l) => l.includes('Dismissed Bee') && l.includes('Alligator'))).toBe(true)
+      expect(logLines.some((l) => l.text.includes('Dismissed Bee') && l.text.includes('Alligator'))).toBe(true)
     })
 
     test('regression: a dismissible face-up card under a face-down top card is now auto-dismissed, not skipped', () => {
@@ -926,11 +926,11 @@ describe('Group 2 — postMarket self/other-triggered hooks (donkey, alligator, 
       placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'vulture') // rank 20
       placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee') // rank 0 — lowest
       state = { ...state, grid, market: { prices: [3], slots: [null], insertionSeq: [null] }, toonDeck: [] }
-      const logLines: string[] = []
+      const logLines: EngineLogLine[] = []
       state = endMarketPhase(state, logLines)
       expect(state.dismissed).toContain('bee')
       expect(state.dismissed).not.toContain('vulture')
-      expect(logLines.some((l) => l.includes('Dismissed Bee') && l.includes('Vulture'))).toBe(true)
+      expect(logLines.some((l) => l.text.includes('Dismissed Bee') && l.text.includes('Vulture'))).toBe(true)
     })
 
     test('an immune lowest-rank card means no-op (does NOT fall back to the next-lowest)', () => {

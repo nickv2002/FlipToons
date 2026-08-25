@@ -48,7 +48,7 @@ import { getSlot, posLabel } from './grid'
 import { hireCost } from './market'
 import { dismissCostFor, hasAnyLegalMarketAction, unencodableNote } from './phases'
 import { cardsById } from './setup'
-import type { Match, PlayerId } from './state'
+import type { EngineLogLine, Match, PlayerId } from './state'
 import { viewOf } from './state'
 import type { GridPos } from './types'
 
@@ -79,7 +79,7 @@ export type MatchAction =
 // protocol: the previous remote client tagged every historical line with the
 // room's CURRENT round when a client joined, so a joiner's whole game history
 // collapsed into one "Round N" bucket.
-export type LogLine = { playerId: PlayerId | null; round: number; text: string }
+export type LogLine = EngineLogLine & { round: number }
 
 export type MatchApplyResult = { match: Match; logLines: LogLine[]; debugLines: string[] }
 
@@ -113,10 +113,12 @@ function assertNoPendingDeckPlacement(match: Match, playerId: PlayerId, what: st
   throw new IllegalActionError(`Place ${cards[pending.cardId].name} in a deck before ${what}.`)
 }
 
-// Forwards a batch of table-wide engine strings (nobody's the actor — a
-// market decay, a shared flip note) into the log via `say`, unattributed.
-function sayAll(lines: string[], say: (text: string, who?: PlayerId | null) => void): void {
-  for (const line of lines) say(line, null)
+// Lifts a batch of engine-generated lines into the match log via `say`,
+// preserving whatever attribution the engine already worked out (a card
+// owner, or null for a genuinely table-wide event like market decay) —
+// never overwriting it.
+function forward(lines: EngineLogLine[], say: (text: string, who?: PlayerId | null) => void): void {
+  for (const l of lines) say(l.text, l.playerId)
 }
 
 // endMarketTurn can, on the last seat's turn, run the 1-2 player market
@@ -126,9 +128,9 @@ function sayAll(lines: string[], say: (text: string, who?: PlayerId | null) => v
 // auto-end in afterMarketAction, and the broke-seat skip loop in
 // afterTurnBoundary).
 function endTurnWithDecayLog(match: Match, playerId: PlayerId, say: (text: string, who?: PlayerId | null) => void): Match {
-  const decayLines: string[] = []
+  const decayLines: EngineLogLine[] = []
   const next = endMarketTurn(match, playerId, decayLines)
-  sayAll(decayLines, say)
+  forward(decayLines, say)
   return next
 }
 
@@ -211,10 +213,10 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
 
     case 'resolvePostMarketChoice': {
       assertTurn(match, playerId, 'answer that')
-      const decayLines: string[] = []
+      const decayLines: EngineLogLine[] = []
       const next = matchResolvePostMarketChoice(match, playerId, { pos: action.pos, index: action.index }, decayLines)
       say('resolved a post-Market ability.')
-      sayAll(decayLines, say)
+      forward(decayLines, say)
       return afterTurnBoundary(next, logLines, debugLines)
     }
 
@@ -263,9 +265,9 @@ function advanceFlip(
   say: (text: string, who?: PlayerId | null) => void,
 ): MatchApplyResult {
   if (match.shared.phase === 'finalFlip') {
-    const flipNotes: string[] = []
+    const flipNotes: EngineLogLine[] = []
     const outcome = runMatchFinalFlip(match, flipNotes, debugLines)
-    for (const n of flipNotes) say(n, null)
+    forward(flipNotes, say)
     for (const s of outcome.scores) {
       const bonus = s.modifiers.map((m) => ` (+${m.amount} ${m.label})`).join('')
       say(`Final Flip: ${s.total} fame${bonus}.`, s.playerId)
@@ -281,9 +283,9 @@ function advanceFlip(
     throw new IllegalActionError(`Nothing to reveal right now (phase: ${match.shared.phase}).`)
   }
 
-  const flipNotes: string[] = []
+  const flipNotes: EngineLogLine[] = []
   let next = runMatchFlip(match, flipNotes, debugLines)
-  for (const n of flipNotes) say(n, null)
+  forward(flipNotes, say)
 
   next = runMatchCheckFame(next)
   for (const p of next.players) {

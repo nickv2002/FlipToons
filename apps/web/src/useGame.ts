@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { GameState } from '../../../packages/engine/state'
+import type { GameState, PlayerId } from '../../../packages/engine/state'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
 import type { Action } from '../../../packages/engine/actions'
 import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
@@ -39,7 +39,9 @@ function saveState(state: GameState | null): void {
   }
 }
 
-export type LogEntry = { round: number; text: string }
+// playerId carries through from EngineLogLine for type parity with
+// multiplayer's LogLine — solo has one seat, so ResolveLog never prefixes it.
+export type LogEntry = { round: number; text: string; playerId?: PlayerId | null }
 
 export function useGame() {
   const [state, setState] = useState<GameState | null>(() => loadSavedState())
@@ -67,10 +69,14 @@ export function useGame() {
         // the round they're advancing INTO. The next round's own flip-order
         // line is the actual boundary: everything before it is state.round,
         // everything from it onward is next.round.
-        const boundary = logLines.findIndex((line) => /^Round \d+: flip order —/.test(line))
+        const boundary = logLines.findIndex((line) => /^Round \d+: flip order —/.test(line.text))
         setLog((prevLog) => [
           ...prevLog,
-          ...logLines.map((text, i) => ({ round: boundary !== -1 && i >= boundary ? next.round : state.round, text })),
+          ...logLines.map((line, i) => ({
+            round: boundary !== -1 && i >= boundary ? next.round : state.round,
+            text: line.text,
+            playerId: line.playerId,
+          })),
         ])
       }
       if (debugLines.length > 0) {
@@ -107,7 +113,10 @@ export function useGame() {
     // zero clicks, same as every subsequent round (actions.ts's applyAction
     // 'flip' branch cascades all the way through checkFame/postFameHooks).
     const { state: next, logLines, debugLines } = applyAction(initial, { kind: 'flip' })
-    setLog([{ round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` }, ...logLines.map((text) => ({ round: next.round, text }))])
+    setLog([
+      { round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` },
+      ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId })),
+    ])
     setDebugLog(debugLines.map((text) => ({ round: next.round, text })))
     setState(next)
   }, [])

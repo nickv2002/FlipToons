@@ -27,7 +27,7 @@ export { hasAnyLegalMarketAction, listDismissEntries }
 export type { DismissEntry }
 import { cardsById } from './setup'
 import { createSoloGameState } from './state'
-import type { GameState } from './state'
+import type { EngineLogLine, GameState } from './state'
 import { buildSoloSetup } from './setup'
 import type { SoloDifficulty } from './setup'
 import type { GridPos } from './types'
@@ -44,7 +44,7 @@ export type Action =
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
   | { kind: 'advanceCleanup' }
 
-export type ApplyResult = { state: GameState; logLines: string[]; debugLines: string[] }
+export type ApplyResult = { state: GameState; logLines: EngineLogLine[]; debugLines: string[] }
 
 const cards = cardsById()
 
@@ -84,8 +84,9 @@ function playerFacingMessage(err: unknown): string {
 // it drives forward phase-by-phase until landing on 'market' or 'ended',
 // appending the same log lines each individual action used to produce so no
 // information is lost by removing the intermediate screens.
-export function advanceThroughPassthroughPhases(state: GameState, logLines: string[], debugLines: string[] = []): GameState {
+export function advanceThroughPassthroughPhases(state: GameState, logLines: EngineLogLine[], debugLines: string[] = []): GameState {
   let next = state
+  const say = (text: string) => logLines.push({ playerId: state.playerId, text })
 
   if (next.phase === 'cleanup') {
     const roundJustEnded = next.round
@@ -93,14 +94,14 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     const threshold = next.fameToTriggerEndgame
     next = runCleanup(next)
     if (next.phase === 'ended') {
-      logLines.push(
+      say(
         next.result === 'win'
           ? `YOU WIN — reached ${fameThisRound}/${threshold} fame in round ${roundJustEnded}.`
           : `YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`,
       )
       return next
     }
-    logLines.push(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
+    say(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
   }
 
   if (next.phase === 'flip') {
@@ -109,14 +110,14 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
     // internal shuffle (same deck, same rng state), not a second live
     // shuffle.
     const preview = shuffleWithState(next.deck, next.rng).result
-    logLines.push(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
+    say(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
     next = runFlip(next, logLines, debugLines)
-    logLines.push(`${next.deck.length} card(s) left in your deck.`)
+    say(`${next.deck.length} card(s) left in your deck.`)
   }
 
   if (next.phase === 'checkFame') {
     next = runCheckFame(next)
-    if (next.lastCheckFame) logLines.push(formatBreakdown(next.lastCheckFame))
+    if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
   }
 
   if (next.phase === 'postFameHooks') {
@@ -138,10 +139,10 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: stri
 // applyAction's own checkInstantWin call (which only fires pre-'ended')
 // would never get a chance to override it. Checking win here first closes
 // that gap.
-function resolveEndOfRoundOutcome(state: GameState, logLines: string[]): GameState {
+function resolveEndOfRoundOutcome(state: GameState, logLines: EngineLogLine[]): GameState {
   const won = checkInstantWin(state)
   if (won !== state) {
-    logLines.push(`YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`)
+    logLines.push({ playerId: state.playerId, text: `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.` })
     return won
   }
   return skipGuaranteedLossMarketPhase(state, logLines)
@@ -168,11 +169,12 @@ function isGuaranteedLoss(state: GameState): boolean {
   return state.fameGeneratedThisRound < state.fameToTriggerEndgame && (state.toonDeckDepleted || state.toonDeck.length < 2)
 }
 
-function skipGuaranteedLossMarketPhase(next: GameState, logLines: string[]): GameState {
+function skipGuaranteedLossMarketPhase(next: GameState, logLines: EngineLogLine[]): GameState {
   if (next.phase !== 'market' || next.pendingPostMarketChoice || !isGuaranteedLoss(next)) {
     return next
   }
 
+  const playerId = next.playerId
   const roundJustEnded = next.round
   const fameThisRound = next.fameGeneratedThisRound
   const threshold = next.fameToTriggerEndgame
@@ -180,9 +182,10 @@ function skipGuaranteedLossMarketPhase(next: GameState, logLines: string[]): Gam
   if (result.pendingPostMarketChoice) return result
   if (result.phase === 'cleanup') result = runCleanup(result)
   if (result.phase === 'ended' && result.result === 'loss') {
-    logLines.push(
-      `YOU LOSE — round ${roundJustEnded} generated ${fameThisRound}/${threshold} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action this round could have closed the gap.`,
-    )
+    logLines.push({
+      playerId,
+      text: `YOU LOSE — round ${roundJustEnded} generated ${fameThisRound}/${threshold} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action this round could have closed the gap.`,
+    })
   }
   return result
 }
@@ -211,9 +214,9 @@ export function wouldHireEndInGuaranteedLoss(state: GameState, slotIndex: number
 // actionsRemaining hit 0 without an explicit `end` — auto-close the Market
 // phase rather than offering an action that would only throw. Run after
 // every successful hire/dismiss.
-function closeMarketIfExhausted(state: GameState, logLines: string[], debugLines: string[]): GameState {
+function closeMarketIfExhausted(state: GameState, logLines: EngineLogLine[], debugLines: string[]): GameState {
   if (state.phase === 'market' && state.actionsRemaining <= 0) {
-    logLines.push('No Market actions remaining — ending the Market phase.')
+    logLines.push({ playerId: state.playerId, text: 'No Market actions remaining — ending the Market phase.' })
     let next = endMarketPhase(state, logLines)
     if (next.pendingPostMarketChoice) return next // paused — waiting on Alligator's stack-target choice
     if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
@@ -238,12 +241,17 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
   const result = applyActionRaw(state, action)
   const won = checkInstantWin(result.state)
   if (won === result.state) return result
-  return { state: won, logLines: [...result.logLines, `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.`], debugLines: result.debugLines }
+  return {
+    state: won,
+    logLines: [...result.logLines, { playerId: won.playerId, text: `YOU WIN — reached ${won.fame}/${won.fameToTriggerEndgame} fame.` }],
+    debugLines: result.debugLines,
+  }
 }
 
 function applyActionRaw(state: GameState, action: Action): ApplyResult {
-  const logLines: string[] = []
+  const logLines: EngineLogLine[] = []
   const debugLines: string[] = []
+  const say = (text: string) => logLines.push({ playerId: state.playerId, text })
 
   if (action.kind === 'flip') {
     // Cascades all the way through checkFame and postFameHooks (both
@@ -255,7 +263,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
 
   if (action.kind === 'checkFame') {
     const next = runCheckFame(state)
-    if (next.lastCheckFame) logLines.push(formatBreakdown(next.lastCheckFame))
+    if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
     return { state: next, logLines, debugLines }
   }
 
@@ -273,13 +281,13 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     try {
       let next = hire(state, action.slotIndex, action.choices)
       const card = cards[cardId!]
-      logLines.push(`Hired ${card.name} for ${price} fame.`)
-      if (card.unencodable) logLines.push(unencodableNote(card))
+      say(`Hired ${card.name} for ${price} fame.`)
+      if (card.unencodable) say(unencodableNote(card))
       next = closeMarketIfExhausted(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
-      logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
+      say(`Can't do that: ${playerFacingMessage(err)}`)
       return { state, logLines, debugLines }
     }
   }
@@ -291,43 +299,43 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       const cost = dismissCostFor(state.grid, action.pos, action.index, cards)
       let next = dismiss(state, action.pos, action.index, action.choices)
       const card = cardId ? cards[cardId] : undefined
-      logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
-      if (card?.unencodable) logLines.push(unencodableNote(card))
+      say(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
+      if (card?.unencodable) say(unencodableNote(card))
       next = closeMarketIfExhausted(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
-      logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
+      say(`Can't do that: ${playerFacingMessage(err)}`)
       return { state, logLines, debugLines }
     }
   }
 
   if (action.kind === 'endMarket') {
     if (state.pendingPostMarketChoice) {
-      logLines.push(`Can't do that: resolve the pending Alligator choice first.`)
+      say(`Can't do that: resolve the pending Alligator choice first.`)
       return { state, logLines, debugLines }
     }
     let next = endMarketPhase(state, logLines)
     if (next.pendingPostMarketChoice) return { state: next, logLines, debugLines } // paused — waiting on Alligator's stack-target choice
-    logLines.push('Ended the Market phase.')
+    say('Ended the Market phase.')
     if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
     return { state: next, logLines, debugLines }
   }
 
   if (action.kind === 'resolvePostMarketChoice') {
     if (!state.pendingPostMarketChoice) {
-      logLines.push(`Can't do that: there's no pending choice to resolve.`)
+      say(`Can't do that: there's no pending choice to resolve.`)
       return { state, logLines, debugLines }
     }
     try {
       let next = resolvePostMarketChoice(state, { pos: action.pos, index: action.index }, logLines)
       if (next.pendingPostMarketChoice) return { state: next, logLines, debugLines } // another Alligator needs a choice too
-      logLines.push('Ended the Market phase.')
+      say('Ended the Market phase.')
       if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
-      logLines.push(`Can't do that: ${playerFacingMessage(err)}`)
+      say(`Can't do that: ${playerFacingMessage(err)}`)
       return { state, logLines, debugLines }
     }
   }
@@ -338,13 +346,13 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
     const threshold = state.fameToTriggerEndgame
     const next = runCleanup(state)
     if (next.phase === 'ended') {
-      logLines.push(
+      say(
         next.result === 'win'
           ? `YOU WIN — reached ${fameThisRound}/${threshold} fame in round ${roundJustEnded}.`
           : `YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`,
       )
     } else {
-      logLines.push(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
+      say(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
     }
     return { state: next, logLines, debugLines }
   }

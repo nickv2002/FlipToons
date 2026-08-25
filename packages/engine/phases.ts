@@ -29,7 +29,7 @@ import { cardsById } from './setup'
 // table is static (setup.ts memoizes it now), so a module-level const is the
 // same value every one of those calls produced.
 const cards = cardsById()
-import type { GameState, PostMarketCandidate } from './state'
+import type { EngineLogLine, GameState, PostMarketCandidate } from './state'
 import type { Grid, GridPos } from './types'
 
 
@@ -50,11 +50,11 @@ function assertPhase(state: GameState, phase: GameState['phase'], fn: string): v
 // Flip
 // ---------------------------------------------------------------------------
 
-export function runFlip(state: GameState, logLines?: string[], debugLines?: string[]): GameState {
+export function runFlip(state: GameState, logLines?: EngineLogLine[], debugLines?: string[]): GameState {
   assertPhase(state, 'flip', 'runFlip')
   const shuffled = shuffleWithState(state.deck, state.rng)
   const flipResult = flipDeck(shuffled.result, cards, { toonDeck: state.toonDeck, dismissed: state.dismissed })
-  logLines?.push(...flipResult.flipNotes)
+  if (logLines) for (const text of flipResult.flipNotes) logLines.push({ playerId: state.playerId, text })
   debugLines?.push(...flipResult.debugNotes)
 
   return {
@@ -776,7 +776,7 @@ function adjacentRightPos(grid: Grid, pos: GridPos): GridPos | null {
 // — the moment a dismissAdjacentRight target has 2+ eligible cards; every
 // other candidate before that point has already been applied to the
 // returned state.
-function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandidate[], cards: Record<CardId, Card>, logLines?: string[]): GameState {
+function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandidate[], cards: Record<CardId, Card>, logLines?: EngineLogLine[]): GameState {
   let next = state
 
   for (let i = 0; i < candidates.length; i++) {
@@ -793,7 +793,7 @@ function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandi
       const grid = cloneGrid(next.grid)
       const removedId = removeCardRaw(grid, c.pos, c.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
-      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(c.pos)} (${cards[c.cardId].name}).`)
+      logLines?.push({ playerId: state.playerId, text: `Dismissed ${cards[removedId].name} at ${posLabel(c.pos)} (${cards[c.cardId].name}).` })
     } else if (c.hook.kind === 'dismissAdjacentRight') {
       const rightPos = adjacentRightPos(next.grid, c.pos)
       if (!rightPos) continue
@@ -831,7 +831,7 @@ function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandi
       const grid = cloneGrid(next.grid)
       const removedId = removeCardRaw(grid, target.pos, target.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
-      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name} at ${posLabel(c.pos)}).`)
+      logLines?.push({ playerId: state.playerId, text: `Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name} at ${posLabel(c.pos)}).` })
     } else if (c.hook.kind === 'dismissLowestRankInGrid') {
       // Plain reading (per this pass's plan): find the lowest-rank face-up
       // card GRID-WIDE first, THEN no-op if it turns out to be immune — NOT
@@ -844,14 +844,14 @@ function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandi
       const grid = cloneGrid(next.grid)
       const removedId = removeCardRaw(grid, target.pos, target.index)
       next = { ...next, grid, dismissed: [...next.dismissed, removedId] }
-      logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name}).`)
+      logLines?.push({ playerId: state.playerId, text: `Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[c.cardId].name}).` })
     }
   }
 
   return { ...next, pendingPostMarketChoice: null }
 }
 
-export function runPostMarketHooks(state: GameState, logLines?: string[]): GameState {
+export function runPostMarketHooks(state: GameState, logLines?: EngineLogLine[]): GameState {
 
   const candidates: PostMarketCandidate[] = []
   for (const { pos, slot } of occupiedSlots(state.grid)) {
@@ -883,7 +883,7 @@ export function runPostMarketHooks(state: GameState, logLines?: string[]): GameS
 // function and fire only when activePlayerIndex wraps; the standard refill
 // stays per-turn and the 1-2 player decay fires once, after the last seat.
 // runCleanup's `phase`/`round` writes have the same shape.
-function finishEndMarketPhase(state: GameState, logLines?: string[]): GameState {
+function finishEndMarketPhase(state: GameState, logLines?: EngineLogLine[]): GameState {
   const standardRefill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   const afterStandardRefill = { ...state, ...applyRefillResult(state, standardRefill) }
 
@@ -900,11 +900,14 @@ function finishEndMarketPhase(state: GameState, logLines?: string[]): GameState 
 
 // Names the leftmost/rightmost cards the 1-2 player market decay (§3.6)
 // just discarded — otherwise they vanish from the market with no trace in
-// the log, unlike every other card removal in the game.
-function logMarketDecay(discarded: CardId[], logLines?: string[]): void {
+// the log, unlike every other card removal in the game. `playerId: null` is
+// deliberate, not a missing attribution: decay discards from the SHARED
+// market, which no single seat owns (see match.ts's closeMarketPhase, which
+// calls this through the first player's view purely as a plumbing vehicle).
+function logMarketDecay(discarded: CardId[], logLines?: EngineLogLine[]): void {
   if (!logLines || discarded.length === 0) return
   const names = discarded.map((id) => cards[id].name).join(' and ')
-  logLines.push(`Market decay: discarded ${names}.`)
+  logLines.push({ playerId: null, text: `Market decay: discarded ${names}.` })
 }
 
 // The disclaimer a hire/dismiss log line gets when the card involved is
@@ -930,13 +933,13 @@ export function runStandardRefill(state: GameState): GameState {
 // refill has closed any mid-turn gaps: it reads literal positions 0 and
 // length-1 as leftmost/rightmost, which only means what it says once the
 // market is full.
-export function runMarketDecay(state: GameState, logLines?: string[]): GameState {
+export function runMarketDecay(state: GameState, logLines?: EngineLogLine[]): GameState {
   const decay = soloMarketDecay(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   logMarketDecay(decay.discarded, logLines)
   return { ...state, ...applyRefillResult(state, decay) }
 }
 
-export function endMarketPhase(state: GameState, logLines?: string[]): GameState {
+export function endMarketPhase(state: GameState, logLines?: EngineLogLine[]): GameState {
   assertPhase(state, 'market', 'endMarketPhase')
   if (state.pendingPostMarketChoice) {
     throw new Error('phases.ts: endMarketPhase — a pending post-Market choice must be resolved first (call resolvePostMarketChoice)')
@@ -950,7 +953,7 @@ export function endMarketPhase(state: GameState, logLines?: string[]): GameState
 // pendingPostMarketChoice), then resumes the rest of that endMarketPhase
 // pass — any later postMarketHook candidates, then the standard refill/decay/
 // phase transition, exactly as if the whole sequence had run uninterrupted.
-export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
+export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos; index: number }, logLines?: EngineLogLine[]): GameState {
   const afterHooks = resumePostMarketHooks(state, choice, logLines)
   if (afterHooks.pendingPostMarketChoice) return afterHooks // another Alligator needs a choice too
   return finishEndMarketPhase(afterHooks, logLines)
@@ -963,7 +966,7 @@ export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos
 // runPostMarketHooks is stateless and would re-fire every hook still standing
 // in the grid (the Alligator would eat the whole stack to its right one prompt
 // at a time, and the Vulture would take a second card).
-export function resumePostMarketHooks(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
+export function resumePostMarketHooks(state: GameState, choice: { pos: GridPos; index: number }, logLines?: EngineLogLine[]): GameState {
   const pending = state.pendingPostMarketChoice
   if (!pending) throw new Error('phases.ts: resumePostMarketHooks — this state has no pending post-Market choice')
 
@@ -980,7 +983,7 @@ export function resumePostMarketHooks(state: GameState, choice: { pos: GridPos; 
     dismissed: [...state.dismissed, removedId],
     pendingPostMarketChoice: null,
   }
-  logLines?.push(`Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[pending.ownerCardId].name} at ${posLabel(pending.ownerPos)}).`)
+  logLines?.push({ playerId: state.playerId, text: `Dismissed ${cards[removedId].name} at ${posLabel(target.pos)} (${cards[pending.ownerCardId].name} at ${posLabel(pending.ownerPos)}).` })
 
   return applyPostMarketCandidates(next, pending.remainingCandidates, cards, logLines)
 }

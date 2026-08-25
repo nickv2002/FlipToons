@@ -106,6 +106,12 @@ export type PendingDeckPlacement = {
 // commitView below.
 export type PlayerId = string
 
+// One line of engine-generated log output. `playerId` names whose action
+// produced it — null only for genuinely table-wide events (market decay,
+// the endgame trigger) that have no single owner, never as a default for
+// "didn't bother to attribute it."
+export type EngineLogLine = { playerId: PlayerId | null; text: string }
+
 export type PlayerState = {
   playerId: PlayerId
   rng: RngState // per-player stream — see makeMatch for why it isn't shared

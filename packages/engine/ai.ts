@@ -15,7 +15,7 @@ import type { Action } from './actions'
 import { hireCost } from './market'
 import type { Rng } from './rng'
 import { makeRng } from './rng'
-import type { GameState } from './state'
+import type { EngineLogLine, GameState } from './state'
 
 export type AiOptions = {
   simulations?: number // playouts per candidate action
@@ -141,7 +141,7 @@ export function chooseBestMarketAction(state: GameState, opts: AiOptions = {}): 
   return evaluateMarketCandidates(state, opts)[0]!.action
 }
 
-export type AutoplayResult = { state: GameState; logLines: string[]; debugLines: string[]; actionsTaken: Action[] }
+export type AutoplayResult = { state: GameState; logLines: EngineLogLine[]; debugLines: string[]; actionsTaken: Action[] }
 
 // Drives an entire solo game to completion (or a round cap), using
 // chooseBestMarketAction — the real search, not the cheap rollout policy —
@@ -157,13 +157,16 @@ export function playAutomatically(
   const deadline = Date.now() + maxWallClockMs
   const startRound = state.round
   let s = state
-  const logLines: string[] = []
+  const logLines: EngineLogLine[] = []
   const debugLines: string[] = []
   const actionsTaken: Action[] = []
 
   while (s.phase !== 'ended' && s.round - startRound < maxRounds) {
     if (Date.now() > deadline) {
-      logLines.push(`ai.ts: playAutomatically — stopped after exceeding the ${maxWallClockMs}ms wall-clock cap (round ${s.round}, phase '${s.phase}')`)
+      logLines.push({
+        playerId: s.playerId,
+        text: `ai.ts: playAutomatically — stopped after exceeding the ${maxWallClockMs}ms wall-clock cap (round ${s.round}, phase '${s.phase}')`,
+      })
       break
     }
     let action: Action

@@ -36,7 +36,7 @@ import {
 } from './phases'
 import { emptyGrid, occupiedSlots } from './grid'
 import { shuffleWithState } from './rng'
-import type { Match, PlayerId, PlayerView } from './state'
+import type { EngineLogLine, Match, PlayerId, PlayerView } from './state'
 import { commitView, createSoloGameState, makeMatch, viewOf } from './state'
 import { buildMultiplayerSetup } from './setup'
 import type { FameModifier, RoundFame } from './roundFame'
@@ -125,7 +125,7 @@ function withPlayer(match: Match, index: number, fn: (view: PlayerView) => Playe
 // bias anyone's shuffle: each seat draws its flip order from its OWN rng
 // stream (state.ts's makeMatch), so turn position never leaks into what a
 // player reveals.
-export function runMatchFlip(match: Match, logLines?: string[], debugLines?: string[]): Match {
+export function runMatchFlip(match: Match, logLines?: EngineLogLine[], debugLines?: string[]): Match {
   // The Final Flip has ONE entry point, runMatchFinalFlip, because it must not
   // fall through into Check Fame -> post-fame hooks -> Market the way a normal
   // round does. Routing it here instead would do exactly that: this function
@@ -145,7 +145,7 @@ function allSeats(match: Match): number[] {
 // Flips a SUBSET of seats, leaving the shared phase alone. Split out of
 // runMatchFlip for the Final Flip's tiebreak, where only the tied players
 // re-flip and everyone else's PlayerState must be left exactly as it is.
-function flipSeats(match: Match, seats: number[], logLines?: string[], debugLines?: string[]): Match {
+function flipSeats(match: Match, seats: number[], logLines?: EngineLogLine[], debugLines?: string[]): Match {
   let next = match
   for (const i of seats) {
     // Re-projected inside withPlayer on every iteration, so seat i+1 sees the
@@ -319,7 +319,7 @@ export function matchDismiss(match: Match, playerId: PlayerId, pos: GridPos, car
   return withPlayer(match, index, (view) => dismiss(view, pos, cardIndex, choices))
 }
 
-export function matchResolvePostMarketChoice(match: Match, playerId: PlayerId, choice: { pos: GridPos; index: number }, logLines?: string[]): Match {
+export function matchResolvePostMarketChoice(match: Match, playerId: PlayerId, choice: { pos: GridPos; index: number }, logLines?: EngineLogLine[]): Match {
   const index = assertActive(match, playerId, 'matchResolvePostMarketChoice')
   const afterChoice = withPlayer(match, index, (view) => resolvePostMarketChoiceOnly(view, choice, logLines))
   // The choice may have unblocked the rest of this seat's hooks; if none are
@@ -345,7 +345,7 @@ export function matchResolvePostMarketChoice(match: Match, playerId: PlayerId, c
 // `toonDeck` and `nextInsertionSeq`, and the pin doesn't touch those. A 3-4
 // player table burned two toon cards to a rule that doesn't apply to it, and a
 // 1-2 player table on its last seat decayed twice in one round.
-function resolvePostMarketChoiceOnly(view: PlayerView, choice: { pos: GridPos; index: number }, logLines?: string[]): PlayerView {
+function resolvePostMarketChoiceOnly(view: PlayerView, choice: { pos: GridPos; index: number }, logLines?: EngineLogLine[]): PlayerView {
   const pending = view.pendingPostMarketChoice
   if (!pending) throw new Error('match.ts: resolvePostMarketChoiceOnly — no pending post-Market choice')
   return resumePostMarketHooks(view, choice, logLines)
@@ -353,7 +353,7 @@ function resolvePostMarketChoiceOnly(view: PlayerView, choice: { pos: GridPos; i
 
 // Ends ONE seat's Market turn: fire that seat's post-market hooks, then close
 // the turn.
-export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: string[]): Match {
+export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: EngineLogLine[]): Match {
   const index = assertActive(match, playerId, 'endMarketTurn')
 
   const afterHooks = withPlayer(match, index, (view) => runPostMarketHooks(view, logLines))
@@ -368,7 +368,7 @@ export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: strin
 // The tail of a seat's Market turn, once its hooks are done however they got
 // there: refill the shared market, then either pass to the next seat or — if
 // the turn order has wrapped — close the phase for the whole table.
-function finishSeatTurn(match: Match, index: number, logLines?: string[]): Match {
+function finishSeatTurn(match: Match, index: number, logLines?: EngineLogLine[]): Match {
   const afterRefill = withPlayer(match, index, (view) => ({ ...runStandardRefill(view), actionsRemaining: 0 }))
 
   const nextIndex = (index + 1) % afterRefill.turnOrder.length
@@ -382,7 +382,7 @@ function finishSeatTurn(match: Match, index: number, logLines?: string[]): Match
 // transition to Cleanup. Deliberately NOT part of endMarketTurn's per-seat
 // work — running the decay per turn would burn 2 toon cards per seat per
 // round instead of 2 per round, racing an N-player game to depletion.
-function closeMarketPhase(match: Match, logLines?: string[]): Match {
+function closeMarketPhase(match: Match, logLines?: EngineLogLine[]): Match {
   const decayed = match.players.length <= 2 ? withPlayer(match, match.firstPlayerIndex, (view) => runMarketDecay(view, logLines)) : match
   return { ...decayed, shared: { ...decayed.shared, phase: 'cleanup' } }
 }
@@ -573,7 +573,7 @@ export type FinalFlipOutcome = {
 // automatic, and the Final Flip skips the two phases that can pause on a
 // player choice (post-fame hooks and the Market phase). So unlike a normal
 // round, there is nothing here to hand back to a client mid-way.
-export function runMatchFinalFlip(match: Match, logLines?: string[], debugLines?: string[]): FinalFlipOutcome {
+export function runMatchFinalFlip(match: Match, logLines?: EngineLogLine[], debugLines?: string[]): FinalFlipOutcome {
   if (match.shared.phase !== 'finalFlip') {
     throw new Error(`match.ts: runMatchFinalFlip called in phase '${match.shared.phase}', expected 'finalFlip'`)
   }

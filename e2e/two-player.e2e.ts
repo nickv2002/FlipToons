@@ -151,8 +151,9 @@ test.describe('a two-player game, played from both sides', () => {
     // RoundView, header included, so a seat waiting on someone who had dropped
     // mid-turn could not act AND could not get out.
     await expect(waiting.page.getByRole('button', { name: 'Leave game' })).toBeEnabled()
-    await expect(waiting.page.getByRole('button', { name: /^Dismissed cards/ })).toBeEnabled()
-    await expect(waiting.page.getByRole('button', { name: /^Remaining deck/ })).toBeEnabled()
+    const myBoard = waiting.page.getByTestId('my-board')
+    await expect(myBoard.getByRole('button', { name: /^Dismissed cards/ })).toBeEnabled()
+    await expect(myBoard.getByRole('button', { name: /^Remaining deck/ })).toBeEnabled()
 
     // And it works: clicking it actually leaves.
     await waiting.page.getByRole('button', { name: 'Leave game' }).click()

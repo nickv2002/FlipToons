@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cardsById } from '../../../../packages/engine/setup'
 import { deckPlacementTargets, matchRoundFame } from '../../../../packages/engine/match'
 import { viewOf } from '../../../../packages/engine/state'
@@ -7,6 +7,7 @@ import type { MatchAction } from '../../../../packages/engine/matchActions'
 import type { Action } from '../../../../packages/engine/actions'
 import type { LobbyState } from '../../../worker/protocol'
 import { BoardPane } from './BoardPane'
+import { CardListOverlay } from './CardListOverlay'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
 import { occupiedSlots } from '../../../../packages/engine/grid'
@@ -376,7 +377,9 @@ function OpponentBoards({
   fames: ReturnType<typeof matchRoundFame>
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
+  const [dismissedOverlayFor, setDismissedOverlayFor] = useState<string | null>(null)
   if (others.length === 0) return null
+  const overlayPlayer = others.find((p) => p.playerId === dismissedOverlayFor)
   return (
     <section className="opponents" data-testid="opponent-boards">
       <h3>Other players</h3>
@@ -398,10 +401,28 @@ function OpponentBoards({
               isOwn={false}
               isActive={phase === 'market' && p.playerId === activeId}
               roundFame={roundFameLookup(fames.find((f) => f.playerId === p.playerId)!.fame.grid, p.grid)}
+              footer={
+                <button
+                  type="button"
+                  className="opponents__dismissed-button"
+                  data-testid={`opponent-dismissed-${p.playerId}`}
+                  onClick={() => setDismissedOverlayFor(p.playerId)}
+                >
+                  Dismissed cards ({p.dismissed.length})
+                </button>
+              }
             />
           </div>
         ))}
       </div>
+      {overlayPlayer && (
+        <CardListOverlay
+          title={`${nameOf(overlayPlayer.playerId)}'s dismissed cards`}
+          cardIds={overlayPlayer.dismissed}
+          cards={cards}
+          onClose={() => setDismissedOverlayFor(null)}
+        />
+      )}
     </section>
   )
 }

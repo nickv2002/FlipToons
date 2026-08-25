@@ -1617,10 +1617,9 @@ img.card__icon {
   font-weight: 400;
 }
 
-.opponents__counts {
+.opponents__dismissed-button {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
-  color: color-mix(in srgb, canvastext 60%, transparent);
 }
 
 .scoreboard {

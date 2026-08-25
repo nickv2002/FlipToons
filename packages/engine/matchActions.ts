@@ -44,8 +44,9 @@ import {
   runMatchPostFameHooks,
 } from './match'
 import type { DeckPlacementTarget } from './match'
+import { getSlot, posLabel } from './grid'
 import { hireCost } from './market'
-import { hasAnyLegalMarketAction } from './phases'
+import { dismissCostFor, hasAnyLegalMarketAction, unencodableNote } from './phases'
 import { cardsById } from './setup'
 import type { Match, PlayerId } from './state'
 import { viewOf } from './state'
@@ -112,6 +113,25 @@ function assertNoPendingDeckPlacement(match: Match, playerId: PlayerId, what: st
   throw new IllegalActionError(`Place ${cards[pending.cardId].name} in a deck before ${what}.`)
 }
 
+// Forwards a batch of table-wide engine strings (nobody's the actor — a
+// market decay, a shared flip note) into the log via `say`, unattributed.
+function sayAll(lines: string[], say: (text: string, who?: PlayerId | null) => void): void {
+  for (const line of lines) say(line, null)
+}
+
+// endMarketTurn can, on the last seat's turn, run the 1-2 player market
+// decay — every caller that closes a turn needs to both make the call and
+// surface whatever it discarded, so that pairing lives here once rather
+// than at each of the three call sites (an explicit endTurn, the
+// auto-end in afterMarketAction, and the broke-seat skip loop in
+// afterTurnBoundary).
+function endTurnWithDecayLog(match: Match, playerId: PlayerId, say: (text: string, who?: PlayerId | null) => void): Match {
+  const decayLines: string[] = []
+  const next = endMarketTurn(match, playerId, decayLines)
+  sayAll(decayLines, say)
+  return next
+}
+
 // Applies one action on behalf of ONE player.
 //
 // SECURITY: `playerId` must be derived from the connection's assigned seat,
@@ -166,29 +186,35 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       }
       const card = cardId ? cards[cardId] : undefined
       say(`hired ${card?.name ?? 'a card'} for ${price} fame.`)
-      if (card?.unencodable) {
-        say(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
-      }
+      if (card?.unencodable) say(unencodableNote(card))
       return afterMarketAction(next, playerId, logLines, debugLines, say)
     }
 
     case 'dismiss': {
       assertTurn(match, playerId, 'dismiss')
       assertNoPendingDeckPlacement(match, playerId, 'taking another action')
+      const view = viewOf(match, playerIndex(match, playerId))
+      const slot = getSlot(view.grid, action.pos)
+      const cardId = slot?.cards[action.index]
+      const cost = dismissCostFor(view.grid, action.pos, action.index, cards)
       let next: Match
       try {
         next = matchDismiss(match, playerId, action.pos, action.index, action.choices)
       } catch (err) {
         throw new IllegalActionError(err instanceof Error ? err.message : String(err))
       }
-      say('dismissed a card.')
+      const card = cardId ? cards[cardId] : undefined
+      say(`dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
+      if (card?.unencodable) say(unencodableNote(card))
       return afterMarketAction(next, playerId, logLines, debugLines, say)
     }
 
     case 'resolvePostMarketChoice': {
       assertTurn(match, playerId, 'answer that')
-      const next = matchResolvePostMarketChoice(match, playerId, { pos: action.pos, index: action.index })
+      const decayLines: string[] = []
+      const next = matchResolvePostMarketChoice(match, playerId, { pos: action.pos, index: action.index }, decayLines)
       say('resolved a post-Market ability.')
+      sayAll(decayLines, say)
       return afterTurnBoundary(next, logLines, debugLines)
     }
 
@@ -211,8 +237,8 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
     case 'endTurn': {
       assertTurn(match, playerId, 'end your turn')
       assertNoPendingDeckPlacement(match, playerId, 'ending your turn')
-      const next = endMarketTurn(match, playerId)
       say('ended their turn.')
+      const next = endTurnWithDecayLog(match, playerId, say)
       return afterTurnBoundary(next, logLines, debugLines)
     }
 
@@ -295,7 +321,7 @@ function afterMarketAction(
     (me.actionsRemaining <= 0 || !hasAnyLegalMarketAction(viewOf(match, index)))
   ) {
     say(me.actionsRemaining <= 0 ? 'has no actions left — ending their turn.' : 'can no longer afford any Market action — ending their turn.')
-    return afterTurnBoundary(endMarketTurn(match, playerId), logLines, debugLines)
+    return afterTurnBoundary(endTurnWithDecayLog(match, playerId, say), logLines, debugLines)
   }
   return { match, logLines, debugLines }
 }
@@ -313,7 +339,8 @@ function afterTurnBoundary(match: Match, logLines: LogLine[], debugLines: string
     const index = playerIndex(current, playerId)
     if (current.players[index].pendingPostMarketChoice || hasAnyLegalMarketAction(viewOf(current, index))) break
     logLines.push({ playerId, round: current.shared.round, text: 'can no longer afford any Market action — ending their turn.' })
-    current = endMarketTurn(current, playerId)
+    const round = current.shared.round
+    current = endTurnWithDecayLog(current, playerId, (text, who = null) => logLines.push({ playerId: who, round, text }))
   }
   match = current
 

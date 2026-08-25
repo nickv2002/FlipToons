@@ -303,7 +303,7 @@ export function matchResolvePostMarketChoice(match: Match, playerId: PlayerId, c
   // scan is stateless — every hook still standing in the grid fired a second
   // time.
   if (afterChoice.players[index].pendingPostMarketChoice) return afterChoice
-  return finishSeatTurn(afterChoice, index)
+  return finishSeatTurn(afterChoice, index, logLines)
 }
 
 // phases.ts's resolvePostMarketChoice resumes the whole solo end-of-phase
@@ -334,28 +334,28 @@ export function endMarketTurn(match: Match, playerId: PlayerId, logLines?: strin
   // and matchResolvePostMarketChoice picks the sequence back up from here.
   if (afterHooks.players[index].pendingPostMarketChoice) return afterHooks
 
-  return finishSeatTurn(afterHooks, index)
+  return finishSeatTurn(afterHooks, index, logLines)
 }
 
 // The tail of a seat's Market turn, once its hooks are done however they got
 // there: refill the shared market, then either pass to the next seat or — if
 // the turn order has wrapped — close the phase for the whole table.
-function finishSeatTurn(match: Match, index: number): Match {
+function finishSeatTurn(match: Match, index: number, logLines?: string[]): Match {
   const afterRefill = withPlayer(match, index, (view) => ({ ...runStandardRefill(view), actionsRemaining: 0 }))
 
   const nextIndex = (index + 1) % afterRefill.turnOrder.length
   const wrapped = nextIndex === afterRefill.firstPlayerIndex
   if (!wrapped) return { ...afterRefill, activePlayerIndex: nextIndex }
 
-  return closeMarketPhase(afterRefill)
+  return closeMarketPhase(afterRefill, logLines)
 }
 
 // Once-per-round tail of the Market phase: the 1-2 player decay, then the
 // transition to Cleanup. Deliberately NOT part of endMarketTurn's per-seat
 // work — running the decay per turn would burn 2 toon cards per seat per
 // round instead of 2 per round, racing an N-player game to depletion.
-function closeMarketPhase(match: Match): Match {
-  const decayed = match.players.length <= 2 ? withPlayer(match, match.firstPlayerIndex, (view) => runMarketDecay(view)) : match
+function closeMarketPhase(match: Match, logLines?: string[]): Match {
+  const decayed = match.players.length <= 2 ? withPlayer(match, match.firstPlayerIndex, (view) => runMarketDecay(view, logLines)) : match
   return { ...decayed, shared: { ...decayed.shared, phase: 'cleanup' } }
 }
 

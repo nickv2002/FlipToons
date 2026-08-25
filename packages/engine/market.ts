@@ -144,17 +144,18 @@ export function soloMarketDecay(
   toonDeck: CardId[],
   cardsById: Record<CardId, Card>,
   nextInsertionSeq: number,
-): RefillResult {
+): RefillResult & { discarded: CardId[] } {
   const decayed: Market = {
     prices: market.prices,
     slots: market.slots.slice(),
     insertionSeq: market.insertionSeq.slice(),
   }
   const lastIdx = decayed.slots.length - 1
+  const discarded = [decayed.slots[0], decayed.slots[lastIdx]].filter((id): id is CardId => id !== null)
   decayed.slots[0] = null
   decayed.insertionSeq[0] = null
   decayed.slots[lastIdx] = null
   decayed.insertionSeq[lastIdx] = null
 
-  return refillMarket(decayed, toonDeck, cardsById, nextInsertionSeq)
+  return { ...refillMarket(decayed, toonDeck, cardsById, nextInsertionSeq), discarded }
 }

@@ -122,6 +122,25 @@ describe('a full 2-player match through the action layer', () => {
     const played = autoplayMatch(buildNewMatch(31, 2, 2, { fameToTriggerEndgame: 6 }), { hire: true })
     expect(played.match.shared.phase).toBe('ended')
   })
+
+  test('the 2-player market decay is logged by name, table-wide (not attributed to a seat)', () => {
+    // High threshold so at least one full round (through Cleanup) completes
+    // before the endgame ends the game.
+    const played = autoplayMatch(buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 }), { hire: true })
+    const decayLines = played.log.filter((l) => l.text.startsWith('Market decay:'))
+    expect(decayLines.length).toBeGreaterThan(0)
+    for (const line of decayLines) {
+      expect(line.playerId).toBeNull()
+      expect(line.text).toMatch(/^Market decay: discarded .+\.$/)
+    }
+  })
+
+  test('the market decay never fires at 3-4 players', () => {
+    for (const n of [3, 4]) {
+      const played = autoplayMatch(buildNewMatch(21, n, 1, { fameToTriggerEndgame: 6 }), { hire: true })
+      expect(played.log.some((l) => l.text.startsWith('Market decay:'))).toBe(false)
+    }
+  })
 })
 
 // One step of the same policy, for the round-boundary test above.

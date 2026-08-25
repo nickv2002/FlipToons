@@ -20,6 +20,7 @@ import {
   runCleanup,
   runFlip,
   runPostFameHooks,
+  unencodableNote,
 } from './phases'
 import type { DismissEntry } from './phases'
 export { hasAnyLegalMarketAction, listDismissEntries }
@@ -273,7 +274,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       let next = hire(state, action.slotIndex, action.choices)
       const card = cards[cardId!]
       logLines.push(`Hired ${card.name} for ${price} fame.`)
-      if (card.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
+      if (card.unencodable) logLines.push(unencodableNote(card))
       next = closeMarketIfExhausted(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
     } catch (err) {
@@ -291,7 +292,7 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       let next = dismiss(state, action.pos, action.index, action.choices)
       const card = cardId ? cards[cardId] : undefined
       logLines.push(`Dismissed ${card?.name ?? cardId} at ${posLabel(action.pos)} for ${cost} fame.`)
-      if (card?.unencodable) logLines.push(`  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`)
+      if (card?.unencodable) logLines.push(unencodableNote(card))
       next = closeMarketIfExhausted(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
     } catch (err) {

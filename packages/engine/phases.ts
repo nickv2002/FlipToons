@@ -883,11 +883,12 @@ export function runPostMarketHooks(state: GameState, logLines?: string[]): GameS
 // function and fire only when activePlayerIndex wraps; the standard refill
 // stays per-turn and the 1-2 player decay fires once, after the last seat.
 // runCleanup's `phase`/`round` writes have the same shape.
-function finishEndMarketPhase(state: GameState): GameState {
+function finishEndMarketPhase(state: GameState, logLines?: string[]): GameState {
   const standardRefill = refillMarket(state.market, state.toonDeck, cards, state.nextInsertionSeq)
   const afterStandardRefill = { ...state, ...applyRefillResult(state, standardRefill) }
 
   const decay = soloMarketDecay(afterStandardRefill.market, afterStandardRefill.toonDeck, cards, afterStandardRefill.nextInsertionSeq)
+  logMarketDecay(decay.discarded, logLines)
 
   return {
     ...afterStandardRefill,
@@ -895,6 +896,23 @@ function finishEndMarketPhase(state: GameState): GameState {
     actionsRemaining: 0,
     phase: 'cleanup',
   }
+}
+
+// Names the leftmost/rightmost cards the 1-2 player market decay (§3.6)
+// just discarded — otherwise they vanish from the market with no trace in
+// the log, unlike every other card removal in the game.
+function logMarketDecay(discarded: CardId[], logLines?: string[]): void {
+  if (!logLines || discarded.length === 0) return
+  const names = discarded.map((id) => cards[id].name).join(' and ')
+  logLines.push(`Market decay: discarded ${names}.`)
+}
+
+// The disclaimer a hire/dismiss log line gets when the card involved is
+// unencodable (Axolotl, Platypus) — identical wording needed by both
+// actions.ts (solo) and matchActions.ts (multiplayer), so it lives here
+// rather than copy-pasted in each.
+export function unencodableNote(card: Card): string {
+  return `  Note: ${card.name}'s effect is not simulated by the engine — resolve it manually if it matters.`
 }
 
 // The standard once-per-TURN refill, split out of finishEndMarketPhase so the
@@ -912,8 +930,9 @@ export function runStandardRefill(state: GameState): GameState {
 // refill has closed any mid-turn gaps: it reads literal positions 0 and
 // length-1 as leftmost/rightmost, which only means what it says once the
 // market is full.
-export function runMarketDecay(state: GameState): GameState {
+export function runMarketDecay(state: GameState, logLines?: string[]): GameState {
   const decay = soloMarketDecay(state.market, state.toonDeck, cards, state.nextInsertionSeq)
+  logMarketDecay(decay.discarded, logLines)
   return { ...state, ...applyRefillResult(state, decay) }
 }
 
@@ -924,7 +943,7 @@ export function endMarketPhase(state: GameState, logLines?: string[]): GameState
   }
   const afterHooks = runPostMarketHooks(state, logLines)
   if (afterHooks.pendingPostMarketChoice) return afterHooks // paused — waiting on Alligator's stack-target choice, still phase 'market'
-  return finishEndMarketPhase(afterHooks)
+  return finishEndMarketPhase(afterHooks, logLines)
 }
 
 // Resolves a pending Alligator stack-target choice (GameState.
@@ -934,7 +953,7 @@ export function endMarketPhase(state: GameState, logLines?: string[]): GameState
 export function resolvePostMarketChoice(state: GameState, choice: { pos: GridPos; index: number }, logLines?: string[]): GameState {
   const afterHooks = resumePostMarketHooks(state, choice, logLines)
   if (afterHooks.pendingPostMarketChoice) return afterHooks // another Alligator needs a choice too
-  return finishEndMarketPhase(afterHooks)
+  return finishEndMarketPhase(afterHooks, logLines)
 }
 
 // The hook half of resolvePostMarketChoice, split out so the multiplayer turn

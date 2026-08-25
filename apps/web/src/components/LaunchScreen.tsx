@@ -60,6 +60,34 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
           <span className="mode-card__subtitle">Enter a room code</span>
         </button>
       </div>
+
+      <div className="game-links">
+        <div className="game-links__season">
+          <h2>Season 1</h2>
+          <a href="https://thunderworksgames.com/products/fliptoons-game" target="_blank" rel="noreferrer">
+            Buy the game
+          </a>
+          <a href="https://www.youtube.com/watch?v=BP-DW0KpinA" target="_blank" rel="noreferrer">
+            How to Play video
+          </a>
+          <a href="https://thunderworksgames.com/products/fliptoons-game" target="_blank" rel="noreferrer">
+            Rules PDF (see Downloads on buy page)
+          </a>
+        </div>
+
+        <div className="game-links__season">
+          <h2>Season 2</h2>
+          <a href="https://thunderworksgames.com/products/fliptoons-season-2-game" target="_blank" rel="noreferrer">
+            Buy the game
+          </a>
+          <a href="https://www.youtube.com/watch?v=04qv_ghSCAY" target="_blank" rel="noreferrer">
+            How to Play video
+          </a>
+          <a href="https://thunderworksgames.com/products/fliptoons-season-2-game" target="_blank" rel="noreferrer">
+            Rules PDF (see Downloads on buy page)
+          </a>
+        </div>
+      </div>
     </div>
   )
 }

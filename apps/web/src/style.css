@@ -160,6 +160,37 @@ button {
   opacity: 0.75;
 }
 
+.game-links {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-top: 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, canvastext 20%, transparent);
+}
+
+@media (max-width: 480px) {
+  .game-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+.game-links__season {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.game-links__season h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.2rem;
+}
+
+.game-links__season a {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
 .config-panel label {
   display: flex;
   flex-direction: column;

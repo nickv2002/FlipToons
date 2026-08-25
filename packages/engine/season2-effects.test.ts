@@ -205,18 +205,32 @@ describe('Crab — returnSelfIfMiddleColumn (self-RETURN)', () => {
     expect(remainingDeck).toHaveLength(0)
   })
 
-  test('CONFIRMED STALL CONDITION, scoped to an all-Crab deck as the FAQ describes ("all-crab-deck stall condition"): every redraw into the middle column is ALSO a Crab, so the return never stops cycling', () => {
+  test('CONFIRMED STALL CONDITION, scoped to an all-Crab deck as the FAQ describes ("all-crab-deck stall condition"): every redraw into the middle column is ALSO a Crab, so the return never stops cycling — Flip ends early with a partial grid, per the rulebook\'s "leaving crab(s) in deck" resolution', () => {
     // One filler (bee) takes col 0; every remaining card is a Crab. The
-    // first Crab lands in col 1 (middle) and returns itself to the bottom
-    // of the deck — but because EVERY other remaining card is also a Crab,
-    // the next card up is another Crab, which lands right back in the same
-    // now-empty col 1 slot and returns itself too, forever. This is the
-    // narrower, FAQ-matching stall the bottom-of-deck reading predicts (as
-    // opposed to the rejected top-of-deck reading, under which even a
-    // single Crab in a mixed deck would stall — see returnCardToDeckBottom
-    // in flip.ts). flipDeck's MAX_FLIP_ITERATIONS guard converts the hang
-    // into a fast, diagnosable throw.
-    expect(() => place('bee', 'crab', 'crab', 'crab', 'crab', 'crab')).toThrow(/exceeded \d+ iterations/)
+    // next slot to fill (col 1, middle) would return whatever lands there,
+    // and every remaining card is a Crab — a detected fixed point, not a
+    // hang. flipDeck ends the Flip early rather than spinning to the
+    // MAX_FLIP_ITERATIONS throw (see the terminal-stall check in flip.ts).
+    const { grid, remainingDeck, flipNotes } = place('bee', 'crab', 'crab', 'crab', 'crab', 'crab')
+    expect(grid.base[0][0]!.cards).toEqual(['bee'])
+    expect(grid.base[0][1]).toBeNull()
+    expect(remainingDeck).toEqual(['crab', 'crab', 'crab', 'crab', 'crab'])
+    expect(flipNotes.some((n) => n.includes('ends early'))).toBe(true)
+  })
+
+  test('a single hired Crab can still trigger the terminal stall once it\'s the only card left and the last empty slot is the middle column', () => {
+    // Traced from a real game: salamander defers (rank 1, no qualifying
+    // next card), crab returns itself from (0,1), spider backfills it,
+    // mole takes (0,2), panther stacks on mole, coyote returns panther and
+    // stacks on mole too, groundhog takes (1,0) — leaving (1,1) and (1,2)
+    // empty. crab (redrawn) fills (1,1) (nextEmptyBaseSlot scans row-major)
+    // and returns itself again; panther (redrawn) stacks on groundhog at
+    // (1,0), leaving (1,1) as the ONLY empty slot with only crab left in
+    // the deck — a terminal stall, not the 500-iteration hang this used to
+    // produce.
+    const { grid, remainingDeck } = place('salamander', 'crab', 'spider', 'mole', 'panther', 'coyote', 'groundhog')
+    expect(grid.base[1][1]).toBeNull()
+    expect(remainingDeck).toEqual(['crab'])
   })
 })
 

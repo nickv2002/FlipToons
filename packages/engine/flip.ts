@@ -587,17 +587,16 @@ function applyOnPlaceEffects(
 // draws past six (stacking/relocation cards each buy at most one or two
 // more) — this cap exists purely as a defensive backstop (per
 // flip-toonz-structure-plan.md §10's "no round exceeds a sane flip
-// ceiling"). Under the bottom-of-deck return reading it's mostly a pure
-// safety net, but it's still load-bearing for one genuine case: an
+// ceiling"). The one genuine case that used to hit this guard — an
 // all-(or nearly-all)-Crab deck, where every card cycling back through the
 // middle column is ALSO a Crab, so the stall the FAQ describes ("all-crab-
-// deck stall condition") is real and never self-resolves — see
-// returnCardToDeckBottom's comment above and season2-effects.test.ts.
-// Without this guard that's a hang; with it, it's a fast, loud, diagnosable
-// error (the physical rulebook's own resolution — "leaving crab(s) in
-// deck" — implies the real game would just end the Flip phase there with a
-// partial grid rather than erroring, which this Step-0 engine doesn't have
-// a mechanism for yet; see this pass's report).
+// deck stall condition") never self-resolves — is now detected explicitly
+// (the terminal-stall check at the top of the while loop below) and ends
+// the Flip early with a partial grid, matching the rulebook's own "leaving
+// crab(s) in deck" resolution, rather than reaching this throw. What's left
+// for this guard is a genuine runaway with no such fixed point (e.g. an
+// all-Monkey relocation loop — see flip-effects.test.ts) — a fast, loud,
+// diagnosable error instead of a hang.
 const MAX_FLIP_ITERATIONS = 500
 
 
@@ -632,10 +631,26 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   let iterations = 0
 
   while (!isFull(grid) && remainingDeck.length > 0) {
+    // Terminal Crab stall (see returnCardToDeckBottom's comment): the next
+    // draw is guaranteed to land in the middle column, and every remaining
+    // card returns itself when that happens — so the draw is a fixed point
+    // (grid unchanged, deck merely rotates) that would otherwise never
+    // resolve. This is the rulebook's own "end Flip phase leaving crab(s)
+    // in deck" case, not a bug — end the Flip early with a partial grid
+    // rather than spinning to the MAX_FLIP_ITERATIONS throw below, which
+    // stays reserved for a genuine runaway (e.g. an all-Monkey relocation
+    // loop — see flip-effects.test.ts).
+    const nextTarget = nextEmptyBaseSlot(grid)
+    if (nextTarget?.col === 1 && remainingDeck.every((id) => hasOnPlaceKind(cardsById[id], 'returnSelfIfMiddleColumn'))) {
+      debugNotes.push(`Flip ends early — every remaining deck card returns itself from the middle column (${posLabel(toBasePos(nextTarget))}); ${remainingDeck.length} left in deck.`)
+      flipNotes.push(`Flip phase ends early — the remaining card(s) in the deck keep returning themselves from the middle column.`)
+      break
+    }
+
     iterations++
     if (iterations > MAX_FLIP_ITERATIONS) {
       throw new Error(
-        `flip.ts: flipDeck exceeded ${MAX_FLIP_ITERATIONS} iterations without filling the grid — likely a returned/relocated card looping back into its own trigger condition (see the Crab stall-condition note on returnCardToDeckBottom)`,
+        `flip.ts: flipDeck exceeded ${MAX_FLIP_ITERATIONS} iterations without filling the grid — likely a returned/relocated card looping back into its own trigger condition (the Crab middle-column stall is handled explicitly above; this is something else)`,
       )
     }
 

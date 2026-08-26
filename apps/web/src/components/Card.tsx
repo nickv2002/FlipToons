@@ -162,7 +162,7 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
     : null
 
   const className = `card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${selected ? ' card--selected' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`
-  const title = compact ? [card.name, bodyText, warningText].filter(Boolean).join('\n') : undefined
+  const title = [card.name, bodyText, warningText].filter(Boolean).join('\n')
 
   // Identical class list and children either way, so a read-only card and an
   // interactive one at rest paint the same — every .card rule is on the class,

@@ -687,6 +687,51 @@ button {
   animation-delay: var(--deal-delay, 0ms);
 }
 
+/* ---------- Win confetti ---------- */
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 200;
+}
+
+.confetti__piece {
+  position: absolute;
+  top: -10px;
+  width: 10px;
+  height: 16px;
+  opacity: 0;
+  border-radius: 2px;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--confetti-drift, 0px), 60vh) rotate(var(--confetti-rotate, 180deg));
+    opacity: 0;
+  }
+}
+
+.confetti__piece--0 { background: var(--color-accent); }
+.confetti__piece--1 { background: var(--color-positive); }
+.confetti__piece--2 { background: var(--color-warning); }
+.confetti__piece--3 { background: #e05fb0; }
+.confetti__piece--4 { background: #9b59d9; }
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti {
+    display: none;
+  }
+}
+
 .card--clickable {
   cursor: pointer;
 }

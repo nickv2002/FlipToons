@@ -10,6 +10,7 @@ import { computePendingChoice, buildEffectChoices } from '../../../../packages/e
 import type { PendingChoice } from '../../../../packages/engine/hireChoices'
 import { roundFameLookup } from '../../../../packages/engine/score'
 import { BoardPane } from './BoardPane'
+import { ConfettiBurst } from './ConfettiBurst'
 import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
@@ -187,6 +188,7 @@ export function RoundView({
   if (state.phase === 'ended') {
     return (
       <div className="round-view round-view--ended">
+        {state.result === 'win' && <ConfettiBurst />}
         <h2>{state.result === 'win' ? 'You win!' : 'You lose.'}</h2>
         <p>
           {state.result === 'win'

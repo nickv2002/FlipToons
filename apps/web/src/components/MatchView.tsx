@@ -8,6 +8,7 @@ import type { Action } from '../../../../packages/engine/actions'
 import type { LobbyState } from '../../../worker/protocol'
 import { BoardPane } from './BoardPane'
 import { CardListOverlay } from './CardListOverlay'
+import { ConfettiBurst } from './ConfettiBurst'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
 import { occupiedSlots } from '../../../../packages/engine/grid'
@@ -485,6 +486,7 @@ function EndScreen({
   const iWon = winners.includes(myPlayerId)
   return (
     <div className="match__end" data-testid="game-over">
+      {iWon && <ConfettiBurst />}
       <h2 data-testid="result">
         {winners.length === 1 ? (iWon ? 'You win!' : `${nameOf(winners[0])} wins!`) : `A shared win: ${winners.map(nameOf).join(' and ')}`}
       </h2>

@@ -1,5 +1,11 @@
 # refinement-tasks.md — Design refresh
 
+> **Status:** historical/superseded. Every stage below (2a/2e board-emphasis styling, 2b large
+> stat numbers, 2c dimmed face-down cards, 2d per-card round-fame badges, 3a settings module, 3b
+> touch mode + LAN reachability + e2e coverage) has shipped — confirmed against the current code
+> on 2026-08-25. Trust `packages/engine/`, `apps/web/src/`, and git log over this prose. See
+> `CLAUDE.md` for the current codebase map.
+
 This document covers the "Design refresh" work. Do this in a fresh agent/session with no memory
 of prior conversation — everything needed is here.
 

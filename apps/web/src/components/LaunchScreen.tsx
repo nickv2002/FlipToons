@@ -71,7 +71,7 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
             How to Play video
           </a>
           <a href="https://thunderworksgames.com/products/fliptoons-game" target="_blank" rel="noreferrer">
-            Rules PDF (see Downloads on buy page)
+            Rules PDF (see Downloads on Buy page)
           </a>
         </div>
 
@@ -84,7 +84,7 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
             How to Play video
           </a>
           <a href="https://thunderworksgames.com/products/fliptoons-season-2-game" target="_blank" rel="noreferrer">
-            Rules PDF (see Downloads on buy page)
+            Rules PDF (see Downloads on Buy page)
           </a>
         </div>
       </div>

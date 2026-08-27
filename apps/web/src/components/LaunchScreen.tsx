@@ -70,8 +70,8 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
           <a href="https://www.youtube.com/watch?v=BP-DW0KpinA" target="_blank" rel="noreferrer">
             How to Play video
           </a>
-          <a href="https://thunderworksgames.com/products/fliptoons-game" target="_blank" rel="noreferrer">
-            Rules PDF (see Downloads on Buy page)
+          <a href="https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FT_Rulebook_10_reduced.pdf" target="_blank" rel="noreferrer">
+            Rules PDF
           </a>
         </div>
 
@@ -83,8 +83,8 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
           <a href="https://www.youtube.com/watch?v=04qv_ghSCAY" target="_blank" rel="noreferrer">
             How to Play video
           </a>
-          <a href="https://thunderworksgames.com/products/fliptoons-season-2-game" target="_blank" rel="noreferrer">
-            Rules PDF (see Downloads on Buy page)
+          <a href="https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FlipToons2_Rulebook_18.pdf" target="_blank" rel="noreferrer">
+            Rules PDF
           </a>
         </div>
       </div>

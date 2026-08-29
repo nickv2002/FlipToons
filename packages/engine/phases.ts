@@ -21,7 +21,7 @@ import { flipDeck } from './flip'
 import { hireCost, refillMarket, soloMarketDecay } from './market'
 import { shuffleWithState } from './rng'
 import { scoreGrid } from './score'
-import { canUseGridReset, canUseMarketReset } from './bigButton'
+import { canUseGridResetNow, canUseMarketReset } from './bigButton'
 import { cardsById } from './setup'
 
 // One shared card table for the whole module. This was thirteen separate
@@ -168,17 +168,41 @@ export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameSta
     fame: breakdown.total,
     fameGeneratedThisRound: breakdown.total, // the Check-Fame snapshot (§3.4) — see state.ts's field comment for why this differs from `fame`
     lastCheckFame: breakdown,
-    // The Big Button's RESET: GRID decision comes "after the Check Fame
-    // phase", so it interposes here. Always 'postFameHooks' when the
-    // mini-expansion is off (canUseGridReset is false without a reset effect),
-    // which is why every existing caller is unaffected.
-    //
-    // MULTIPLAYER ignores this: match.ts's checkFameSeats pins `phase` back
-    // and lets openGridResetOrContinue decide for the whole TABLE, since one
-    // seat's button can't move a shared phase. This branch is what SOLO uses,
-    // where the seat and the table are the same thing.
-    phase: canUseGridReset(state) ? 'gridReset' : 'postFameHooks',
+    // RESET: GRID no longer interposes a decision phase here. It used to —
+    // "after the Check Fame phase" — but that pre-turn walk stopped the whole
+    // table for a choice that, in a normal round, is better made (and better
+    // informed) on your own Market turn, once you can see what the grid
+    // you'd be giving up is worth. `canUseGridResetNow` (bigButton.ts) is the
+    // in-turn gate that replaced it; `gridReset` survives only for the Final
+    // Flip, which has no Market phase to hang the decision off (match.ts's
+    // startMatchFinalFlip still opens it explicitly). So this is
+    // unconditionally 'postFameHooks' now, in solo and multiplayer alike.
+    phase: 'postFameHooks',
   }
+}
+
+// Delta-preserving rescore for RESET: GRID's in-round reset. Shared by solo
+// (actions.ts's 'useBigButton' handler) and multiplayer (match.ts's
+// rescoreSeat, which wraps this same reconciliation with the other-seats
+// grid projection a single-player GameState doesn't have) — put here rather
+// than in either action-surface module because matchActions.ts must never
+// import actions.ts (see that file's header), so a helper both surfaces want
+// belongs in phases.ts, which both already import.
+//
+// Overwriting `fame` outright with the freshly-scored total would silently
+// erase any fame already granted between the FIRST Check Fame and this reset
+// without moving the frozen fameGeneratedThisRound snapshot — the Firefly
+// least-fame bonus is exactly that case. Taking the DELTA instead (new
+// generated minus old generated, added onto whatever `fame` already was)
+// preserves it. Floored at 0 so a reset can never leave a seat holding
+// negative fame. Leaves `phase` as whatever runCheckFame set it to
+// ('postFameHooks'); callers that want to land back on 'market' directly
+// (this is an in-round reset, not a fresh round) overwrite it themselves.
+export function rescoreAfterGridReset(state: GameState, otherGrids: Grid[] = []): GameState {
+  const prevGenerated = state.fameGeneratedThisRound
+  const prevFame = state.fame
+  const scored = runCheckFame({ ...state, phase: 'checkFame' }, otherGrids)
+  return { ...scored, fame: Math.max(0, prevFame + (scored.fameGeneratedThisRound - prevGenerated)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +283,9 @@ export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true):
   // actedThisMarketPhase is cleared HERE and nowhere else: this is the one
   // place actionsRemaining is dealt out, every seat passes through it once per
   // round, and each seat takes exactly one turn per Market phase. See the
-  // field's comment in state.ts.
+  // field's comment in state.ts. It now rides RESET: GRID's start-of-turn
+  // gate (canUseGridResetNow) rather than RESET: MARKET's — clearing it here
+  // is what re-arms the grid-reset button at the top of each new Market turn.
   let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [], actedThisMarketPhase: false }
 
   // Snake's deferred "if the stacked card has a When-Hired ability,
@@ -296,6 +322,9 @@ export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; 
 
   // The hook has now fired, so re-running the pass would re-prompt off the
   // same Skunk. Open the Market phase directly instead.
+  // Same clear-and-rearm as runPostFameHooks above: this is the OTHER place
+  // actionsRemaining is dealt out for a new Market phase, so it is also
+  // another place that re-arms RESET: GRID's start-of-turn gate.
   let next: GameState = {
     ...state,
     grid,
@@ -724,19 +753,22 @@ export function hasAnyLegalMarketAction(state: GameState): boolean {
   // resolved — false here regardless of actionsRemaining/affordability.
   if (state.pendingPostMarketChoice) return false
 
-  // RESET: MARKET costs 0 fame and 0 actions, so it is a legal Market action
-  // for a seat that can afford nothing else — and it is checked BEFORE the
-  // actionsRemaining gate on purpose, since it does not consume one.
+  // Both Big Button resets cost 0 fame and 0 actions, so each is a legal
+  // Market action for a seat that can afford nothing else — and BOTH are
+  // checked BEFORE the actionsRemaining gate below on purpose, since neither
+  // consumes one. This is now the SOLE auto-end authority: afterMarketAction
+  // no longer has an independent `actionsRemaining <= 0` disjunct of its own
+  // (matchActions.ts), because this predicate already returns false on that
+  // condition once these two zero-cost early-trues have had their say.
   //
   // This matters in three places, all of which auto-END a turn when this
   // returns false: matchActions.ts's afterMarketAction and its afterTurnBoundary
   // skip LOOP (which can strip several seats in one call), and solo's
-  // closeMarketIfExhausted. Without this a broke seat silently loses its button.
-  //
-  // No conflict with "before taking any market actions": a seat whose
-  // actionsRemaining has run out has necessarily set actedThisMarketPhase, so
-  // canUseMarketReset is already false for it.
+  // closeMarketIfExhausted. Without this a broke seat silently loses its
+  // button — RESET: MARKET if unspent, or RESET: GRID if it's still this
+  // seat's own turn and they haven't acted yet.
   if (canUseMarketReset(state)) return true
+  if (canUseGridResetNow(state)) return true
 
   if (state.phase !== 'market' || state.actionsRemaining <= 0) return false
 

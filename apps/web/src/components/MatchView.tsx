@@ -47,6 +47,13 @@ function toMatchAction(action: Action): MatchAction | null {
       return { kind: 'dismiss', pos: action.pos, index: action.index, choices: action.choices }
     case 'resolvePostMarketChoice':
       return { kind: 'resolvePostMarketChoice', pos: action.pos, index: action.index }
+    case 'useBigButton':
+      // Covers BOTH reset effects — matchActions.ts dispatches on
+      // shared.resetEffect itself, so there is nothing to branch on here.
+      // Missing case was the pre-existing bug: the control rendered and
+      // dispatched a solo Action, but nothing translated it, so every press
+      // silently did nothing in multiplayer.
+      return { kind: 'useBigButton' }
     case 'endMarket':
       // Solo's "end the Market phase" is multiplayer's "end MY turn" — the
       // phase itself only closes when the turn order wraps.
@@ -107,6 +114,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
           waitingOnName={nameOf(activeId)}
           onDecide={(use) => onAct({ kind: 'bigButtonDecision', use })}
           seats={bigButtonSeats(match, myPlayerId, nameOf)}
+          risk={me.lastCheckFame ? { breakdown: me.lastCheckFame, total: me.fameGeneratedThisRound } : undefined}
         />
       )}
 

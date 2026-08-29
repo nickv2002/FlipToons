@@ -538,10 +538,12 @@ export class RoomDurableObject extends DurableObject<Env> {
       return undefined
     }
 
-    // The Big Button's RESET: GRID decision phase is turn-based like the
-    // Market phase — the table cannot advance past a seat that never answers.
-    // Without this branch the whole table stalls with NO alarm armed, because
-    // the check below returns undefined for every non-'market' phase.
+    // The Big Button's RESET: GRID decision phase only exists at the Final
+    // Flip now — an in-round reset rides on the Market phase's own turn
+    // instead — but that walk is still turn-based like the Market phase: the
+    // table cannot advance past a seat that never answers. Without this
+    // branch the whole table stalls with NO alarm armed, because the check
+    // below returns undefined for every non-'market' phase.
     if (room.match.shared.phase === 'gridReset') {
       const decider = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
       return decider && !decider.connected ? decider : undefined
@@ -593,7 +595,9 @@ export class RoomDurableObject extends DurableObject<Env> {
         const option = player.pendingPostMarketChoice.options[0]
         action = { kind: 'resolvePostMarketChoice', pos: option.pos, index: option.index }
       } else if (room.match.shared.phase === 'gridReset' && room.match.turnOrder[room.match.activePlayerIndex] === seat.playerId) {
-        // Declining is the "least the rules allow" answer here: it keeps the
+        // This is the Final Flip's decision only — the in-round RESET: GRID
+        // press lives on the Market phase's own turn and needs no fallback
+        // here. Declining is the "least the rules allow" answer: it keeps the
         // button for whenever they reconnect, whereas spending it on their
         // behalf would burn a once-per-game resource on a guess.
         action = { kind: 'bigButtonDecision', use: false }

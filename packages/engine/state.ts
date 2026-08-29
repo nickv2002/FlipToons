@@ -178,8 +178,11 @@ export type PlayerState = {
   bigButtonFaceUp: boolean
 
   // Whether this seat has taken a hire/dismiss yet in the CURRENT Market
-  // phase. Exists solely for RESET: MARKET's "this action must be taken on a
-  // player's turn before taking any market actions."
+  // phase. Exists solely for RESET: GRID's "this action must be taken on a
+  // player's turn before taking any market actions" — RESET: MARKET's own
+  // copy of that clause was deliberately relaxed (bigButton.ts's
+  // canUseMarketReset no longer reads this field at all; it can be pressed
+  // before, during, or after any Market action).
   //
   // `actionsRemaining === MARKET_ACTIONS_PER_ROUND` looks like the same
   // predicate and is not: hiring a Peacock decrements and then re-adds an
@@ -191,9 +194,15 @@ export type PlayerState = {
   actedThisMarketPhase: boolean
 }
 
-// See SharedState.gridReset.
+// See SharedState.gridReset. Narrowed to 'finalFlip' only: a normal round's
+// RESET: GRID decision no longer opens this phase at all — it moved onto the
+// resetting seat's own Market turn (bigButton.ts's canUseGridResetNow,
+// matchActions.ts's 'useBigButton' case) so there is nothing left to walk
+// clockwise through mid-round. The Final Flip has no Market phase to hang
+// that decision off, so it still parks the table here (match.ts's
+// startMatchFinalFlip / resumeMatchFinalFlip).
 export type GridResetState = {
-  context: 'round' | 'finalFlip'
+  context: 'finalFlip'
   asked: PlayerId[]
   optedIn: PlayerId[]
 }

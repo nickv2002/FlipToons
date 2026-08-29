@@ -39,16 +39,24 @@ const cards = cardsById()
 // Then refill the market. This action must be taken on a player's turn before
 // taking any market actions."
 //
-// The "before any market actions" clause is why PlayerState carries
-// `actedThisMarketPhase` rather than this reading actionsRemaining — see that
-// field's comment for the Peacock case that defeats the obvious proxy.
+// That "before any market actions" clause is DELIBERATELY relaxed here, at
+// the user's request: RESET: MARKET is usable before, during, or after any
+// Market action, and pressing it never ends the turn (matchActions.ts /
+// actions.ts route it through the ordinary afterMarketAction/
+// closeMarketIfExhausted tail instead of a hard stop) — so a player can
+// reset defensively after seeing what they can afford, even mid-turn, rather
+// than only as an opening move. `actedThisMarketPhase` therefore does NOT
+// gate this predicate any more; it still exists on PlayerState, but now
+// solely for RESET: GRID's start-of-turn gate (canUseGridResetNow, below) —
+// see that field's comment in state.ts for the Peacock case that keeps it
+// from being an actionsRemaining proxy.
 export function canUseMarketReset(view: PlayerView): boolean {
-  return view.resetEffect === 'market' && view.bigButtonFaceUp && view.phase === 'market' && !view.actedThisMarketPhase
+  return view.resetEffect === 'market' && view.bigButtonFaceUp && view.phase === 'market'
 }
 
 export function applyMarketReset(view: PlayerView): PlayerView {
   if (!canUseMarketReset(view)) {
-    throw new Error('bigButton.ts: applyMarketReset — the Big Button is not available (already used, wrong reset effect, or this turn has already taken a Market action)')
+    throw new Error('bigButton.ts: applyMarketReset — the Big Button is not available (already used, or the reset effect in play is not RESET: MARKET)')
   }
 
   // Shuffled with the ACTING player's own stream, for the same reason
@@ -94,11 +102,26 @@ export function marketResetReturnedCards(view: PlayerView): CardId[] {
 // Check Fame phase."
 //
 // The sequencing of the DECISIONS and the simultaneity of the RESETS are both
-// real: a later decider sees what the earlier ones chose, but nobody's re-flip
-// is visible to anyone until they have all committed. match.ts owns that walk
-// (SharedState.gridReset); this module owns only the per-player transform.
+// real, but ONLY for the Final Flip's walk (SharedState.gridReset), which is
+// the one remaining caller of that turn-gated phase — see match.ts's header
+// comment there. In a normal round there is no Market phase to hang a
+// pre-turn walk off, so RESET: GRID instead moves onto your own Market turn:
+// at the start of your turn you may press it, or just play, exactly like the
+// button-press UX RESET: MARKET already had. `canUseGridReset` below stays
+// the pure once-per-game predicate (bigButtonFaceUp + the right reset
+// effect), with no phase or turn opinion of its own — the Final Flip walk
+// and `applyGridResetCollect` both still want that bare form.
+// `canUseGridResetNow`, alongside it, adds the in-round gate: your own
+// Market turn, and you haven't acted yet this Market phase. That second
+// clause is `actedThisMarketPhase`'s remaining job (see its comment in
+// state.ts) — RESET: GRID is the one reset that still honors "before taking
+// any market actions" the way the card is printed.
 export function canUseGridReset(view: PlayerView): boolean {
   return view.resetEffect === 'grid' && view.bigButtonFaceUp
+}
+
+export function canUseGridResetNow(view: PlayerView): boolean {
+  return canUseGridReset(view) && view.phase === 'market' && !view.actedThisMarketPhase
 }
 
 function collectGridCards(grid: Grid): CardId[] {

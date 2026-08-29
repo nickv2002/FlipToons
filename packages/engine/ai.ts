@@ -88,20 +88,17 @@ function stepAutomatic(state: GameState, rng: Rng): GameState {
   if (state.phase === 'postFameHooks') return applyAction(state, { kind: 'continueToMarket' }).state
   if (state.phase === 'market') return applyAction(state, rolloutMarketAction(state, rng)).state
   if (state.phase === 'cleanup') return applyAction(state, { kind: 'advanceCleanup' }).state
-  // The Big Button's RESET: GRID decision (bigButton.ts). Unreachable unless
-  // the mini-expansion is switched on, and the evaluator ALWAYS DECLINES:
-  // deciding whether a re-flip is worth it is a real strategic question this
-  // Monte-Carlo evaluator has no model for, and declining is the option that
-  // leaves the position where it found it. Wired anyway, because the
-  // alternative is worse than "not clever" — see the throw below.
-  if (state.phase === 'gridReset') return applyAction(state, { kind: 'bigButtonDecision', use: false }).state
   if (state.phase === 'ended') return state // nothing left to step
 
   // Any OTHER phase would be returned unchanged, and playout's loop only
   // exits on 'ended' or a round counter that a stalled phase never advances —
   // so a phase added to the union and not handled here is an infinite loop,
-  // not a no-op. Fail loudly instead. (Caught exactly that way when
-  // 'gridReset' was added above.)
+  // not a no-op. Fail loudly instead. Solo can no longer reach 'gridReset':
+  // RESET: GRID moved onto the Market phase's own rolloutMarketAction/
+  // chooseBestMarketAction path (via 'useBigButton'), which the evaluator
+  // still declines to consider a candidate — teaching it to weigh a re-flip
+  // is new scope, not a gap this pass leaves unhandled by omission the way
+  // the old 'gridReset' branch had to.
   throw new Error(`ai.ts: stepAutomatic — no automatic step for phase '${state.phase}'`)
 }
 
@@ -189,8 +186,6 @@ export function playAutomatically(
     else if (s.phase === 'postFameHooks') action = { kind: 'continueToMarket' }
     else if (s.phase === 'market') action = chooseBestMarketAction(s, opts)
     else if (s.phase === 'cleanup') action = { kind: 'advanceCleanup' }
-    // Declines, for the same reason stepAutomatic does — see its comment.
-    else if (s.phase === 'gridReset') action = { kind: 'bigButtonDecision', use: false }
     else throw new Error(`ai.ts: playAutomatically — unhandled phase '${s.phase}'`)
 
     const result = applyAction(s, action)

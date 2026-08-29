@@ -477,12 +477,17 @@ afterEach(() => {
 // The Big Button mini-expansion
 // ---------------------------------------------------------------------------
 //
-// Two things can only be proved at this layer. The room-level SETTING has to
-// survive handleStart's match rebuild — a room always opens at MAX_SEATS and
-// is re-dealt at the size that actually turned up, so a setting held only on
-// the dealt match would be silently discarded in every real game. And the
-// RESET: GRID decision phase is turn-gated, so a disconnected seat can stall
-// the whole table unless strandingSeat knows about it.
+// Three things can only be proved at this layer. The room-level SETTING has
+// to survive handleStart's match rebuild — a room always opens at MAX_SEATS
+// and is re-dealt at the size that actually turned up, so a setting held only
+// on the dealt match would be silently discarded in every real game. The
+// RESET: GRID decision phase is turn-gated and now Final-Flip-only, so a
+// disconnected seat can stall the whole table unless strandingSeat knows
+// about it. And an in-round RESET: GRID button is a Market-phase action now
+// (hasAnyLegalMarketAction counts it), so a disconnected seat that still
+// holds one is no longer instantly skipped by the ordinary boundary loop the
+// way an action-less broke seat used to be — it has to wait for the
+// turn-timeout alarm like any other seat mid-turn.
 describe('Big Button', () => {
   test('a room created without it is unaffected — the default is off', async () => {
     const created = await createRoom({ name: 'Ana', season: 1, seed: 11 })
@@ -503,31 +508,49 @@ describe('Big Button', () => {
     expect(match.players.every((p) => p.bigButtonFaceUp)).toBe(true)
   })
 
-  test('the server stops at the decision phase instead of flipping past it', async () => {
+  test('a normal round never opens the decision phase — RESET: GRID moved onto the Market turn', async () => {
     const pair = await seatedPair({ bigButton: 'grid' })
     opened.push(pair.host, pair.guest)
     const match = await startGame(pair)
-    // advanceSharedPhases only loops while the phase is flip/finalFlip, so a
-    // phase that pauses on a player choice stops it — the same way a pending
-    // Skunk prompt does. Asserted here rather than assumed.
-    expect(match.shared.phase).toBe('gridReset')
-    expect(match.shared.gridReset?.context).toBe('round')
+    // advanceSharedPhases only loops while the phase is flip/finalFlip. A
+    // normal round's Check Fame now hands straight to postFameHooks (a
+    // pending Skunk prompt, ordinary and unrelated to this feature) or
+    // straight through to the Market phase — 'gridReset' is reachable only
+    // from the Final Flip now (see startMatchFinalFlip in match.ts).
+    expect(match.shared.phase).not.toBe('gridReset')
+    expect(match.shared.resetEffect).toBe('grid')
+    expect(match.players.every((p) => p.bigButtonFaceUp)).toBe(true)
   })
 
-  test('a disconnected seat mid-decision is played for, not left to stall the table', async () => {
+  test('a disconnected seat holding an unspent RESET: GRID button is not instantly skipped — it waits for the alarm', async () => {
     const pair = await seatedPair({ bigButton: 'grid' })
-    opened.push(pair.host)
-    const match = await startGame(pair)
-    expect(match.shared.phase).toBe('gridReset')
+    opened.push(pair.host, pair.guest)
+    let match = await startGame(pair)
 
-    // Drop whichever seat is being asked. Without strandingSeat's gridReset
-    // branch no alarm is armed at all and the table waits forever.
-    const decider = match.turnOrder[match.activePlayerIndex]
-    const dropped = decider === pair.guestSeat.playerId ? pair.guest : pair.host
-    const watcher = dropped === pair.guest ? pair.host : pair.guest
-    if (dropped === pair.host) opened.push(pair.guest)
-    dropped.close()
-    await watcher.next('lobby')
+    // Drive past any pending post-fame choice (e.g. a Skunk dismissal) to
+    // reach the Market phase, where the in-round RESET: GRID button lives.
+    for (let step = 0; step < 4 && match.shared.phase !== 'market'; step++) {
+      const owing = match.players.find((p: any) => p.pendingPostFameChoice)
+      if (!owing) break
+      const client = owing.playerId === pair.hostSeat.playerId ? pair.host : pair.guest
+      const option = owing.pendingPostFameChoice!.options[0]
+      client.send({ type: 'action', action: { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index } })
+      match = (await client.next('state')).match
+    }
+    if (match.shared.phase !== 'market') return // nothing to assert about; not this test's subject
+
+    const actingId = match.turnOrder[match.activePlayerIndex]
+    const acting = actingId === pair.hostSeat.playerId ? pair.host : pair.guest
+    const watcher = acting === pair.host ? pair.guest : pair.host
+    acting.close()
+
+    // hasAnyLegalMarketAction now counts the acting seat's unspent Big Button
+    // (canUseGridResetNow) as a legal move, so the ordinary boundary loop —
+    // which used to close out a broke, action-less seat's turn on its own —
+    // must NOT skip them just because they went quiet: webSocketClose only
+    // flips `connected` and broadcasts nothing on its own. Only the
+    // turn-timeout alarm below actually moves anything.
+    await new Promise((r) => setTimeout(r, 50))
 
     const stub = ROOMS.getByName(pair.roomCode)
     await runInDO(stub, async (instance: any) => {
@@ -540,15 +563,14 @@ describe('Big Button', () => {
     })
     await runAlarm(stub)
 
-    const after = await watcher.next('state')
-    // The table is unstuck: the walk has moved past the empty seat. It may
-    // well still be in 'gridReset' — the OTHER seat is connected and has its
-    // own decision to make, which is the whole point of not skipping them too.
-    const stillWaitingOnThem = after.match.shared.phase === 'gridReset' && after.match.turnOrder[after.match.activePlayerIndex] === decider
-    expect(stillWaitingOnThem).toBe(false)
-    expect(after.match.shared.gridReset?.asked ?? []).toContain(decider)
-    // Declined on their behalf — the button is kept, never spent on a guess.
-    expect(after.match.players.every((p: any) => p.bigButtonFaceUp)).toBe(true)
+    // Drain any 'state' broadcasts already queued from the earlier
+    // resolvePostFameChoice loop before reading the one the alarm produced.
+    let after = await watcher.next('state')
+    while (!after.logLines.some((l: any) => l.text.includes('was skipped'))) {
+      after = await watcher.next('state')
+    }
+    // The alarm — not the boundary loop — is what finally moves the turn on.
+    expect(after.match.turnOrder[after.match.activePlayerIndex]).not.toBe(actingId)
   })
 
   test('RESET: MARKET is a Market-phase action that costs neither fame nor an action', async () => {

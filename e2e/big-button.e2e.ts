@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { disableTouchMode, hostRoom, joinRoom, openPlayer } from './helpers'
+import { activePlayerIsMe, disableTouchMode, hostRoom, joinRoom, openPlayer } from './helpers'
 
 // The Big Button mini-expansion, from the browser.
 //
@@ -40,10 +40,31 @@ test.describe('Big Button — RESET: MARKET (solo)', () => {
     expect(after).toHaveLength(before.length)
     expect(after.join('|')).not.toBe(before.join('|'))
   })
+
+  // RESET: MARKET dropped its "before any market actions" gate on purpose —
+  // it is free-floating and never ends the turn (matchActions.ts's
+  // afterMarketAction), so a player can hire first and still reset
+  // defensively afterward.
+  test('the turn stays open after hiring, and after resetting', async ({ page }) => {
+    await startSolo(page, 'market')
+
+    const affordable = await hireCheapestCard(page)
+    expect(affordable).toBe(true)
+
+    // Still the Market phase, and the button is still there to press.
+    await expect(page.getByRole('button', { name: 'End Market phase' })).toBeVisible()
+    const chip = page.getByTestId('big-button-chip')
+    await expect(chip).toContainText('ready')
+
+    await page.getByTestId('use-big-button').click()
+    await expect(chip).toContainText('used')
+    // Pressing it did not end the turn or the phase either.
+    await expect(page.getByRole('button', { name: 'End Market phase' })).toBeVisible()
+  })
 })
 
-test.describe('Big Button — RESET: GRID (two seats)', () => {
-  test('every seat is asked in turn, and the table moves on once they have answered', async ({ browser }) => {
+test.describe('Big Button — RESET: GRID (two seats, in-round)', () => {
+  test('pressing it on your own Market turn resets only your own grid and keeps your turn open', async ({ browser }) => {
     const host = await openPlayer(browser, 'Ana')
     const roomCode = await hostRoom(host, { bigButton: 'grid', seed: '7' })
     const guest = await openPlayer(browser, 'Bo')
@@ -55,35 +76,38 @@ test.describe('Big Button — RESET: GRID (two seats)', () => {
 
     await host.page.getByTestId('start-game').click()
 
-    // RESET: GRID is "after the Check Fame phase" — which is reached on the
-    // very first round, before anyone has taken a Market turn.
-    for (const p of [host, guest]) {
-      await expect(p.page.getByTestId('big-button-prompt')).toBeVisible()
-      await expect(p.page.getByTestId('phase')).toHaveText('Big Button')
-    }
+    // RESET: GRID no longer opens a pre-turn walk in a normal round — it is a
+    // start-of-your-own-Market-turn action, so both seats land straight in
+    // the Market phase after the opening Flip/Check Fame.
+    await expect(host.page.getByTestId('turn-indicator')).toBeVisible()
+    await expect(guest.page.getByTestId('turn-indicator')).toBeVisible()
+    await expect(host.page.getByTestId('big-button-prompt')).toHaveCount(0)
 
-    // Turn-gated, and its own clockwise walk — separate from the Market
-    // phase's turn order. Exactly one seat is offered the buttons at a time.
-    await answerDecider([host.page, guest.page], 'big-button-keep')
-    const user = await answerDecider([host.page, guest.page], 'big-button-use')
+    const active = (await activePlayerIsMe(host.page)) ? host : guest
+    const idle = active === host ? guest : host
 
-    // Both seats land in the Market phase together once the walk is done.
-    for (const p of [host, guest]) {
-      await expect(p.page.getByTestId('turn-indicator')).toBeVisible()
-      await expect(p.page.getByTestId('big-button-prompt')).toHaveCount(0)
-    }
+    // Requirement 1: the fame number is visible before pressing.
+    await expect(active.page.getByTestId('use-big-button-grid')).toBeVisible()
+    await expect(active.page.getByTestId('grid-reset-risk')).toBeVisible()
 
-    // The re-flip actually happened: the seat that pressed the button
-    // collected its grid, shuffled it back into its deck and dealt a new one.
-    // The engine suite covers resolveGridReset; this is the round trip.
-    expect(await ownGrid(user.page)).not.toBe(user.gridBefore)
+    const gridBefore = await ownGrid(active.page)
+    await active.page.getByTestId('use-big-button-grid').click()
 
-    // The seat that pressed it has spent it; the seat that kept it has not.
-    // Both are public, and both are drawn on their own board's heading.
-    const chips = host.page.getByTestId('big-button-chip')
-    await expect(chips).toHaveCount(2)
-    await expect(chips.filter({ hasText: 'used' })).toHaveCount(1)
-    await expect(chips.filter({ hasText: 'ready' })).toHaveCount(1)
+    // Own grid changed...
+    await expect(async () => {
+      expect(await ownGrid(active.page)).not.toBe(gridBefore)
+    }).toPass()
+
+    // ...it is still this seat's turn — RESET: GRID costs no action and does
+    // not end the turn...
+    await expect(active.page.getByRole('button', { name: /End (Market phase|turn)/ })).toBeVisible()
+    await expect(active.page.getByTestId('use-big-button-grid')).toHaveCount(0)
+
+    // ...their chip flips ready -> used while the opponent's stays ready.
+    const activeChip = active.page.getByTestId('big-button-chip').first()
+    await expect(activeChip).toContainText('used')
+    const idleChip = idle.page.getByTestId('big-button-chip').first()
+    await expect(idleChip).toContainText('ready')
 
     await host.page.context().close()
     await guest.page.context().close()
@@ -118,38 +142,22 @@ async function marketNames(page: Page): Promise<string[]> {
   return page.locator('.market .card__name').allInnerTexts()
 }
 
-// Whichever page is currently being asked presses `testId`. The walk starts at
-// the first player and skips spent buttons, so which browser is up is a
-// property of the deal, not something a spec should assume.
-//
-// Gated on the turn indicator rather than on the buttons being present: both
-// seats render the prompt, only the decider gets the buttons, and a seat that
-// has just answered still has them in the DOM for the instant before the next
-// state message lands. Clicking on "is it visible" alone raced that window.
-type Decision = { page: Page; gridBefore: string }
-
-async function answerDecider(pages: Page[], testId: string): Promise<Decision> {
-  const deadline = Date.now() + 20_000
-  while (Date.now() < deadline) {
-    for (const page of pages) {
-      const text = await page.getByTestId('turn-indicator').innerText().catch(() => '')
-      if (!text.includes('Your decision')) continue
-      const gridBefore = await ownGrid(page)
-      await page.getByTestId(testId).click()
-      // The answer has landed once this seat is no longer being asked. Gated
-      // on the buttons rather than on the turn indicator: the LAST seat to
-      // answer moves straight into the Market phase, where the same indicator
-      // reads "Your turn" — which would pass a "no longer deciding" check for
-      // entirely the wrong reason.
-      await expect(page.getByTestId(testId)).toHaveCount(0)
-      return { page, gridBefore }
-    }
-    await pages[0].waitForTimeout(100)
-  }
-  throw new Error(`answerDecider: no seat was offered the ${testId} decision`)
-}
-
 // The card names on this seat's own board, in order.
 async function ownGrid(page: Page): Promise<string> {
   return (await page.getByTestId('my-board').locator('.card__name').allInnerTexts()).join('|')
+}
+
+// Hires the first affordable market card, for the "turn stays open" checks
+// above — returns false if nothing in the row is affordable (which would make
+// the spec's premise false, not its assertions).
+async function hireCheapestCard(page: Page): Promise<boolean> {
+  for (let i = 0; i < 6; i++) {
+    const slot = page.getByTestId(`market-slot-${i}`)
+    if ((await slot.count()) === 0) continue
+    if (await slot.isEnabled().catch(() => false)) {
+      await slot.click()
+      return true
+    }
+  }
+  return false
 }

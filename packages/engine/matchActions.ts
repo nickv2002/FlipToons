@@ -28,10 +28,11 @@
 
 import type { EffectChoices } from './cards/types'
 import { formatBreakdown } from './score'
-import { applyMarketReset, canUseMarketReset, marketResetReturnedCards } from './bigButton'
+import { applyMarketReset, canUseGridResetNow, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import {
   activePlayerId,
   endMarketTurn,
+  matchApplyGridReset,
   matchBigButtonDecision,
   matchDismiss,
   matchHire,
@@ -74,11 +75,17 @@ export type MatchAction =
   // Pig's destination deck. Turn-gated: it can only ever arise from the
   // acting player's own hire or dismiss.
   | { kind: 'resolveDeckPlacement'; target: DeckPlacementTarget }
-  // Big Button, RESET: MARKET. Turn-gated, and additionally gated on this
-  // seat not having acted yet this Market phase. Costs no fame and no action.
+  // Big Button. Turn-gated, dispatches on the table's resetEffect
+  // (match.ts's PlayerView.resetEffect) since only one reset is ever in
+  // play: RESET: MARKET is usable before, during or after any Market
+  // action and never ends the turn; RESET: GRID is legal only at the start
+  // of your own Market turn, before you've acted, and — like RESET:
+  // MARKET — does not end the turn either. Costs no fame and no action
+  // either way.
   | { kind: 'useBigButton' }
-  // Big Button, RESET: GRID. Turn-gated on the 'gridReset' phase's own
-  // clockwise walk, which is a different walk from the Market phase's.
+  // Big Button, RESET: GRID — the Final Flip's decision ONLY. Turn-gated on
+  // the 'gridReset' phase's own clockwise walk, which the Final Flip alone
+  // still opens (it has no Market phase to hang an in-round decision off).
   | { kind: 'bigButtonDecision'; use: boolean }
 
 // A log line that knows WHO did it. The solo log was a bare string[] because
@@ -247,40 +254,69 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
     }
 
     case 'useBigButton': {
-      // RESET: MARKET — "shuffle all toon cards in the market back into the
-      // toon deck. Then refill the market." Free: no fame, no action.
       assertTurn(match, playerId, 'use your Big Button')
       assertNoPendingDeckPlacement(match, playerId, 'taking another action')
       const index = playerIndex(match, playerId)
       const view = viewOf(match, index)
-      if (!canUseMarketReset(view)) {
-        // Three distinguishable reasons, and the player deserves to know
-        // which — "you already used it" and "you already bought something"
-        // suggest completely different next moves.
-        if (view.resetEffect !== 'market') throw new IllegalActionError('The Big Button reset effect in play is not RESET: MARKET.')
+
+      if (view.resetEffect === null) {
+        throw new IllegalActionError('The Big Button mini-expansion is not in play.')
+      }
+
+      if (view.resetEffect === 'market') {
+        // RESET: MARKET — "shuffle all toon cards in the market back into
+        // the toon deck. Then refill the market." Free: no fame, no action,
+        // and usable before, during or after any Market action (a
+        // deliberate departure from the printed card's "before taking any
+        // market actions" — see bigButton.ts's canUseMarketReset).
+        if (!canUseMarketReset(view)) {
+          throw new IllegalActionError('Your Big Button card is already face down — it has been used.')
+        }
+        const returned = marketResetReturnedCards(view)
+        const next = commitView(match, index, applyMarketReset(view))
+        say(`used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
+        // The refill can leave the market short, which is an ordinary
+        // (latched) depletion trigger — and the reset may equally have been
+        // the last legal thing this seat could do, so run the usual tail.
+        return afterMarketAction(next, playerId, logLines, debugLines, say)
+      }
+
+      // RESET: GRID — "before taking any market actions" is still honored
+      // here (unlike RESET: MARKET), which is exactly what
+      // actedThisMarketPhase now exists for. Three distinguishable reasons,
+      // since "you already used it" and "you already bought something"
+      // suggest completely different next moves.
+      if (!canUseGridResetNow(view)) {
         if (!view.bigButtonFaceUp) throw new IllegalActionError('Your Big Button card is already face down — it has been used.')
         throw new IllegalActionError('The Big Button must be used before you take any Market actions this turn.')
       }
-      const returned = marketResetReturnedCards(view)
-      const next = commitView(match, index, applyMarketReset(view))
-      say(`used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
-      // The refill can leave the market short, which is an ordinary
-      // (latched) depletion trigger — and the reset may equally have been
-      // the last legal thing this seat could do, so run the usual tail.
-      return afterMarketAction(next, playerId, logLines, debugLines, say)
+      const flipNotes: EngineLogLine[] = []
+      const next = matchApplyGridReset(match, playerId, flipNotes, debugLines)
+      forward(flipNotes, say)
+      const scored = next.players[index].lastCheckFame
+      if (scored) say(formatBreakdown(scored))
+      // Deliberately does NOT end the turn — RESET: GRID costs no action,
+      // and matchApplyGridReset leaves phase/activePlayerIndex/
+      // actionsRemaining/actedThisMarketPhase untouched, so the acting seat
+      // can go on to hire or dismiss against their new grid immediately.
+      return { match: next, logLines, debugLines }
     }
 
     case 'bigButtonDecision': {
-      // RESET: GRID — "each player in clockwise order decides if they want to
-      // use their face-up Big Button card." Its own phase and its own walk,
-      // so assertTurn (which is Market-phase-specific) is wrong here.
+      // RESET: GRID, Final Flip only — "each player in clockwise order
+      // decides if they want to use their face-up Big Button card." A normal
+      // round's decision moved onto the resetting seat's own Market turn
+      // (the 'useBigButton' case above) and no longer opens 'gridReset' at
+      // all, so this walk and this action kind now exist solely for the
+      // Final Flip, which has no Market phase to hang an in-round decision
+      // off. Its own phase and its own walk, so assertTurn (which is
+      // Market-phase-specific) is wrong here.
       if (match.shared.phase !== 'gridReset') {
         throw new IllegalActionError('There is no Big Button decision to make right now.')
       }
       if (activePlayerId(match) !== playerId) {
         throw new IllegalActionError(`It isn't your decision yet — waiting on ${activePlayerId(match)}.`)
       }
-      const wasFinalFlip = match.shared.gridReset?.context === 'finalFlip'
       let next: Match
       try {
         next = matchBigButtonDecision(match, playerId, action.use)
@@ -292,17 +328,12 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       // Still collecting decisions from the seats after this one.
       if (next.shared.phase === 'gridReset') return { match: next, logLines, debugLines }
 
-      // The decisions are in and the resets have resolved. In the Final Flip
-      // that means the paused endgame can now finish; in a normal round
-      // matchBigButtonDecision has already run the post-fame hooks, so the
-      // only thing left is the same Cleanup/Market tail every turn boundary
-      // gets.
-      if (wasFinalFlip) {
-        const outcome = resumeMatchFinalFlip(next, [], debugLines)
-        sayFinalFlipOutcome(outcome, say)
-        return { match: outcome.match, logLines, debugLines }
-      }
-      return { match: next, logLines, debugLines }
+      // GridResetState['context'] is narrowed to the literal 'finalFlip', so
+      // every decision that gets here is unconditionally a Final Flip one —
+      // the paused endgame can now finish.
+      const outcome = resumeMatchFinalFlip(next, [], debugLines)
+      sayFinalFlipOutcome(outcome, say)
+      return { match: outcome.match, logLines, debugLines }
     }
 
     case 'endTurn': {
@@ -404,8 +435,15 @@ function afterMarketAction(
     match.shared.phase === 'market' &&
     !me.pendingPostMarketChoice &&
     activePlayerId(match) === playerId &&
-    (me.actionsRemaining <= 0 || !hasAnyLegalMarketAction(viewOf(match, index)))
+    !hasAnyLegalMarketAction(viewOf(match, index))
   ) {
+    // hasAnyLegalMarketAction already covers actionsRemaining <= 0 — its two
+    // zero-cost early-trues (canUseMarketReset, canUseGridResetNow) sit
+    // BEFORE its own actionsRemaining gate (phases.ts), so a seat with a live
+    // button is kept open here even at 0 actions, and a seat with neither
+    // button and no actions left correctly falls through to false. The
+    // separate `actionsRemaining <= 0` disjunct this used to carry is gone —
+    // it would have ended the turn out from under an unspent button.
     say(me.actionsRemaining <= 0 ? 'has no actions left — ending their turn.' : 'can no longer afford any Market action — ending their turn.')
     return afterTurnBoundary(endTurnWithDecayLog(match, playerId, say), logLines, debugLines)
   }

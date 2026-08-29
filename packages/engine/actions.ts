@@ -15,6 +15,7 @@ import {
   hasAnyLegalMarketAction,
   hire,
   listDismissEntries,
+  rescoreAfterGridReset,
   resolvePostMarketChoice,
   runCheckFame,
   runCleanup,
@@ -25,7 +26,7 @@ import {
 import type { DismissEntry } from './phases'
 export { hasAnyLegalMarketAction, listDismissEntries }
 export type { DismissEntry }
-import { applyGridResetCollect, applyMarketReset, canUseGridReset, canUseMarketReset, marketResetReturnedCards } from './bigButton'
+import { applyGridResetCollect, applyMarketReset, canUseGridResetNow, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import { cardsById } from './setup'
 import { createSoloGameState } from './state'
 import type { EngineLogLine, GameState, ResetEffect } from './state'
@@ -44,13 +45,13 @@ export type Action =
   | { kind: 'endMarket' }
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
   | { kind: 'advanceCleanup' }
-  // Big Button, RESET: MARKET — a Market-phase action costing no fame and no
-  // action, legal only before this round's first hire/dismiss.
+  // Big Button. A Market-phase action costing no fame and no action, that
+  // dispatches on GameState.resetEffect since only one reset is ever in
+  // play: RESET: MARKET is usable before, during or after any Market action;
+  // RESET: GRID is legal only at the start of the round, before the first
+  // hire/dismiss (there is no turn walk to answer — solo has one seat, so
+  // the rulebook's clockwise walk collapses to this single action).
   | { kind: 'useBigButton' }
-  // Big Button, RESET: GRID — answers the 'gridReset' phase the cascade parks
-  // on after Check Fame. Solo has one seat, so the rulebook's clockwise walk
-  // is a single question.
-  | { kind: 'bigButtonDecision'; use: boolean }
 
 export type ApplyResult = { state: GameState; logLines: EngineLogLine[]; debugLines: string[] }
 
@@ -129,16 +130,12 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: Engi
     if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
   }
 
-  // The Big Button's RESET: GRID decision (bigButton.ts) is the FIRST thing
-  // that can interrupt this cascade before the Market phase. Returned
-  // explicitly rather than left to fall out of the two `if`s below not
-  // matching: nothing downstream would have done the wrong thing, but a
-  // pause point that works by accident is one refactor away from not
-  // working at all. Unreachable whenever resetEffect is null.
-  if (next.phase === 'gridReset') {
-    say('The Big Button is available — use it to collect your grid and flip again, or keep it.')
-    return next
-  }
+  // Solo can no longer land on 'gridReset' here: runCheckFame (phases.ts) is
+  // unconditionally 'postFameHooks' now, since RESET: GRID moved onto the
+  // player's own Market turn (bigButton.ts's canUseGridResetNow, the
+  // 'useBigButton' handler below) rather than interrupting this cascade
+  // before the Market phase even opens. 'gridReset' survives only for
+  // multiplayer's Final Flip (match.ts), which solo never reaches (§3.7).
 
   if (next.phase === 'postFameHooks') {
     // Provably a pass-through in solo — see phases.ts's runPostFameHooks
@@ -235,7 +232,14 @@ export function wouldHireEndInGuaranteedLoss(state: GameState, slotIndex: number
 // phase rather than offering an action that would only throw. Run after
 // every successful hire/dismiss.
 function closeMarketIfExhausted(state: GameState, logLines: EngineLogLine[], debugLines: string[]): GameState {
-  if (state.phase === 'market' && state.actionsRemaining <= 0) {
+  // hasAnyLegalMarketAction is now the SOLE auto-end authority (it already
+  // subsumes actionsRemaining <= 0 — see its own comment in phases.ts), so a
+  // seat holding an unspent Big Button is kept open even at 0 actions. The
+  // pendingPostMarketChoice guard matters on its own: the predicate reads
+  // false mid-Alligator regardless of actions remaining, which would
+  // otherwise close the phase out from under an unresolved stack-target pick
+  // — useGame.ts:104 already carries the same guard for the same reason.
+  if (state.phase === 'market' && !state.pendingPostMarketChoice && !hasAnyLegalMarketAction(state)) {
     logLines.push({ playerId: state.playerId, text: 'No Market actions remaining — ending the Market phase.' })
     let next = endMarketPhase(state, logLines)
     if (next.pendingPostMarketChoice) return next // paused — waiting on Alligator's stack-target choice
@@ -361,53 +365,58 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
   }
 
   if (action.kind === 'useBigButton') {
-    // RESET: MARKET. Free (no fame, no action), and legal only before this
-    // round's first hire/dismiss — see bigButton.ts's canUseMarketReset and
-    // state.ts's actedThisMarketPhase for why that isn't an actionsRemaining
-    // check.
-    if (!canUseMarketReset(state)) {
-      if (state.resetEffect !== 'market') say("Can't do that: the reset effect in play is not RESET: MARKET.")
-      else if (!state.bigButtonFaceUp) say("Can't do that: your Big Button card is already face down.")
-      else if (state.phase !== 'market') say("Can't do that: the Big Button can only be used during the Market phase.")
+    if (state.resetEffect === null) {
+      say("Can't do that: the Big Button mini-expansion is not in play.")
+      return { state, logLines, debugLines }
+    }
+
+    if (state.resetEffect === 'market') {
+      // RESET: MARKET. Free (no fame, no action), and usable before, during
+      // or after any Market action — a deliberate departure from the printed
+      // card's "before taking any market actions" (bigButton.ts's
+      // canUseMarketReset).
+      if (!canUseMarketReset(state)) {
+        say("Can't do that: your Big Button card is already face down.")
+        return { state, logLines, debugLines }
+      }
+      const returned = marketResetReturnedCards(state)
+      const next = applyMarketReset(state)
+      say(`Used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
+      // A reset that came up short latches toonDeckDepleted, which is exactly
+      // what the guaranteed-loss short circuit reads — so run the same tail
+      // every other Market-phase mutation gets rather than returning raw.
+      return { state: skipGuaranteedLossMarketPhase(next, logLines), logLines, debugLines }
+    }
+
+    // RESET: GRID. "Before taking any market actions" IS still honored here
+    // (unlike RESET: MARKET) — canUseGridResetNow is exactly
+    // actedThisMarketPhase's remaining job. Solo is the degenerate case of
+    // the rulebook's clockwise walk: one seat, so this single action
+    // collapses what multiplayer answers as a per-seat turn-gated walk.
+    if (!canUseGridResetNow(state)) {
+      if (!state.bigButtonFaceUp) say("Can't do that: your Big Button card is already face down.")
       else say("Can't do that: the Big Button must be used before you take any Market actions this round.")
       return { state, logLines, debugLines }
     }
-    const returned = marketResetReturnedCards(state)
-    const next = applyMarketReset(state)
-    say(`Used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
-    // A reset that came up short latches toonDeckDepleted, which is exactly
-    // what the guaranteed-loss short circuit reads — so run the same tail
-    // every other Market-phase mutation gets rather than returning raw.
-    return { state: skipGuaranteedLossMarketPhase(next, logLines), logLines, debugLines }
-  }
-
-  if (action.kind === 'bigButtonDecision') {
-    // RESET: GRID. Solo is the degenerate case of the rulebook's clockwise
-    // walk — one seat, one question — so there is no turn machine here, just
-    // the answer and the re-flip.
-    if (state.phase !== 'gridReset') {
-      say("Can't do that: there's no Big Button decision to make right now.")
-      return { state, logLines, debugLines }
-    }
-    if (!action.use) {
-      say('Kept the Big Button.')
-      return { state: advanceThroughPassthroughPhases({ ...state, phase: 'postFameHooks' }, logLines, debugLines), logLines, debugLines }
-    }
-    if (!canUseGridReset(state)) {
-      say("Can't do that: your Big Button card is not available.")
-      return { state, logLines, debugLines }
-    }
     // "collect the cards in their grid, add them to their deck, shuffle, and
-    // complete the Flip phase again. All players then repeat the Check Fame
-    // phase." runFlip does the shuffle itself, so applyGridResetCollect
-    // deliberately doesn't.
+    // complete the Flip phase again." runFlip does the shuffle itself, so
+    // applyGridResetCollect deliberately doesn't. rescoreAfterGridReset
+    // (phases.ts) is the delta-preserving rescore this in-round reset needs
+    // instead of runCheckFame's plain overwrite — see its own comment for
+    // why (a Firefly bonus already banked this round must survive). Lands
+    // back on 'market' directly: this does not end the turn or consume an
+    // action, so the round never leaves the Market phase at all.
     say('Used the Big Button: collecting the grid and flipping again.')
     let next = runFlip({ ...applyGridResetCollect(state), phase: 'flip' }, logLines, debugLines)
-    next = runCheckFame({ ...next, phase: 'checkFame' })
+    next = { ...rescoreAfterGridReset({ ...next, phase: 'checkFame' }), phase: 'market' }
     if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
-    // The button is spent, so runCheckFame cannot route back into 'gridReset'
-    // — one reset per game, and this was it.
-    return { state: advanceThroughPassthroughPhases(next, logLines, debugLines), logLines, debugLines }
+    // A re-flip can produce a guaranteed-loss round (the toon deck a Snake
+    // drew from during this re-flip may not leave enough for the end-of-
+    // round decay), so route through the same short circuit every other
+    // Market-phase mutation gets. applyAction's own checkInstantWin wraps
+    // every action kind uniformly, so a re-flip that crosses the threshold
+    // is caught there without anything special here.
+    return { state: skipGuaranteedLossMarketPhase(next, logLines), logLines, debugLines }
   }
 
   if (action.kind === 'advanceCleanup') {

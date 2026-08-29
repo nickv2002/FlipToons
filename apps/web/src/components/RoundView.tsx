@@ -13,7 +13,6 @@ import { BoardPane } from './BoardPane'
 import { ConfettiBurst } from './ConfettiBurst'
 import { CounterChip } from './CounterChip'
 import { Market } from './Market'
-import { BigButtonPrompt } from './BigButtonPrompt'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
 import { CardListOverlay } from './CardListOverlay'
@@ -234,32 +233,12 @@ export function RoundView({
 
   return (
     <div className="round-view">
-      {/* The Big Button's RESET: GRID decision. Solo is the one-seat case of
-          the rulebook's clockwise walk, so the decision is always yours — and
-          the board you are judging renders below it, read-only, because the
-          whole question is whether that board is worth re-flipping. */}
-      {state.phase === 'gridReset' && (
-        <>
-          <fieldset className="round-view__controls" disabled={controlsDisabled}>
-            <BigButtonPrompt isMyDecision onDecide={(use) => dispatch({ kind: 'bigButtonDecision', use })} />
-          </fieldset>
-          <BoardPane
-            title="Your grid"
-            grid={state.grid}
-            cards={cards}
-            deckCount={state.deck.length}
-            readOnly
-            animateDeal={false}
-            isOwn={isOwn}
-            roundFame={roundFame}
-            dismissedCount={state.dismissed.length}
-            onShowDismissed={() => setListOverlay('dismissed')}
-            onShowDeck={() => setListOverlay('deck')}
-            bigButtonFaceUp={bigButtonFaceUp}
-          />
-        </>
-      )}
-
+      {/* RESET: GRID no longer has its own phase in a normal round — solo can
+          never reach state.phase === 'gridReset' any more (that phase now
+          exists only for the Final Flip's walk, which solo's single-seat game
+          also never enters). The decision moved onto the Market phase's own
+          turn: it's just another button in ChoicePrompt below, next to
+          GridResetRisk showing what pressing it gives up. */}
       {state.phase === 'market' && alligatorChoice && (
         <fieldset className="round-view__controls" disabled={controlsDisabled}>
           <EffectChoicePrompt

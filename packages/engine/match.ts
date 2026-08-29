@@ -26,6 +26,7 @@ import {
   endMarketPhase,
   hire,
   resumePostMarketHooks,
+  rescoreAfterGridReset,
   runCheckFame,
   runFlip,
   runMarketDecay,
@@ -177,15 +178,18 @@ export function runMatchCheckFame(match: Match): Match {
     throw new Error(`match.ts: runMatchCheckFame called in phase '${match.shared.phase}'`)
   }
   const next = checkFameSeats(match, allSeats(match))
-  // NOTE: this no longer necessarily lands on 'postFameHooks'. RESET: GRID
-  // interposes a decision phase here, so callers must branch on the phase they
-  // actually get rather than assuming the next step is post-fame hooks —
-  // matchActions.ts's advanceFlip does exactly that.
-  return openGridResetOrContinue(next, 'round')
+  // Unconditionally 'postFameHooks' now. RESET: GRID no longer interposes a
+  // pre-Market decision phase in a normal round — it moved onto the
+  // resetting seat's own Market turn (matchApplyGridReset, below), so a
+  // normal round's Check Fame -> post-fame-hooks handoff is exactly what it
+  // always was before the mini-expansion existed. Only the Final Flip still
+  // opens 'gridReset' (openGridResetOrContinue, called directly from
+  // startMatchFinalFlip) — it has no Market phase to hang the decision off.
+  return { ...next, shared: { ...next.shared, phase: 'postFameHooks' } }
 }
 
 // ---------------------------------------------------------------------------
-// The Big Button's RESET: GRID decision phase
+// The Big Button's RESET: GRID decision phase — Final Flip only
 // ---------------------------------------------------------------------------
 //
 // "After the Check Fame phase, starting with the first player, each player in
@@ -195,7 +199,11 @@ export function runMatchCheckFame(match: Match): Match {
 // shuffle, and complete the Flip phase again. All players then repeat the
 // Check Fame phase."
 //
-// Two things in that text are load-bearing and easy to flatten:
+// This walk now exists ONLY for the Final Flip, which has no Market phase to
+// hang the decision off — a normal round's RESET: GRID moved onto the
+// resetting seat's own Market turn instead (matchApplyGridReset, below), so
+// there is no pre-Market walk left to stop the table for. Two things in the
+// printed text remain load-bearing here:
 //
 //   SEQUENCED DECISIONS   "in clockwise order" is information, not ceremony —
 //                         the fourth player decides knowing what the first
@@ -207,25 +215,21 @@ export function runMatchCheckFame(match: Match): Match {
 //                         what Dog/Camel/Fox are worth to every OTHER seat
 //                         too, so scoring only the resetters would leave the
 //                         table half-scored against a board that no longer
-//                         exists.
+//                         exists. (The in-round path deliberately deviates
+//                         from this — see matchApplyGridReset's comment.)
 //
-// Called from BOTH Check Fame phases — a normal round's and the Final Flip's —
-// which is what `context` records; nothing else can tell them apart by the
-// time the decisions come back, because runMatchFlip/startMatchFinalFlip have
-// both already moved the phase off 'flip'/'finalFlip'.
-function openGridResetOrContinue(match: Match, context: 'round' | 'finalFlip'): Match {
+// `startMatchFinalFlip` is its only remaining caller.
+function openGridResetOrContinue(match: Match): Match {
   const eligible = gridResetEligibleSeats(match)
   if (eligible.length === 0) {
     // The ONLY path when the mini-expansion is off (resetEffect null makes
     // canUseGridReset false for every seat), so this is the pre-existing
     // behaviour, unchanged, byte for byte.
-    return context === 'round'
-      ? { ...match, shared: { ...match.shared, phase: 'postFameHooks' } }
-      : { ...match, shared: { ...match.shared, phase: 'finalFlip' } }
+    return { ...match, shared: { ...match.shared, phase: 'finalFlip' } }
   }
   return {
     ...match,
-    shared: { ...match.shared, phase: 'gridReset', gridReset: { context, asked: [], optedIn: [] } },
+    shared: { ...match.shared, phase: 'gridReset', gridReset: { context: 'finalFlip', asked: [], optedIn: [] } },
     activePlayerIndex: eligible[0],
   }
 }
@@ -310,14 +314,12 @@ function resolveGridReset(match: Match, logLines?: EngineLogLine[], debugLines?:
   next = checkFameSeats(next, allSeats(next))
   next = { ...next, shared: { ...next.shared, gridReset: null } }
 
-  if (pending.context === 'finalFlip') {
-    // Back to the phase the Final Flip's tail asserts on; matchActions.ts
-    // resumes it.
-    return { ...next, shared: { ...next.shared, phase: 'finalFlip' } }
-  }
-
-  const hooked = runMatchPostFameHooks({ ...next, shared: { ...next.shared, phase: 'postFameHooks' } })
-  return hooked
+  // This walk is Final-Flip-only now (GridResetState['context'] is narrowed
+  // to the literal 'finalFlip' in state.ts), so there is exactly one phase to
+  // hand back to: the Final Flip's tail, which matchActions.ts's
+  // resumeMatchFinalFlip call picks up. A normal round never reaches this
+  // function at all any more — see matchApplyGridReset for its replacement.
+  return { ...next, shared: { ...next.shared, phase: 'finalFlip' } }
 }
 
 // Scores a SUBSET of seats, leaving the shared phase alone.
@@ -344,6 +346,77 @@ function checkFameSeats(match: Match, seats: number[]): Match {
       return { ...scored, phase: view.phase }
     })
   }
+  return next
+}
+
+// Re-scores ONE seat against the current table and RECONCILES spendable fame
+// rather than overwriting it — sibling of checkFameSeats, but for the
+// in-round RESET: GRID path (matchApplyGridReset, below), which the user
+// asked to re-score the resetter only, not the whole table (see this file's
+// header comment for the accepted deviation from "ALL players then repeat
+// the Check Fame phase"). The reconciliation itself (why the delta rather
+// than an overwrite) is phases.ts's rescoreAfterGridReset, shared with solo;
+// this wrapper only adds the other-seats grid projection a multiplayer
+// Check Fame needs and this module's own view boundary.
+function rescoreSeat(match: Match, i: number): Match {
+  const grids = match.players.map((p) => p.grid)
+  const others = grids.filter((_, j) => j !== i)
+  return withPlayer(match, i, (view) => {
+    const scored = rescoreAfterGridReset({ ...view, phase: 'checkFame' }, others)
+    return { ...scored, phase: view.phase }
+  })
+}
+
+// The in-round RESET: GRID path — one seat, on their own Market turn,
+// pressing the Big Button rather than the Final Flip's clockwise walk (see
+// this file's header comment on openGridResetOrContinue for why that walk no
+// longer runs mid-round). matchActions.ts gates entry with
+// canUseGridResetNow before calling this; this function does the collect,
+// re-flip and rescore, and nothing else — phase, activePlayerIndex,
+// actionsRemaining and actedThisMarketPhase are all left exactly as the
+// caller found them, because pressing the button does not end the turn or
+// consume an action.
+//
+// RESETTER-ONLY RESCORE, by design (a deliberate deviation from the Final
+// Flip's "ALL players then repeat the Check Fame phase" — see the Decisions
+// section of the plan this implements): every other seat keeps the fame they
+// already scored this round, even though the resetter's new grid changes
+// what Dog/Camel/Fox are worth to them too. Re-scoring the whole table on
+// every button press would turn one seat's decision into a table-wide
+// recompute mid-Market-phase, with no natural point to stop cascading (a
+// second seat's own reset would have to re-open the question all over
+// again). The endgame trigger and the Critic's Choice both read
+// fameGeneratedThisRound from `runMatchCleanup`, which runs after the whole
+// Market phase — this in-round reset always precedes it, so neither needs a
+// re-run mechanism in either direction.
+//
+// Uses collect-then-flip in that order, same as resolveGridReset's Final
+// Flip path: withPlayer(applyGridResetCollect) commits the collected grid
+// before flipSeats re-projects and draws, so a shared-deck draw (Snake) is
+// attributed to this seat against the toon deck it actually left behind.
+export function matchApplyGridReset(match: Match, playerId: PlayerId, logLines?: EngineLogLine[], debugLines?: string[]): Match {
+  const i = playerIndex(match, playerId)
+
+  // The Skunk/Firefly least-fame hook already fired in runMatchPostFameHooks,
+  // strictly before the Market phase opened — its own comment there explains
+  // why it stands on PRE-reset numbers rather than being invisibly re-run.
+  // Nothing here changes that outcome; this only detects, for the log,
+  // whether the reset would have picked a different seat had it happened
+  // first, since that divergence is otherwise invisible to the table.
+  const lowestBefore = strictlyLowestScorerIndex(match)
+
+  let next = withPlayer(match, i, (view) => applyGridResetCollect(view))
+  next = flipSeats(next, [i], logLines, debugLines)
+  next = rescoreSeat(next, i)
+
+  const lowestAfter = strictlyLowestScorerIndex(next)
+  if (lowestBefore !== lowestAfter && logLines) {
+    logLines.push({
+      playerId: null,
+      text: 'The least-fame bonus already resolved on this round\'s pre-reset scores and stands, even though the reset changed who scored lowest.',
+    })
+  }
+
   return next
 }
 
@@ -773,7 +846,7 @@ export function startMatchFinalFlip(
   let next = flipSeats(match, allSeats(match), logLines, debugLines)
   next = checkFameSeats(next, allSeats(match))
 
-  next = openGridResetOrContinue(next, 'finalFlip')
+  next = openGridResetOrContinue(next)
   if (next.shared.phase === 'gridReset') return { match: next, outcome: null }
 
   const outcome = resumeMatchFinalFlip(next, logLines, debugLines)

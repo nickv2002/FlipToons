@@ -19,14 +19,14 @@ export function CardZoomSheet({ card, actionLabel, onAction, onClose }: CardZoom
   return (
     <div className="card-zoom-sheet__backdrop" onClick={onClose}>
       <div className="card-zoom-sheet" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="card-zoom-sheet__close" onClick={onClose}>
+        <button type="button" className="card-zoom-sheet__close btn-pill" onClick={onClose}>
           Close
         </button>
         <Card card={card} readOnly />
         {actionLabel && onAction && (
           <button
             type="button"
-            className="card-zoom-sheet__action"
+            className="card-zoom-sheet__action btn-pill"
             data-testid="card-zoom-action"
             onClick={() => {
               onAction()

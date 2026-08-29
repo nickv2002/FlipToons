@@ -40,16 +40,16 @@ export function ChoicePrompt({ state, onEndMarket, onUseBigButton, endLabel = 'E
           market they are spent on. They moved into the market pane's own
           heading, directly above the cards whose prices they have to cover. */}
       {canGridReset && (
-        <button type="button" className="choice-prompt__big-button" data-testid="use-big-button-grid" onClick={onUseBigButton}>
+        <button type="button" className="choice-prompt__big-button btn-pill" data-testid="use-big-button-grid" onClick={onUseBigButton}>
           Use Big Button — reset your grid
         </button>
       )}
       {canMarketReset && (
-        <button type="button" className="choice-prompt__big-button" data-testid="use-big-button" onClick={onUseBigButton}>
+        <button type="button" className="choice-prompt__big-button btn-pill" data-testid="use-big-button" onClick={onUseBigButton}>
           Use Big Button — reset the market
         </button>
       )}
-      <button type="button" className="choice-prompt__end" data-testid="end-turn" onClick={onEndMarket}>
+      <button type="button" className="choice-prompt__end btn-pill" data-testid="end-turn" onClick={onEndMarket}>
         {endLabel}
       </button>
     </div>

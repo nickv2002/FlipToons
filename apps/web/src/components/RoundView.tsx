@@ -205,7 +205,7 @@ export function RoundView({
             ? `Reached ${state.fameToTriggerEndgame} fame before the toon deck depleted.`
             : `This round generated ${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action could have closed the gap.`}
         </p>
-        <button type="button" className="round-view__primary" onClick={onAbandon}>
+        <button type="button" className="round-view__primary btn-pill" onClick={onAbandon}>
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
@@ -259,10 +259,10 @@ export function RoundView({
               soon as the Market phase ends, and nothing else you do this round can change that.
             </p>
             <div className="hire-warning__actions">
-              <button type="button" onClick={() => setHireWarning(null)}>
+              <button type="button" className="btn-pill" onClick={() => setHireWarning(null)}>
                 Cancel
               </button>
-              <button type="button" className="hire-warning__confirm" onClick={confirmHireWarning}>
+              <button type="button" className="hire-warning__confirm btn-pill" onClick={confirmHireWarning}>
                 Hire anyway
               </button>
             </div>

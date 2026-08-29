@@ -30,7 +30,7 @@ export function LogDrawer({ log, debugLog, onClose }: LogDrawerProps) {
       <div className="log-drawer" data-testid="log-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="log-drawer__header">
           <h2 className="log-drawer__title">Log</h2>
-          <button type="button" className="log-drawer__close" data-testid="close-log" onClick={onClose}>
+          <button type="button" className="log-drawer__close btn-pill" data-testid="close-log" onClick={onClose}>
             Close
           </button>
         </div>

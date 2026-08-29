@@ -40,7 +40,7 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
       </p>
       <p className="lobby__share">
         Share this link: <code data-testid="room-link">{shareUrl}</code>
-        <button type="button" className="lobby__copy" data-testid="copy-link" onClick={copyLink}>
+        <button type="button" className="lobby__copy btn-pill" data-testid="copy-link" onClick={copyLink}>
           {copied ? 'Copied!' : 'Copy link'}
         </button>
       </p>
@@ -76,7 +76,7 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
         <p className="lobby__waiting" data-testid="waiting-for-host">Waiting for the host to start…</p>
       )}
 
-      <button type="button" className="lobby__leave" onClick={onLeave}>
+      <button type="button" className="lobby__leave btn-pill" onClick={onLeave}>
         Leave room
       </button>
     </div>

@@ -53,7 +53,7 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
   return (
     <button
       type="button"
-      className="resolve-log__copy"
+      className="resolve-log__copy btn-pill"
       onClick={async (e) => {
         e.stopPropagation()
         try {

@@ -164,6 +164,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
                 <button
                   key={key}
                   type="button"
+                  className="btn-pill"
                   data-testid={`deck-target-${key}`}
                   onClick={() => onAct({ kind: 'resolveDeckPlacement', target })}
                 >
@@ -515,13 +516,13 @@ function EndScreen({
       </ul>
       <div className="match__end-actions">
         {isHost ? (
-          <button type="button" className="match__rematch" data-testid="rematch" onClick={onRematch}>
+          <button type="button" className="match__rematch btn-pill" data-testid="rematch" onClick={onRematch}>
             Play with group again
           </button>
         ) : (
           <p className="match__waiting" data-testid="waiting-for-rematch">Waiting for the host to start a rematch…</p>
         )}
-        <button type="button" className="match__return" data-testid="return-to-menu" onClick={onLeave}>
+        <button type="button" className="match__return btn-pill" data-testid="return-to-menu" onClick={onLeave}>
           Return to main screen
         </button>
       </div>

@@ -115,6 +115,7 @@ button {
   gap: 0.5rem;
 }
 
+.btn-pill,
 .top-bar__log,
 .top-bar__leave {
   font-size: 0.85rem;
@@ -123,6 +124,11 @@ button {
   border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
   background: canvas;
   color: canvastext;
+  white-space: nowrap;
+}
+
+.btn-pill:hover {
+  background: color-mix(in srgb, canvastext 6%, transparent);
 }
 
 .top-bar__log-count {
@@ -345,11 +351,6 @@ button {
   gap: 0.5rem;
 }
 
-.big-button__use,
-.big-button__keep {
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-}
 
 .big-button__seats {
   display: flex;
@@ -746,10 +747,6 @@ button {
   align-self: flex-end;
 }
 
-.card-zoom-sheet__action {
-  font-size: 1.1rem;
-  padding: 0.6rem 1.25rem;
-}
 
 /* ---------- Touch mode toggle ---------- */
 
@@ -805,8 +802,6 @@ button {
 }
 
 .round-view__primary {
-  font-size: 1.1rem;
-  padding: 0.6rem 1.5rem;
   margin-top: 1rem;
 }
 
@@ -1269,11 +1264,6 @@ img.card__icon {
   align-items: flex-start;
 }
 
-.choice-prompt__end,
-.choice-prompt__big-button {
-  padding: 0.5rem 1.2rem;
-}
-
 /* ---------- Effect choice prompt ---------- */
 
 .effect-choice {
@@ -1394,19 +1384,7 @@ img.card__icon {
 }
 
 .resolve-log__copy {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.7rem;
-  border-radius: 4px;
-  border: 1px solid #8886;
-  background: canvas;
-  color: canvastext;
-}
-
-.resolve-log__copy {
   opacity: 0.75;
-  font-size: 0.7rem;
-  padding: 0.15rem 0.5rem;
-  white-space: nowrap;
 }
 
 .resolve-log__copy:hover {
@@ -1600,14 +1578,7 @@ img.card__icon {
 
 .lobby__copy {
   margin-left: 0.5rem;
-  font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
-  background: color-mix(in srgb, canvastext 6%, transparent);
-  color: inherit;
-  cursor: pointer;
 }
 
 .lobby__seats {
@@ -1676,12 +1647,6 @@ img.card__icon {
 
 .lobby__leave {
   align-self: center;
-  background: none;
-  border: none;
-  color: inherit;
-  opacity: 0.6;
-  text-decoration: underline;
-  cursor: pointer;
 }
 
 /* ---------- Multiplayer match ---------- */
@@ -1778,24 +1743,9 @@ img.card__icon {
   margin-top: 1rem;
 }
 
-.match__rematch {
-  font-size: 1rem;
-  font-weight: 700;
-  padding: 0.7rem 1.25rem;
-  border-radius: 10px;
-  border: none;
-  background: var(--color-accent);
-  color: white;
-}
-
+.match__rematch,
 .match__return {
-  font-size: 0.9rem;
   font-weight: 600;
-  padding: 0.6rem 1rem;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
-  background: transparent;
-  color: canvastext;
 }
 
 .match__mine-title,

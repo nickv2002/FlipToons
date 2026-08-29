@@ -71,7 +71,7 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
             />
           ))}
         </div>
-        <button type="button" data-testid="effect-choice-confirm" onClick={() => onResolve(selectedSlots)}>
+        <button type="button" className="btn-pill" data-testid="effect-choice-confirm" onClick={() => onResolve(selectedSlots)}>
           Discard {selectedSlots.length} card{selectedSlots.length === 1 ? '' : 's'} &amp; refill
         </button>
       </div>
@@ -163,7 +163,7 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
         </div>
       )}
       {!choice.mandatory && (
-        <button type="button" className="effect-choice__skip" data-testid="effect-choice-skip" onClick={() => onResolve('skip')}>
+        <button type="button" className="effect-choice__skip btn-pill" data-testid="effect-choice-skip" onClick={() => onResolve('skip')}>
           Skip
         </button>
       )}

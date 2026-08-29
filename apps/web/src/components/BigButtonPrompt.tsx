@@ -61,10 +61,10 @@ export function BigButtonPrompt({ isMyDecision, waitingOnName, onDecide, seats, 
             Everyone re-scores afterwards — a worse board is a real risk, and can cost you the endgame trigger and the Critic's Choice.
           </p>
           <div className="big-button__actions">
-            <button type="button" className="big-button__use" data-testid="big-button-use" onClick={() => onDecide(true)}>
+            <button type="button" className="big-button__use btn-pill" data-testid="big-button-use" onClick={() => onDecide(true)}>
               Use it — flip again
             </button>
-            <button type="button" className="big-button__keep" data-testid="big-button-keep" onClick={() => onDecide(false)}>
+            <button type="button" className="big-button__keep btn-pill" data-testid="big-button-keep" onClick={() => onDecide(false)}>
               Keep it
             </button>
           </div>

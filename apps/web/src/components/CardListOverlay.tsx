@@ -19,7 +19,7 @@ export function CardListOverlay({ title, cardIds, cards, onClose }: CardListOver
           <h2>
             {title} <span className="card-list-overlay__count">({cardIds.length})</span>
           </h2>
-          <button type="button" className="card-list-overlay__close" onClick={onClose}>
+          <button type="button" className="card-list-overlay__close btn-pill" onClick={onClose}>
             Close
           </button>
         </div>

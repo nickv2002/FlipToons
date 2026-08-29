@@ -38,7 +38,9 @@ import { emptyGrid, occupiedSlots } from './grid'
 import { shuffleWithState } from './rng'
 import type { EngineLogLine, Match, PlayerId, PlayerView } from './state'
 import { commitView, createSoloGameState, makeMatch, viewOf } from './state'
-import { buildMultiplayerSetup } from './setup'
+import type { ResetEffect } from './state'
+import { applyGridResetCollect, canUseGridReset } from './bigButton'
+import { buildMultiplayerSetup, cardsById } from './setup'
 import type { FameModifier, RoundFame } from './roundFame'
 import { roundFame } from './roundFame'
 import type { CardId } from './cards/types'
@@ -56,9 +58,9 @@ export function buildNewMatch(
   seed: number,
   playerCount: number,
   season: 1 | 2 = 1,
-  options: { fameToTriggerEndgame?: number } = {},
+  options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null } = {},
 ): Match {
-  const setup = buildMultiplayerSetup(seed, playerCount, season)
+  const setup = buildMultiplayerSetup(seed, playerCount, season, { bigButton: options.bigButton })
   const first = createSoloGameState({
     seed: setup.playerSeeds[0],
     startingDeck: setup.startingDecks[0],
@@ -66,6 +68,7 @@ export function buildNewMatch(
     prices: setup.prices,
     fameToTriggerEndgame: options.fameToTriggerEndgame ?? setup.fameToTriggerEndgame,
     playerId: 'p0',
+    resetEffect: setup.resetEffect,
   })
   // createSoloGameState defaults to solo's reading of a failed refill (a
   // loss); at 2+ seats it is an ordinary ending that goes to the Final Flip.
@@ -174,7 +177,147 @@ export function runMatchCheckFame(match: Match): Match {
     throw new Error(`match.ts: runMatchCheckFame called in phase '${match.shared.phase}'`)
   }
   const next = checkFameSeats(match, allSeats(match))
-  return { ...next, shared: { ...next.shared, phase: 'postFameHooks' } }
+  // NOTE: this no longer necessarily lands on 'postFameHooks'. RESET: GRID
+  // interposes a decision phase here, so callers must branch on the phase they
+  // actually get rather than assuming the next step is post-fame hooks —
+  // matchActions.ts's advanceFlip does exactly that.
+  return openGridResetOrContinue(next, 'round')
+}
+
+// ---------------------------------------------------------------------------
+// The Big Button's RESET: GRID decision phase
+// ---------------------------------------------------------------------------
+//
+// "After the Check Fame phase, starting with the first player, each player in
+// clockwise order decides if they want to use their face-up Big Button card.
+// All players who want to use their card simultaneously flip their Big Button
+// card face down, collect the cards in their grid, add them to their deck,
+// shuffle, and complete the Flip phase again. All players then repeat the
+// Check Fame phase."
+//
+// Two things in that text are load-bearing and easy to flatten:
+//
+//   SEQUENCED DECISIONS   "in clockwise order" is information, not ceremony —
+//                         the fourth player decides knowing what the first
+//                         three chose. So this is a turn-walk, not a
+//                         simultaneous prompt, even though the RESETS that
+//                         follow are simultaneous.
+//   EVERYONE RE-SCORES    "ALL players then repeat the Check Fame phase," not
+//                         just the resetters. A resetter's new grid changes
+//                         what Dog/Camel/Fox are worth to every OTHER seat
+//                         too, so scoring only the resetters would leave the
+//                         table half-scored against a board that no longer
+//                         exists.
+//
+// Called from BOTH Check Fame phases — a normal round's and the Final Flip's —
+// which is what `context` records; nothing else can tell them apart by the
+// time the decisions come back, because runMatchFlip/startMatchFinalFlip have
+// both already moved the phase off 'flip'/'finalFlip'.
+function openGridResetOrContinue(match: Match, context: 'round' | 'finalFlip'): Match {
+  const eligible = gridResetEligibleSeats(match)
+  if (eligible.length === 0) {
+    // The ONLY path when the mini-expansion is off (resetEffect null makes
+    // canUseGridReset false for every seat), so this is the pre-existing
+    // behaviour, unchanged, byte for byte.
+    return context === 'round'
+      ? { ...match, shared: { ...match.shared, phase: 'postFameHooks' } }
+      : { ...match, shared: { ...match.shared, phase: 'finalFlip' } }
+  }
+  return {
+    ...match,
+    shared: { ...match.shared, phase: 'gridReset', gridReset: { context, asked: [], optedIn: [] } },
+    activePlayerIndex: eligible[0],
+  }
+}
+
+// Seats that still hold a face-up Big Button, in CLOCKWISE ORDER FROM THE
+// FIRST PLAYER — not seat order. A seat whose button is already spent is
+// never asked; the rules only offer the choice to "their face-up Big Button
+// card".
+function gridResetEligibleSeats(match: Match): number[] {
+  const seats: number[] = []
+  for (let step = 0; step < match.turnOrder.length; step++) {
+    const i = (match.firstPlayerIndex + step) % match.turnOrder.length
+    if (canUseGridReset(viewOf(match, i))) seats.push(i)
+  }
+  return seats
+}
+
+// Whether this seat is the one currently being asked. Exported for the action
+// surfaces' gating and for the server's absent-seat handling.
+export function gridResetDecider(match: Match): PlayerId | null {
+  if (match.shared.phase !== 'gridReset') return null
+  return activePlayerId(match)
+}
+
+// Answers ONE seat's use-it-or-not. Turn-gated: unlike the simultaneous
+// post-fame Skunk prompt, the clockwise order here is part of the rule.
+//
+// Returns the match either still in 'gridReset' (more seats to ask) or with
+// every reset resolved and the phase handed on per `gridReset.context`.
+export function matchBigButtonDecision(match: Match, playerId: PlayerId, use: boolean): Match {
+  const pending = match.shared.gridReset
+  if (match.shared.phase !== 'gridReset' || !pending) {
+    throw new Error(`match.ts: matchBigButtonDecision — no Big Button decision is open (phase '${match.shared.phase}')`)
+  }
+  const index = assertActive(match, playerId, 'matchBigButtonDecision')
+  if (pending.asked.includes(playerId)) {
+    throw new Error(`match.ts: matchBigButtonDecision — ${playerId} has already decided this round`)
+  }
+  if (use && !canUseGridReset(viewOf(match, index))) {
+    throw new Error(`match.ts: matchBigButtonDecision — ${playerId}'s Big Button is not available`)
+  }
+
+  const gridReset = {
+    ...pending,
+    asked: [...pending.asked, playerId],
+    optedIn: use ? [...pending.optedIn, playerId] : pending.optedIn,
+  }
+  const answered: Match = { ...match, shared: { ...match.shared, gridReset } }
+
+  // Recomputed from scratch rather than captured when the phase opened: a
+  // seat's button could in principle change hands mid-walk, and re-deriving is
+  // cheap. `asked` is what makes the walk terminate.
+  const remaining = gridResetEligibleSeats(answered).filter((i) => !gridReset.asked.includes(answered.turnOrder[i]))
+  if (remaining.length > 0) return { ...answered, activePlayerIndex: remaining[0] }
+
+  return resolveGridReset(answered)
+}
+
+// Everyone has answered: apply the resets, re-score the whole table, and hand
+// the phase on.
+function resolveGridReset(match: Match, logLines?: EngineLogLine[], debugLines?: string[]): Match {
+  const pending = match.shared.gridReset
+  if (!pending) throw new Error('match.ts: resolveGridReset — no Big Button decision in progress')
+
+  let next = match
+  for (const playerId of pending.optedIn) {
+    const i = playerIndex(next, playerId)
+    // Collect + flip, one seat at a time, re-projecting between each — same
+    // reason flipSeats does: the flip DRAWS from the shared toon deck (Snake),
+    // so seat i+1 must see it as seat i left it. Two live views at once is
+    // exactly what commitView's epoch check exists to catch.
+    next = withPlayer(next, i, (view) => applyGridResetCollect(view))
+    next = flipSeats(next, [i], logLines, debugLines)
+  }
+
+  // "All players then repeat the Check Fame phase" — every seat, not just the
+  // resetters. Note this OVERWRITES fameGeneratedThisRound: a reset that
+  // scores worse costs that player the endgame trigger and the Critic's
+  // Choice it would otherwise have had. That is the risk of pressing the
+  // button, not a bug. (strictlyLowestScorerIndex reads the post-reset value
+  // too, correctly — runMatchPostFameHooks runs strictly after this.)
+  next = checkFameSeats(next, allSeats(next))
+  next = { ...next, shared: { ...next.shared, gridReset: null } }
+
+  if (pending.context === 'finalFlip') {
+    // Back to the phase the Final Flip's tail asserts on; matchActions.ts
+    // resumes it.
+    return { ...next, shared: { ...next.shared, phase: 'finalFlip' } }
+  }
+
+  const hooked = runMatchPostFameHooks({ ...next, shared: { ...next.shared, phase: 'postFameHooks' } })
+  return hooked
 }
 
 // Scores a SUBSET of seats, leaving the shared phase alone.
@@ -283,7 +426,27 @@ export function matchResolvePostFameChoice(match: Match, playerId: PlayerId, cho
 
 export function matchHire(match: Match, playerId: PlayerId, slotIndex: number, choices?: EffectChoices): Match {
   const index = assertActive(match, playerId, 'matchHire')
-  return withPlayer(applyCrossPlayerHireFromDismissed(match, playerId, choices), index, (view) => hire(view, slotIndex, choices))
+  const hired = withPlayer(applyCrossPlayerHireFromDismissed(match, playerId, choices), index, (view) => hire(view, slotIndex, choices))
+  return applyCrossPlayerBigButtonFlip(hired, match.shared.market.slots[slotIndex])
+}
+
+// Platypus: "WHEN HIRED, FLIP ALL BIG BUTTON CARDS FACE UP" — every seat's,
+// not just the hirer's. phases.ts's applyEffects has already done the acting
+// player's own (a PlayerView can't reach another seat, same split as Pig's
+// placeSelfInAnyDeck and Raccoon's cross-table dismissed pile); this does
+// everyone else's.
+//
+// Keyed off the card that WAS in the slot, read before the hire emptied it.
+// Deliberately checks the effect list rather than `cardId === 'platypus'`, so
+// a second card with the same effect needs no change here.
+function applyCrossPlayerBigButtonFlip(match: Match, hiredCardId: CardId | null): Match {
+  if (!hiredCardId) return match
+  const card = cardsById()[hiredCardId]
+  if (!card?.onHire?.some((e) => e.kind === 'flipAllBigButtonsFaceUp')) return match
+  return {
+    ...match,
+    players: match.players.map((p) => (p.bigButtonFaceUp ? p : { ...p, bigButtonFaceUp: true })),
+  }
 }
 
 // Raccoon's "you may hire ANY dismissed card" (cards/types.ts's Effect
@@ -574,13 +737,57 @@ export type FinalFlipOutcome = {
 // player choice (post-fame hooks and the Market phase). So unlike a normal
 // round, there is nothing here to hand back to a client mid-way.
 export function runMatchFinalFlip(match: Match, logLines?: EngineLogLine[], debugLines?: string[]): FinalFlipOutcome {
+  const started = startMatchFinalFlip(match, logLines, debugLines)
+  if (!started.outcome) {
+    throw new Error(
+      "match.ts: runMatchFinalFlip — the Final Flip paused on a Big Button decision. Use startMatchFinalFlip/resumeMatchFinalFlip on a table playing RESET: GRID.",
+    )
+  }
+  return started.outcome
+}
+
+// The Final Flip's FIRST half: everyone flips, everyone scores, and then —
+// under RESET: GRID — the table gets its Big Button decision before anything
+// is decided.
+//
+// Splitting this is the one place the Big Button touches the endgame path. The
+// Final Flip was synchronous and non-interactive precisely because it "skips
+// the two phases that can pause on a player choice"; RESET: GRID's decision is
+// explicitly "after the Check Fame phase", with no exception carved out for
+// this one, and the Final Flip IS Flip + Check Fame. So it can now pause here,
+// exactly once — and only here. The TIEBREAK re-flips can't pause, because
+// any button that was going to be spent is already spent by then.
+//
+// `outcome` is null iff the table is now sitting in 'gridReset' waiting on
+// decisions; matchActions.ts answers those and calls resumeMatchFinalFlip.
+export function startMatchFinalFlip(
+  match: Match,
+  logLines?: EngineLogLine[],
+  debugLines?: string[],
+): { match: Match; outcome: FinalFlipOutcome | null } {
   if (match.shared.phase !== 'finalFlip') {
-    throw new Error(`match.ts: runMatchFinalFlip called in phase '${match.shared.phase}', expected 'finalFlip'`)
+    throw new Error(`match.ts: startMatchFinalFlip called in phase '${match.shared.phase}', expected 'finalFlip'`)
   }
 
   // First flip: everyone.
   let next = flipSeats(match, allSeats(match), logLines, debugLines)
   next = checkFameSeats(next, allSeats(match))
+
+  next = openGridResetOrContinue(next, 'finalFlip')
+  if (next.shared.phase === 'gridReset') return { match: next, outcome: null }
+
+  const outcome = resumeMatchFinalFlip(next, logLines, debugLines)
+  return { match: outcome.match, outcome }
+}
+
+// The Final Flip's SECOND half: the tiebreak loop, the scores, and the winner.
+// Unchanged from what runMatchFinalFlip always did from this point on — the
+// only thing the split moved is where it starts.
+export function resumeMatchFinalFlip(match: Match, logLines?: EngineLogLine[], debugLines?: string[]): FinalFlipOutcome {
+  if (match.shared.phase !== 'finalFlip') {
+    throw new Error(`match.ts: resumeMatchFinalFlip called in phase '${match.shared.phase}', expected 'finalFlip'`)
+  }
+  let next = match
 
   let contenders = leaders(next)
   let tiebreakRounds = 0

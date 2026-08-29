@@ -288,28 +288,22 @@ export const season2Cards: Card[] = [
     id: 'platypus', name: 'Platypus', season: 2, rank: 26, copies: 2,
     fame: { base: 5, bonuses: [{ kind: 'ifCondition', condition: 'bigButtonCardFaceDown', amount: 3 }] },
     rawBannerText: 'WHEN HIRED, FLIP ALL BIG BUTTON CARDS FACE UP',
-    unencodable: true,
-    unencodableReason: '"big button card" is a component from the Big Button mini-expansion (see Referance/*.HEIC rulebook photos) that has no representation anywhere in the current rules model',
-    // FLAG-AUDIT FINDING (this pass): unlike Axolotl (Season 1, same Big
-    // Button gap), Platypus's FAME BONUS itself — not just its onHire
-    // effect — references Big Button state ('bigButtonCardFaceDown'),
-    // which scoreGrid cannot evaluate. Axolotl's fame is a plain number
-    // (7) with no such reference, so `unencodable` alone was correct for
-    // it. Platypus needs BOTH flags: `unencodable` for the onHire text
-    // (unchanged) AND `fameUnencodable` here, because the fame VALUE
-    // itself — not just an effect — can't be computed as a fixed number.
-    // Without this flag, scoreGrid's computeCardFame would call
-    // evaluateBonus on 'bigButtonCardFaceDown', which has no handler and
-    // THROWS (score.ts's evaluateBonus fails loudly on any unrecognized
-    // condition — verified: it does NOT silently skip a bonus and score a
-    // wrong/lower total) — crashing the entire scoreGrid() call for any
-    // grid containing a Platypus, not just returning a bad number for this
-    // one card. Setting `fameUnencodable` routes it through score.ts's
-    // needsRuling path instead, which blanks only this card's line
-    // (total: 0, needsRuling: true) and lets the rest of the grid still
-    // score normally.
-    fameUnencodable: true,
-    fameUnencodableReason:
-      "fame bonus condition 'bigButtonCardFaceDown' references the Big Button mini-expansion component, which (like the rest of Big Button — see Axolotl, season1.ts) has no representation anywhere in the current rules model — deliberately NOT inventing one",
+    // The Big Button mini-expansion is now modelled — see Axolotl
+    // (season1.ts) for the Season 1 half of the pair and bigButton.ts for the
+    // reset effects themselves. BOTH former flags are gone, and both had to
+    // go together:
+    //
+    //   `unencodable`      the onHire text is now a real effect. Note it is
+    //                      the CROSS-PLAYER one: "ALL big button cards", not
+    //                      just the hirer's, which is why match.ts's matchHire
+    //                      has to finish what applyEffects starts.
+    //   `fameUnencodable`  score.ts's evaluateBonus now has a
+    //                      'bigButtonCardFaceDown' handler, fed from
+    //                      runCheckFame via scoreGrid's existing externalState
+    //                      channel (the same seam Dog/Camel/Fox use). Leaving
+    //                      this flag set would keep routing the card to
+    //                      score.ts's needsRuling path and blank its line at 0
+    //                      fame even though the value is now computable.
+    onHire: [{ kind: 'flipAllBigButtonsFaceUp' }],
   },
 ]

@@ -12,6 +12,7 @@ import { roundFameLookup } from '../../../../packages/engine/score'
 import { BoardPane } from './BoardPane'
 import { ConfettiBurst } from './ConfettiBurst'
 import { Market } from './Market'
+import { BigButtonPrompt } from './BigButtonPrompt'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
 import { CardListOverlay } from './CardListOverlay'
@@ -262,6 +263,14 @@ export function RoundView({
         </div>
       )}
 
+      {/* The Big Button's RESET: GRID decision. Solo is the one-seat case of
+          the rulebook's clockwise walk, so the decision is always yours. */}
+      {state.phase === 'gridReset' && (
+        <fieldset className="round-view__controls" disabled={controlsDisabled}>
+          <BigButtonPrompt isMyDecision onDecide={(use) => dispatch({ kind: 'bigButtonDecision', use })} />
+        </fieldset>
+      )}
+
       {state.phase === 'market' && alligatorChoice && (
         <fieldset className="round-view__controls" disabled={controlsDisabled}>
           <EffectChoicePrompt
@@ -348,7 +357,12 @@ export function RoundView({
               touchMode={touchMode}
               onZoom={setZoomRequest}
             />
-            <ChoicePrompt state={state} onEndMarket={() => dispatch({ kind: 'endMarket' })} endLabel={endMarketLabel} />
+            <ChoicePrompt
+              state={state}
+              onEndMarket={() => dispatch({ kind: 'endMarket' })}
+              onUseBigButton={() => dispatch({ kind: 'useBigButton' })}
+              endLabel={endMarketLabel}
+            />
           </fieldset>
         </div>
       )}

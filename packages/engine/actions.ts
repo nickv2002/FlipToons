@@ -25,9 +25,10 @@ import {
 import type { DismissEntry } from './phases'
 export { hasAnyLegalMarketAction, listDismissEntries }
 export type { DismissEntry }
+import { applyGridResetCollect, applyMarketReset, canUseGridReset, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import { cardsById } from './setup'
 import { createSoloGameState } from './state'
-import type { EngineLogLine, GameState } from './state'
+import type { EngineLogLine, GameState, ResetEffect } from './state'
 import { buildSoloSetup } from './setup'
 import type { SoloDifficulty } from './setup'
 import type { GridPos } from './types'
@@ -43,19 +44,27 @@ export type Action =
   | { kind: 'endMarket' }
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
   | { kind: 'advanceCleanup' }
+  // Big Button, RESET: MARKET — a Market-phase action costing no fame and no
+  // action, legal only before this round's first hire/dismiss.
+  | { kind: 'useBigButton' }
+  // Big Button, RESET: GRID — answers the 'gridReset' phase the cascade parks
+  // on after Check Fame. Solo has one seat, so the rulebook's clockwise walk
+  // is a single question.
+  | { kind: 'bigButtonDecision'; use: boolean }
 
 export type ApplyResult = { state: GameState; logLines: EngineLogLine[]; debugLines: string[] }
 
 const cards = cardsById()
 
-export function buildNewGameState(seed: number, difficulty: SoloDifficulty, season: 1 | 2): GameState {
-  const setup = buildSoloSetup(seed, season, difficulty)
+export function buildNewGameState(seed: number, difficulty: SoloDifficulty, season: 1 | 2, bigButton: ResetEffect | null = null): GameState {
+  const setup = buildSoloSetup(seed, season, difficulty, { bigButton })
   return createSoloGameState({
     seed: setup.seed,
     startingDeck: setup.startingDeck,
     toonDeck: setup.toonDeck,
     prices: setup.prices,
     fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    resetEffect: setup.resetEffect,
   })
 }
 
@@ -118,6 +127,17 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: Engi
   if (next.phase === 'checkFame') {
     next = runCheckFame(next)
     if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
+  }
+
+  // The Big Button's RESET: GRID decision (bigButton.ts) is the FIRST thing
+  // that can interrupt this cascade before the Market phase. Returned
+  // explicitly rather than left to fall out of the two `if`s below not
+  // matching: nothing downstream would have done the wrong thing, but a
+  // pause point that works by accident is one refactor away from not
+  // working at all. Unreachable whenever resetEffect is null.
+  if (next.phase === 'gridReset') {
+    say('The Big Button is available — use it to collect your grid and flip again, or keep it.')
+    return next
   }
 
   if (next.phase === 'postFameHooks') {
@@ -338,6 +358,56 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       say(`Can't do that: ${playerFacingMessage(err)}`)
       return { state, logLines, debugLines }
     }
+  }
+
+  if (action.kind === 'useBigButton') {
+    // RESET: MARKET. Free (no fame, no action), and legal only before this
+    // round's first hire/dismiss — see bigButton.ts's canUseMarketReset and
+    // state.ts's actedThisMarketPhase for why that isn't an actionsRemaining
+    // check.
+    if (!canUseMarketReset(state)) {
+      if (state.resetEffect !== 'market') say("Can't do that: the reset effect in play is not RESET: MARKET.")
+      else if (!state.bigButtonFaceUp) say("Can't do that: your Big Button card is already face down.")
+      else if (state.phase !== 'market') say("Can't do that: the Big Button can only be used during the Market phase.")
+      else say("Can't do that: the Big Button must be used before you take any Market actions this round.")
+      return { state, logLines, debugLines }
+    }
+    const returned = marketResetReturnedCards(state)
+    const next = applyMarketReset(state)
+    say(`Used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
+    // A reset that came up short latches toonDeckDepleted, which is exactly
+    // what the guaranteed-loss short circuit reads — so run the same tail
+    // every other Market-phase mutation gets rather than returning raw.
+    return { state: skipGuaranteedLossMarketPhase(next, logLines), logLines, debugLines }
+  }
+
+  if (action.kind === 'bigButtonDecision') {
+    // RESET: GRID. Solo is the degenerate case of the rulebook's clockwise
+    // walk — one seat, one question — so there is no turn machine here, just
+    // the answer and the re-flip.
+    if (state.phase !== 'gridReset') {
+      say("Can't do that: there's no Big Button decision to make right now.")
+      return { state, logLines, debugLines }
+    }
+    if (!action.use) {
+      say('Kept the Big Button.')
+      return { state: advanceThroughPassthroughPhases({ ...state, phase: 'postFameHooks' }, logLines, debugLines), logLines, debugLines }
+    }
+    if (!canUseGridReset(state)) {
+      say("Can't do that: your Big Button card is not available.")
+      return { state, logLines, debugLines }
+    }
+    // "collect the cards in their grid, add them to their deck, shuffle, and
+    // complete the Flip phase again. All players then repeat the Check Fame
+    // phase." runFlip does the shuffle itself, so applyGridResetCollect
+    // deliberately doesn't.
+    say('Used the Big Button: collecting the grid and flipping again.')
+    let next = runFlip({ ...applyGridResetCollect(state), phase: 'flip' }, logLines, debugLines)
+    next = runCheckFame({ ...next, phase: 'checkFame' })
+    if (next.lastCheckFame) say(formatBreakdown(next.lastCheckFame))
+    // The button is spent, so runCheckFame cannot route back into 'gridReset'
+    // — one reset per game, and this was it.
+    return { state: advanceThroughPassthroughPhases(next, logLines, debugLines), logLines, debugLines }
   }
 
   if (action.kind === 'advanceCleanup') {

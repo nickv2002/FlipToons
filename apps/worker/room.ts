@@ -54,6 +54,12 @@ export type Room = {
   hostPlayerId: string
   started: boolean
   season: 1 | 2
+  // Big Button reset effect, or null for "not in play". Stored on the Room —
+  // NOT only on the dealt match — because handleStart REBUILDS the match at
+  // the size that actually turned up (see the table-size note in CLAUDE.md),
+  // and handleRematch builds another one again. All three buildNewMatch call
+  // sites have to pass it or the expansion silently switches itself off.
+  bigButton: 'market' | 'grid' | null
   seed: number
   fameToTriggerEndgame: number
   log: LogLine[]
@@ -103,6 +109,7 @@ function lobbyOf(room: Room): LobbyState {
     started: room.started,
     season: room.season,
     fameToTriggerEndgame: room.fameToTriggerEndgame,
+    bigButton: room.bigButton,
     capacity: MAX_SEATS,
   }
 }
@@ -175,7 +182,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     // dealt until `start`, which rebuilds it at the size that showed up. A
     // solo game never goes through a room at all — the browser runs it
     // locally (apps/web/src/useGame.ts).
-    const match = buildNewMatch(seed, MAX_SEATS, params.season, { fameToTriggerEndgame: params.fameToTriggerEndgame })
+    const bigButton = params.bigButton ?? null
+    const match = buildNewMatch(seed, MAX_SEATS, params.season, { fameToTriggerEndgame: params.fameToTriggerEndgame, bigButton })
     const seat: Seat = { playerId: match.turnOrder[0], name: params.name, reconnectToken: generateToken(), connected: false }
     const room: Room = {
       code: roomCode,
@@ -184,6 +192,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       hostPlayerId: seat.playerId,
       started: false,
       season: params.season,
+      bigButton,
       seed,
       fameToTriggerEndgame: match.shared.fameToTriggerEndgame,
       log: [],
@@ -416,7 +425,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     try {
       dealt =
         room.seats.length !== room.match.turnOrder.length
-          ? buildNewMatch(room.seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame })
+          ? buildNewMatch(room.seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame, bigButton: room.bigButton })
           : room.match
       // Nothing is committed to `room` until the advance has finished — same
       // discipline as handleAction — so an engine bug thrown mid-cascade
@@ -460,7 +469,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const freshDebugLog: string[] = []
     try {
       dealt = advanceSharedPhases(
-        buildNewMatch(seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame }),
+        buildNewMatch(seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame, bigButton: room.bigButton }),
         freshLog,
         freshDebugLog,
       )
@@ -529,6 +538,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       return undefined
     }
 
+    // The Big Button's RESET: GRID decision phase is turn-based like the
+    // Market phase — the table cannot advance past a seat that never answers.
+    // Without this branch the whole table stalls with NO alarm armed, because
+    // the check below returns undefined for every non-'market' phase.
+    if (room.match.shared.phase === 'gridReset') {
+      const decider = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
+      return decider && !decider.connected ? decider : undefined
+    }
+
     if (room.match.shared.phase !== 'market') return undefined
     const seat = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
     return seat && !seat.connected ? seat : undefined
@@ -574,6 +592,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       } else if (player.pendingPostMarketChoice) {
         const option = player.pendingPostMarketChoice.options[0]
         action = { kind: 'resolvePostMarketChoice', pos: option.pos, index: option.index }
+      } else if (room.match.shared.phase === 'gridReset' && room.match.turnOrder[room.match.activePlayerIndex] === seat.playerId) {
+        // Declining is the "least the rules allow" answer here: it keeps the
+        // button for whenever they reconnect, whereas spending it on their
+        // behalf would burn a once-per-game resource on a guess.
+        action = { kind: 'bigButtonDecision', use: false }
       } else if (room.match.shared.phase === 'market' && room.match.turnOrder[room.match.activePlayerIndex] === seat.playerId) {
         action = { kind: 'endTurn' }
       } else {

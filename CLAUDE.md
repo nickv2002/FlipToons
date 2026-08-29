@@ -11,9 +11,17 @@ specifics; treat git log / current code as ground truth over plan prose.
 solo (local, in-browser) and real 2-4 player multiplayer (room codes, seats,
 turn order, Final Flip). (A terminal UI existed earlier in development and was
 retired in favor of the web UI as the sole interface.) Card transcription
-(`cards.csv` → `packages/engine/cards/`) is done for all 62 cards; only
-Axolotl and Platypus remain `unencodable: true`, both blocked on the Big
-Button mini-expansion rather than on the effect vocabulary.
+(`cards.csv` → `packages/engine/cards/`) is done for all 62 cards, and as of
+the Big Button mini-expansion pass **nothing is `unencodable` any more** —
+Axolotl and Platypus were the last two, and both were blocked on that
+component rather than on the effect vocabulary.
+
+**The Big Button mini-expansion is implemented but OFF BY DEFAULT.**
+`SharedState.resetEffect` is `null` unless a caller asks for it, and that
+null is load-bearing: with it, the new `gridReset` phase is unreachable, both
+Big Button toon cards stay excluded from every deck, and the pre-existing
+engine/DO/Playwright suites needed no edits at all. See the Big Button
+section below.
 
 **Multiplayer was built after an audit found it did not exist.** What the
 room-code feature used to be: a hosted *solo* game — one shared `GameState`
@@ -62,6 +70,7 @@ packages/engine/     Pure TS, zero runtime deps. The rules engine.
   match.ts              the TABLE: turn order, seat-subset flip/scoring, Cleanup, Final Flip + tiebreak
   matchActions.ts       multiplayer action surface — SEPARATE from actions.ts on purpose (see below)
   roundFame.ts          scoreGrid + player-level modifiers (the Critic's Choice +3)
+  bigButton.ts          the Big Button mini-expansion's two reset effects, as pure PlayerView transforms
 
 apps/worker/           Cloudflare Worker + Durable Object. Room-code hosted/resumable games.
   room.ts                 RoomDurableObject — one instance per room, hibernatable WebSockets,
@@ -243,9 +252,95 @@ Toolchain is **bun** — runtime, package manager, test runner — for `packages
   once your score, your spending power, and expiring. The rules keep no
   running tally; don't invent one in the UI.
 
+## Big Button mini-expansion invariants
+
+The mini-expansion (`Referance/IMG_4308.HEIC` — the only photographed page)
+gives every player one Big Button card, face up. Flipping it face down IS the
+whole cost: no fame, no action, once per game. Exactly ONE of two reset effect
+cards is chosen at setup and shared by the whole table.
+
+- **`resetEffect: null` is the default and must stay a complete no-op.** It
+  is what makes this a safe addition rather than a re-baseline: with it, both
+  Big Button toon cards stay excluded, `canUseGridReset`/`canUseMarketReset`
+  are false for every seat, `runCheckFame` still goes straight to
+  `postFameHooks`, and `runMatchFinalFlip` is still the synchronous
+  single-call endgame it always was. `big-button.test.ts` opens with a whole
+  describe block pinning exactly that; if you break it, that is the first
+  thing that fails.
+- **The Big Button card is excluded from the deck BECAUSE the expansion is
+  off, not because the effect is unimplementable.** Do not conflate that with
+  the Pig's solo exclusion, which is a rulebook rule (§3.7) and holds
+  unconditionally. `setup.ts`'s `exclusionsFor` is the one place the
+  difference lives. The Season 1 pairing (Axolotl ↔ Season 2's Platypus) is
+  **inferred by symmetry** — only the Season 2 setup card is photographed —
+  and `BIG_BUTTON_CARDS` is the single line to change if a Season 1 card ever
+  turns up saying otherwise.
+- **"Before taking any market actions" is NOT an `actionsRemaining` check.**
+  RESET: MARKET is legal only before this turn's first hire/dismiss, and
+  hiring a Peacock leaves `actionsRemaining` back at 2 (`2 - 1 + 1`) with a
+  card already bought. That is why `PlayerState.actedThisMarketPhase` exists.
+  It is cleared at the one place actions are dealt out (the
+  `postFameHooks -> market` transition), which is enough because each seat
+  takes exactly one turn per Market phase.
+- **`hasAnyLegalMarketAction` counts the Market Reset.** It costs 0 fame and
+  0 actions, so a broke seat holding an unused button still has something to
+  do — and that predicate drives three auto-END-the-turn paths
+  (`afterMarketAction`, `afterTurnBoundary`'s skip LOOP, solo's
+  `closeMarketIfExhausted`). Without it a broke seat silently loses its
+  once-per-game button, and the loop can strip several seats in one call.
+- **RESET: GRID's decisions are SEQUENCED; its resets are SIMULTANEOUS.**
+  "Starting with the first player, each player in clockwise order decides" is
+  information, not ceremony — the last decider knows what everyone else chose.
+  So it is its own turn-gated phase (`gridReset`), walked from
+  `firstPlayerIndex`, skipping seats whose button is already spent. Only then
+  do the opted-in seats collect and re-flip.
+- **"All players then repeat the Check Fame phase" means ALL, not just the
+  resetters.** A resetter's new grid changes what Dog/Camel/Fox are worth to
+  every other seat, so `resolveGridReset` re-scores the whole table. This
+  OVERWRITES `fameGeneratedThisRound`: a reset that scores worse costs that
+  player the endgame trigger and the Critic's Choice they would otherwise
+  have had. That is the risk of pressing the button, not a bug.
+  `strictlyLowestScorerIndex` reads the post-reset value, correctly, because
+  `runMatchPostFameHooks` runs strictly after.
+- **The Final Flip can now pause — exactly once, and only there.** RESET:
+  GRID is "after the Check Fame phase" with no exception, and the Final Flip
+  IS Flip + Check Fame, so `runMatchFinalFlip` split into
+  `startMatchFinalFlip` (flip + score + maybe pause) and
+  `resumeMatchFinalFlip` (tiebreak + scores + winner). The old single-call
+  entry point still exists and now THROWS if it would have skipped a pending
+  decision, rather than silently swallowing it. The tiebreak re-flips can't
+  pause: any button that was going to be spent already is.
+- **Platypus's +3 goes through `scoreGrid`'s `externalState`, NOT
+  `roundFame.ts`.** It is PER-CARD (two Platypuses each score their own +3),
+  where the Critic's Choice is per-player — so it belongs on the same seam
+  Dog/Camel/Fox use, fed by `runCheckFame`. Like theirs, an unsupplied flag
+  THROWS rather than silently scoring 0. `architecture.test.ts` is unaffected:
+  it greps `score.ts` for `criticsChoice`/`finalFlip` only.
+- **Platypus is the second effect that reaches ACROSS seats** (the Pig was the
+  first). "Flip ALL big button cards face up" — `applyEffects` does the acting
+  player's own, because a `PlayerView` can't see another seat, and
+  `match.ts`'s `matchHire` does everyone else's. Axolotl's is own-seat only.
+- **`bigButtonFaceUp` is never reset at Cleanup.** One use per game; the
+  per-seat reset block in `runMatchCleanup` is exactly where someone would
+  reflexively add it. Only Axolotl/Platypus flip it back up.
+- **The room-level setting lives on `Room`, not just the dealt match.**
+  `handleStart` REBUILDS the match at the size that turned up (the ordinary
+  path, not an edge case) and `handleRematch` builds another — all three
+  `buildNewMatch` call sites must pass it. `worker.ts`'s `handleCreateRoom`
+  rebuilds the params object field by field, so a new `CreateRoomRequest`
+  field has to be added there too or it is silently dropped; it is validated
+  against the two legal values there rather than passed through, since it
+  reaches `setup.ts` and decides the toon deck's composition.
+- **`strandingSeat` knows about `gridReset`.** The decision is turn-gated, so
+  a disconnected decider stalls the whole table — and the pre-existing check
+  returns `undefined` for every phase but `market`, arming no alarm at all.
+  `playForAbsentSeat` answers for them by DECLINING: keeping the button costs
+  that player nothing, where spending it on a guess burns a once-per-game
+  resource.
+
 ## Testing
 
-382 tests across 18 files (the pure-engine suite) plus 20 tests in
+442 tests across 19 files (the pure-engine suite) plus 28 tests in
 `apps/worker/room.vitest.ts` — `make test` runs both (the second via `cd
 apps/worker && bunx vitest run`, since it needs the real Workers runtime, not
 Bun; see Running Things above) — plus the 17 Playwright browser tests `make

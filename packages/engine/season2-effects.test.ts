@@ -459,19 +459,38 @@ describe('Face-down cards in an extra row resolve nothing — the general "all c
   })
 })
 
-describe('Platypus — fame-audit finding: fameUnencodable (not just unencodable) is required', () => {
-  test('scores as needsRuling rather than crashing scoreGrid, and does not blank the rest of the grid', () => {
+// This used to pin the OPPOSITE behaviour: Platypus carried `fameUnencodable`
+// (because 'bigButtonCardFaceDown' had no handler) and was expected to come
+// back needsRuling with total 0. The Big Button mini-expansion is now modelled
+// (bigButton.ts), so score.ts resolves the condition for real and both of that
+// card's unencodable flags are gone. The externalState-is-required half of the
+// old test survives, because that is genuinely unchanged: an unsupplied
+// external fact throws rather than silently scoring 0, exactly as Dog's and
+// Camel's do.
+describe("Platypus — 'bigButtonCardFaceDown' resolves through scoreGrid's externalState", () => {
+  test('throws rather than silently scoring 0 when the caller omits the flag', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'platypus')
+    expect(() => scoreGrid(grid, cards)).toThrow(/needs externalState\.bigButtonFaceDown/)
+  })
+
+  test('scores 5 with the button face up and 8 face down, and never needsRuling', () => {
     const grid = emptyGrid()
     placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'platypus')
     placeCardFaceUp(grid, { section: 'base', row: 0, col: 1 }, 'bee')
-    expect(() => scoreGrid(grid, cards)).not.toThrow()
-    const breakdown = scoreGrid(grid, cards)
-    const platypusLine = breakdown.lines.find((l) => l.cardId === 'platypus')!
-    expect(platypusLine.needsRuling).toBe(true)
-    expect(platypusLine.total).toBe(0)
-    const beeLine = breakdown.lines.find((l) => l.cardId === 'bee')!
-    expect(beeLine.needsRuling).toBeUndefined()
-    expect(beeLine.total).toBe(1) // the rest of the grid still scores normally
+
+    const faceUp = scoreGrid(grid, cards, undefined, { bigButtonFaceDown: false })
+    const faceUpLine = faceUp.lines.find((l) => l.cardId === 'platypus')!
+    expect(faceUpLine.needsRuling).toBeUndefined()
+    expect(faceUpLine.total).toBe(5)
+
+    const faceDown = scoreGrid(grid, cards, undefined, { bigButtonFaceDown: true })
+    const faceDownLine = faceDown.lines.find((l) => l.cardId === 'platypus')!
+    expect(faceDownLine.needsRuling).toBeUndefined()
+    expect(faceDownLine.total).toBe(8) // 5 base + 3
+
+    // The rest of the grid is unaffected either way.
+    expect(faceDown.lines.find((l) => l.cardId === 'bee')!.total).toBe(1)
   })
 })
 

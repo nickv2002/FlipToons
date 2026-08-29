@@ -275,9 +275,22 @@ export const season1Cards: Card[] = [
   },
   {
     id: 'axolotl', name: 'Axolotl', season: 1, rank: 26, copies: 2,
-    fame: { base: 7 }, // fully encodable, fine as-is — only the onHire effect is unencodable, not the fame
+    fame: { base: 7 },
     rawBannerText: 'WHEN HIRED, FLIP YOUR BIG BUTTON CARD FACE UP',
-    unencodable: true,
-    unencodableReason: '"big button card" is a component from the Big Button mini-expansion (see Referance/*.HEIC rulebook photos) that has no representation anywhere in the current rules model — deliberately NOT inventing one; this effect may never be encodable without adding new game state for that component',
+    // The Big Button mini-expansion is now modelled (state.ts's
+    // PlayerState.bigButtonFaceUp / SharedState.resetEffect, and
+    // bigButton.ts), so this is no longer `unencodable`. Axolotl is the
+    // SEASON 1 half of the pair; Platypus (season2.ts) is the Season 2 half.
+    // Only the Season 2 setup card is photographed (Referance/IMG_4308.HEIC,
+    // marked "2" and naming platypus); the Season 1 pairing is inferred by
+    // symmetry — same rank 26, same copies 2, same banner shape — the same
+    // "best available reading" the solo Season 2 starting deck is built on
+    // (setup.ts's buildSeason2SoloStartingDeck).
+    //
+    // With no reset effect in play (SharedState.resetEffect === null) this
+    // effect still resolves — it just sets a flag nothing consults — and
+    // setup.ts keeps Axolotl out of the toon deck entirely in that case, so
+    // it can never actually be hired.
+    onHire: [{ kind: 'flipOwnBigButtonFaceUp' }],
   },
 ]

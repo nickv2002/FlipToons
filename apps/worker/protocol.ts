@@ -38,6 +38,10 @@ export type LobbyState = {
   started: boolean
   season: 1 | 2
   fameToTriggerEndgame: number
+  // Which Big Button reset effect card is on the table, or null for "the
+  // mini-expansion is not in play" (the default). Fixed at room creation —
+  // see CreateRoomRequest.
+  bigButton: 'market' | 'grid' | null
   // How many seats the room can hold — always MAX_SEATS. The table size is not
   // chosen up front; it is whoever is in the lobby when the host starts. The
   // lobby renders this only so you can see there is still room.
@@ -46,7 +50,12 @@ export type LobbyState = {
 
 // POST /api/rooms — mints a room code and seeds the match. Returns what the
 // creator needs to open its WebSocket and attach as the host seat.
-export type CreateRoomRequest = { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }
+// `bigButton` names which Big Button reset effect card is on the table, or is
+// omitted for "the mini-expansion is not in play" — the default. It is fixed
+// at room creation because it changes the toon deck's composition (the
+// season's Big Button card is only dealt when a reset effect is chosen), which
+// setup.ts decides before the first Flip.
+export type CreateRoomRequest = { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
 // Sent as the first message over a `/ws?room=<code>` connection. There is no

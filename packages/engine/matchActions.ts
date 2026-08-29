@@ -28,9 +28,11 @@
 
 import type { EffectChoices } from './cards/types'
 import { formatBreakdown } from './score'
+import { applyMarketReset, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import {
   activePlayerId,
   endMarketTurn,
+  matchBigButtonDecision,
   matchDismiss,
   matchHire,
   matchResolveDeckPlacement,
@@ -39,17 +41,19 @@ import {
   playerIndex,
   runMatchCheckFame,
   runMatchCleanup,
-  runMatchFinalFlip,
   runMatchFlip,
   runMatchPostFameHooks,
+  resumeMatchFinalFlip,
+  startMatchFinalFlip,
 } from './match'
+import type { FinalFlipOutcome } from './match'
 import type { DeckPlacementTarget } from './match'
 import { getSlot, posLabel } from './grid'
 import { hireCost } from './market'
 import { dismissCostFor, hasAnyLegalMarketAction, unencodableNote } from './phases'
 import { cardsById } from './setup'
 import type { EngineLogLine, Match, PlayerId } from './state'
-import { viewOf } from './state'
+import { commitView, viewOf } from './state'
 import type { GridPos } from './types'
 
 const cards = cardsById()
@@ -70,6 +74,12 @@ export type MatchAction =
   // Pig's destination deck. Turn-gated: it can only ever arise from the
   // acting player's own hire or dismiss.
   | { kind: 'resolveDeckPlacement'; target: DeckPlacementTarget }
+  // Big Button, RESET: MARKET. Turn-gated, and additionally gated on this
+  // seat not having acted yet this Market phase. Costs no fame and no action.
+  | { kind: 'useBigButton' }
+  // Big Button, RESET: GRID. Turn-gated on the 'gridReset' phase's own
+  // clockwise walk, which is a different walk from the Market phase's.
+  | { kind: 'bigButtonDecision'; use: boolean }
 
 // A log line that knows WHO did it. The solo log was a bare string[] because
 // there was only ever one actor; at N seats "Hired Elephant for 7 fame" is
@@ -236,6 +246,65 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
       return afterMarketAction(next, playerId, logLines, debugLines, say)
     }
 
+    case 'useBigButton': {
+      // RESET: MARKET — "shuffle all toon cards in the market back into the
+      // toon deck. Then refill the market." Free: no fame, no action.
+      assertTurn(match, playerId, 'use your Big Button')
+      assertNoPendingDeckPlacement(match, playerId, 'taking another action')
+      const index = playerIndex(match, playerId)
+      const view = viewOf(match, index)
+      if (!canUseMarketReset(view)) {
+        // Three distinguishable reasons, and the player deserves to know
+        // which — "you already used it" and "you already bought something"
+        // suggest completely different next moves.
+        if (view.resetEffect !== 'market') throw new IllegalActionError('The Big Button reset effect in play is not RESET: MARKET.')
+        if (!view.bigButtonFaceUp) throw new IllegalActionError('Your Big Button card is already face down — it has been used.')
+        throw new IllegalActionError('The Big Button must be used before you take any Market actions this turn.')
+      }
+      const returned = marketResetReturnedCards(view)
+      const next = commitView(match, index, applyMarketReset(view))
+      say(`used the Big Button: shuffled ${returned.length} market card(s) back into the toon deck and refilled.`)
+      // The refill can leave the market short, which is an ordinary
+      // (latched) depletion trigger — and the reset may equally have been
+      // the last legal thing this seat could do, so run the usual tail.
+      return afterMarketAction(next, playerId, logLines, debugLines, say)
+    }
+
+    case 'bigButtonDecision': {
+      // RESET: GRID — "each player in clockwise order decides if they want to
+      // use their face-up Big Button card." Its own phase and its own walk,
+      // so assertTurn (which is Market-phase-specific) is wrong here.
+      if (match.shared.phase !== 'gridReset') {
+        throw new IllegalActionError('There is no Big Button decision to make right now.')
+      }
+      if (activePlayerId(match) !== playerId) {
+        throw new IllegalActionError(`It isn't your decision yet — waiting on ${activePlayerId(match)}.`)
+      }
+      const wasFinalFlip = match.shared.gridReset?.context === 'finalFlip'
+      let next: Match
+      try {
+        next = matchBigButtonDecision(match, playerId, action.use)
+      } catch (err) {
+        throw new IllegalActionError(err instanceof Error ? err.message : String(err))
+      }
+      say(action.use ? 'used their Big Button — collecting their grid and flipping again.' : 'kept their Big Button.')
+
+      // Still collecting decisions from the seats after this one.
+      if (next.shared.phase === 'gridReset') return { match: next, logLines, debugLines }
+
+      // The decisions are in and the resets have resolved. In the Final Flip
+      // that means the paused endgame can now finish; in a normal round
+      // matchBigButtonDecision has already run the post-fame hooks, so the
+      // only thing left is the same Cleanup/Market tail every turn boundary
+      // gets.
+      if (wasFinalFlip) {
+        const outcome = resumeMatchFinalFlip(next, [], debugLines)
+        sayFinalFlipOutcome(outcome, say)
+        return { match: outcome.match, logLines, debugLines }
+      }
+      return { match: next, logLines, debugLines }
+    }
+
     case 'endTurn': {
       assertTurn(match, playerId, 'end your turn')
       assertNoPendingDeckPlacement(match, playerId, 'ending your turn')
@@ -266,17 +335,14 @@ function advanceFlip(
 ): MatchApplyResult {
   if (match.shared.phase === 'finalFlip') {
     const flipNotes: EngineLogLine[] = []
-    const outcome = runMatchFinalFlip(match, flipNotes, debugLines)
+    // Under RESET: GRID the Final Flip pauses after Check Fame for the table's
+    // Big Button decision; `outcome` is null in exactly that case and the
+    // 'bigButtonDecision' handler above finishes it.
+    const started = startMatchFinalFlip(match, flipNotes, debugLines)
     forward(flipNotes, say)
-    for (const s of outcome.scores) {
-      const bonus = s.modifiers.map((m) => ` (+${m.amount} ${m.label})`).join('')
-      say(`Final Flip: ${s.total} fame${bonus}.`, s.playerId)
-    }
-    if (outcome.tiebreakRounds > 0) {
-      say(`Tied — ${outcome.tiebreakRounds} tiebreak re-flip${outcome.tiebreakRounds === 1 ? '' : 's'}.`, null)
-    }
-    say(outcome.winners.length === 1 ? `${outcome.winners[0]} wins!` : `A shared win: ${outcome.winners.join(' and ')}.`, null)
-    return { match: outcome.match, logLines, debugLines }
+    if (!started.outcome) return { match: started.match, logLines, debugLines }
+    sayFinalFlipOutcome(started.outcome, say)
+    return { match: started.outcome.match, logLines, debugLines }
   }
 
   if (match.shared.phase !== 'flip') {
@@ -292,8 +358,26 @@ function advanceFlip(
     if (p.lastCheckFame) say(formatBreakdown(p.lastCheckFame), p.playerId)
   }
 
-  next = runMatchPostFameHooks(next)
+  // NOT unconditional any more: runMatchCheckFame can hand back a 'gridReset'
+  // phase (the Big Button's RESET: GRID decision), and runMatchPostFameHooks
+  // asserts its own phase. The post-fame hooks still run — matchBigButtonDecision
+  // runs them once the decisions are in.
+  if (next.shared.phase === 'postFameHooks') next = runMatchPostFameHooks(next)
   return { match: next, logLines, debugLines }
+}
+
+// The Final Flip's result lines. Shared because the Final Flip now has two
+// exits — straight through advanceFlip, or resumed after a Big Button
+// decision — and they must report identically.
+function sayFinalFlipOutcome(outcome: FinalFlipOutcome, say: (text: string, who?: PlayerId | null) => void): void {
+  for (const s of outcome.scores) {
+    const bonus = s.modifiers.map((m) => ` (+${m.amount} ${m.label})`).join('')
+    say(`Final Flip: ${s.total} fame${bonus}.`, s.playerId)
+  }
+  if (outcome.tiebreakRounds > 0) {
+    say(`Tied — ${outcome.tiebreakRounds} tiebreak re-flip${outcome.tiebreakRounds === 1 ? '' : 's'}.`, null)
+  }
+  say(outcome.winners.length === 1 ? `${outcome.winners[0]} wins!` : `A shared win: ${outcome.winners.join(' and ')}.`, null)
 }
 
 // After a hire/dismiss: match.ts closes a seat's turn on its own once their

@@ -6,7 +6,7 @@
 import { allCards, season1Cards, season2Cards } from './cards'
 import type { Card, CardId } from './cards/types'
 import { makeRng, shuffle } from './rng'
-import type { WinCondition } from './state'
+import type { ResetEffect, WinCondition } from './state'
 
 // Season 1 starting deck (§3.1, §4.5): 2x Caterpillar, 1x Skunk,
 // 1x Dragonfly, 1x Bee, 1x Snail — the six rank-0 season1Cards, expanded by
@@ -95,6 +95,32 @@ export function buildSeason2SoloStartingDeck(): CardId[] {
   return ['grasshopper', 'ladybug', 'spider', 'mosquito', 'mosquito', 'mosquito']
 }
 
+// ---------------------------------------------------------------------------
+// The Big Button mini-expansion (Referance/IMG_4308.HEIC)
+// ---------------------------------------------------------------------------
+//
+// Setup step 3: "Before creating the market, shuffle the platypus toon cards
+// into the toon deck." So the season's Big Button card is excluded when the
+// expansion is OFF and dealt when it is ON — the exclusion is a
+// consequence of the expansion being absent, not a rule of its own.
+//
+// The photographed setup card is the SEASON 2 printing (a "2" in the corner;
+// it names platypus only). Season 1's parallel is Axolotl, which the card
+// table already pairs with Platypus: same rank (26), same copies (2), the
+// same "flip your big button card face up" banner shape. Only the S2 photo
+// exists, so the S1 half is INFERRED BY SYMMETRY — the same "best available
+// reading, flagged not asserted" treatment buildSeason2SoloStartingDeck gets
+// above. If a Season 1 setup card ever turns up and says otherwise, this is
+// the one line to change.
+export const BIG_BUTTON_CARDS: Record<1 | 2, CardId[]> = {
+  1: ['axolotl'],
+  2: ['platypus'],
+}
+
+// Solo play, verbatim: "When using this mini-expansion, discard two
+// additional toon cards during setup."
+export const SOLO_BIG_BUTTON_EXTRA_TRIM = 2
+
 // §3.7: "The Pig is removed from the shared toon deck" — confirmed for
 // Season 1 only. NOTHING in the transcribed rulebook/FAQ establishes a
 // Season 2 analogue (no card is called out the way the Pig is), so this is
@@ -103,18 +129,25 @@ export function buildSeason2SoloStartingDeck(): CardId[] {
 // for exactly this reason: Season 1 gets ['pig'], Season 2 gets [] until a
 // real source says otherwise.
 //
-// Axolotl (Season 1) and Platypus (Season 2) are excluded for an unrelated
-// reason: both reference the Big Button mini-expansion component (see their
-// `unencodable`/`fameUnencodable` flags in cards/season1.ts and
-// cards/season2.ts), which has no representation in the current rules model.
-// Rather than deal a card whose onHire effect (and, for Platypus, fame
-// value) always needs a manual ruling, they're kept out of real games
-// entirely until Big Button state is actually simulated. This is a
-// deliberate engine-capability exclusion, not a rulebook-mandated one like
-// the Pig's — don't conflate the two reasons.
+// Axolotl (Season 1) and Platypus (Season 2) are excluded for a DIFFERENT
+// reason, and the two must not be conflated: the Pig's removal is a
+// RULEBOOK rule that holds unconditionally in solo, while those two are out
+// only because the Big Button mini-expansion isn't in play. They used to be
+// out permanently, as an engine-capability gap; now that bigButton.ts models
+// the component, `bigButton` below puts them back whenever a reset effect is
+// on the table. The Pig stays out either way.
 export const SOLO_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
   1: ['pig', 'axolotl'],
-  2: ['platypus'], // no longer "UNCONFIRMED as genuinely none" — see Big Button note above
+  2: ['platypus'],
+}
+
+// The exclusions actually in force, given whether the Big Button
+// mini-expansion is in play. Shared by the solo and multiplayer builders so
+// there is one place that knows the Big Button card comes back.
+function exclusionsFor(base: readonly CardId[], season: 1 | 2, bigButton: boolean): Set<CardId> {
+  const set = new Set(base)
+  if (bigButton) for (const id of BIG_BUTTON_CARDS[season]) set.delete(id)
+  return set
 }
 
 // All of one season's MARKET cards (rank > 0 — rank-0 cards are
@@ -122,9 +155,9 @@ export const SOLO_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
 // regardless of season or solo/multiplayer), minus that season's solo
 // exclusions, expanded by `copies`, in card-table order (shuffled by the
 // caller before use — see buildSoloSetup).
-export function buildSoloToonDeckUnshuffled(season: 1 | 2): CardId[] {
+export function buildSoloToonDeckUnshuffled(season: 1 | 2, bigButton = false): CardId[] {
   const seasonCards = season === 1 ? season1Cards : season2Cards
-  const excluded = new Set(SOLO_TOON_DECK_EXCLUSIONS[season])
+  const excluded = exclusionsFor(SOLO_TOON_DECK_EXCLUSIONS[season], season, bigButton)
   const marketCards = seasonCards.filter((c) => c.rank > 0 && !excluded.has(c.id))
   const deck: CardId[] = []
   for (const card of marketCards) {
@@ -185,21 +218,18 @@ export function buildSeason2MultiplayerStartingDeck(): CardId[] {
 // §3.7), and so does the season's Big-Button card — see
 // MULTIPLAYER_TOON_DECK_EXCLUSIONS.
 //
-// Axolotl (S1) and Platypus (S2) are still excluded, for the engine-capability
-// reason SOLO_TOON_DECK_EXCLUSIONS documents: both reference the Big Button
-// mini-expansion, which has no representation in the rules model, so their
-// effects (and Platypus's fame VALUE) would need a manual ruling every time.
-// That reason is player-count-independent, so it applies here too. This is
-// NOT the same kind of exclusion as the Pig's, which is rulebook-mandated for
-// solo only.
+// Axolotl (S1) and Platypus (S2) are excluded ONLY when the Big Button
+// mini-expansion is off — see SOLO_TOON_DECK_EXCLUSIONS. That condition is
+// player-count-independent, so it reads the same here. This is NOT the same
+// kind of exclusion as the Pig's, which is rulebook-mandated and solo-only.
 export const MULTIPLAYER_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
   1: ['axolotl'],
   2: ['platypus'],
 }
 
-export function buildMultiplayerToonDeckUnshuffled(season: 1 | 2): CardId[] {
+export function buildMultiplayerToonDeckUnshuffled(season: 1 | 2, bigButton = false): CardId[] {
   const seasonCards = season === 1 ? season1Cards : season2Cards
-  const excluded = new Set(MULTIPLAYER_TOON_DECK_EXCLUSIONS[season])
+  const excluded = exclusionsFor(MULTIPLAYER_TOON_DECK_EXCLUSIONS[season], season, bigButton)
   const marketCards = seasonCards.filter((c) => c.rank > 0 && !excluded.has(c.id))
   const deck: CardId[] = []
   for (const card of marketCards) {
@@ -218,6 +248,10 @@ export type MultiplayerSetup = {
   // Multiplayer reads a failed market refill as an ordinary ending that
   // proceeds to the Final Flip, not as solo's loss — see SharedState.winCondition.
   winCondition: WinCondition
+  // Big Button: which reset effect card is on the table, or null for "the
+  // mini-expansion is not in play" (the default). Also decides whether this
+  // season's Big Button toon card is in `toonDeck` at all.
+  resetEffect: ResetEffect | null
 }
 
 // §3.0: "The endgame threshold does not scale with player count — it is 30
@@ -225,12 +259,18 @@ export type MultiplayerSetup = {
 // because it's the single most useful playtesting knob.
 export const DEFAULT_FAME_TO_TRIGGER_ENDGAME = 30
 
-export function buildMultiplayerSetup(seed: number, playerCount: number, season: 1 | 2 = 1): MultiplayerSetup {
+export function buildMultiplayerSetup(
+  seed: number,
+  playerCount: number,
+  season: 1 | 2 = 1,
+  options: { bigButton?: ResetEffect | null } = {},
+): MultiplayerSetup {
+  const resetEffect = options.bigButton ?? null
   if (!Number.isInteger(playerCount) || playerCount < 2 || playerCount > 4) {
     throw new Error(`setup.ts: buildMultiplayerSetup — playerCount must be an integer 2-4 (got ${playerCount}); 5-8 player support is not built yet`)
   }
   const rng = makeRng(seed)
-  const toonDeck = shuffle(buildMultiplayerToonDeckUnshuffled(season), rng)
+  const toonDeck = shuffle(buildMultiplayerToonDeckUnshuffled(season, resetEffect !== null), rng)
   const startingDeck = season === 1 ? buildSeason1MultiplayerStartingDeck() : buildSeason2MultiplayerStartingDeck()
 
   return {
@@ -242,6 +282,7 @@ export function buildMultiplayerSetup(seed: number, playerCount: number, season:
     prices: pricesForPlayerCount(playerCount),
     fameToTriggerEndgame: DEFAULT_FAME_TO_TRIGGER_ENDGAME,
     winCondition: 'highestFinalFlip',
+    resetEffect,
     seed,
     // Derived from the match seed so the whole match stays a pure function of
     // it, but distinct per seat so no two players share a shuffle stream.
@@ -255,6 +296,8 @@ export type SoloSetup = {
   prices: number[] // §3.6: solo uses the 1-4 player row, 5 slots
   fameToTriggerEndgame: number // §3.7: 30, same knob as multiplayer (§3.0)
   seed: number
+  // Big Button — see MultiplayerSetup.resetEffect.
+  resetEffect: ResetEffect | null
 }
 
 // Builds a complete solo Setup (§4.6/§3.7) for one season. The toon deck is
@@ -269,10 +312,16 @@ export function buildSoloSetup(
   seed: number,
   season: 1 | 2 = 1,
   difficulty: SoloDifficulty = 'normal',
+  options: { bigButton?: ResetEffect | null } = {},
 ): SoloSetup {
+  const resetEffect = options.bigButton ?? null
   const rng = makeRng(seed)
-  const shuffledToonDeck = shuffle(buildSoloToonDeckUnshuffled(season), rng)
-  const trim = SOLO_TOON_TRIM_BY_DIFFICULTY[difficulty]
+  const shuffledToonDeck = shuffle(buildSoloToonDeckUnshuffled(season, resetEffect !== null), rng)
+  // "When using this mini-expansion, discard two additional toon cards during
+  // setup." Applied to the difficulty trim rather than as a separate step —
+  // the trim is already "discard N from an already-random shuffle", so N+2 is
+  // literally the same operation.
+  const trim = SOLO_TOON_TRIM_BY_DIFFICULTY[difficulty] + (resetEffect !== null ? SOLO_BIG_BUTTON_EXTRA_TRIM : 0)
   const toonDeck = shuffledToonDeck.slice(0, Math.max(0, shuffledToonDeck.length - trim))
 
   return {
@@ -280,6 +329,7 @@ export function buildSoloSetup(
     toonDeck,
     prices: [3, 4, 7, 10, 15],
     fameToTriggerEndgame: 30,
+    resetEffect,
     seed,
   }
 }

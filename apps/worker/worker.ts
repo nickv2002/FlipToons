@@ -50,6 +50,10 @@ async function handleCreateRoom(request: Request, env: Env): Promise<Response> {
     season: body.season,
     seed: Number.isFinite(Number(body.seed)) ? Number(body.seed) : undefined,
     fameToTriggerEndgame: Number.isFinite(Number(body.fameToTriggerEndgame)) ? Number(body.fameToTriggerEndgame) : undefined,
+    // Validated rather than passed through: this reaches setup.ts and decides
+    // the toon deck's composition, so an arbitrary string arriving from a
+    // client must land as "not in play", not as a truthy unknown effect.
+    bigButton: body.bigButton === 'market' || body.bigButton === 'grid' ? body.bigButton : undefined,
   })
   return Response.json(result, { headers: CORS_HEADERS })
 }

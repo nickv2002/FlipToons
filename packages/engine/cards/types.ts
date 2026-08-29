@@ -128,6 +128,16 @@ export type Effect =
   // this effect only detaches the card and records that a placement is owed;
   // match.ts resolves the target at the table level (matchResolveDeckPlacement).
   | { kind: 'placeSelfInAnyDeck' }
+  // Axolotl (S1) — MANDATORY, no choice. "WHEN HIRED, FLIP YOUR BIG BUTTON
+  // CARD FACE UP." Own-seat only, so phases.ts's applyEffects resolves it
+  // whole.
+  | { kind: 'flipOwnBigButtonFaceUp' }
+  // Platypus (S2) — MANDATORY, no choice, and the SECOND effect in this
+  // vocabulary that reaches ACROSS players (see placeSelfInAnyDeck above):
+  // "WHEN HIRED, FLIP ALL BIG BUTTON CARDS FACE UP", every seat's, not just
+  // the hirer's. A PlayerView can only see its own, so applyEffects does the
+  // acting player's half and match.ts's matchHire does everyone else's.
+  | { kind: 'flipAllBigButtonsFaceUp' }
   | { kind: 'other'; text: string }
 
 // Player-choice payloads for the Effect kinds above, threaded through

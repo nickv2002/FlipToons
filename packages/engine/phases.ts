@@ -21,6 +21,7 @@ import { flipDeck } from './flip'
 import { hireCost, refillMarket, soloMarketDecay } from './market'
 import { shuffleWithState } from './rng'
 import { scoreGrid } from './score'
+import { canUseGridReset, canUseMarketReset } from './bigButton'
 import { cardsById } from './setup'
 
 // One shared card table for the whole module. This was thirteen separate
@@ -154,6 +155,12 @@ export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameSta
     dismissed: state.dismissed,
     camelMarketCount: camelMarketCountFromMarket(state, otherGrids),
     henOrRoosterInMarket: henOrRoosterInMarketFromMarket(state, otherGrids),
+    // Platypus's "+3 IF your big button card is face down" (score.ts's
+    // evaluateBonus). Always supplied — bigButtonFaceUp is a plain boolean
+    // that starts true, so with the mini-expansion switched off this is
+    // simply always false and the bonus never fires. Nothing here has to
+    // know whether the expansion is in play.
+    bigButtonFaceDown: !state.bigButtonFaceUp,
   })
 
   return {
@@ -161,7 +168,16 @@ export function runCheckFame(state: GameState, otherGrids: Grid[] = []): GameSta
     fame: breakdown.total,
     fameGeneratedThisRound: breakdown.total, // the Check-Fame snapshot (§3.4) — see state.ts's field comment for why this differs from `fame`
     lastCheckFame: breakdown,
-    phase: 'postFameHooks',
+    // The Big Button's RESET: GRID decision comes "after the Check Fame
+    // phase", so it interposes here. Always 'postFameHooks' when the
+    // mini-expansion is off (canUseGridReset is false without a reset effect),
+    // which is why every existing caller is unaffected.
+    //
+    // MULTIPLAYER ignores this: match.ts's checkFameSeats pins `phase` back
+    // and lets openGridResetOrContinue decide for the whole TABLE, since one
+    // seat's button can't move a shared phase. This branch is what SOLO uses,
+    // where the seat and the table are the same thing.
+    phase: canUseGridReset(state) ? 'gridReset' : 'postFameHooks',
   }
 }
 
@@ -240,7 +256,11 @@ export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true):
     return { ...state, fame, pendingPostFameChoice }
   }
 
-  let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [] }
+  // actedThisMarketPhase is cleared HERE and nowhere else: this is the one
+  // place actionsRemaining is dealt out, every seat passes through it once per
+  // round, and each seat takes exactly one turn per Market phase. See the
+  // field's comment in state.ts.
+  let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [], actedThisMarketPhase: false }
 
   // Snake's deferred "if the stacked card has a When-Hired ability,
   // resolve it after the Flip phase is complete" (FAQ) — see flip.ts's
@@ -285,6 +305,7 @@ export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; 
     actionsRemaining: MARKET_ACTIONS_PER_ROUND,
     phase: 'market',
     pendingOnHireCardIds: [],
+    actedThisMarketPhase: false,
   }
   for (const cardId of state.pendingOnHireCardIds) {
     next = applyEffects(next, cards[cardId], cards[cardId].onHire)
@@ -354,6 +375,7 @@ export function hire(state: GameState, slotIndex: number, choices?: EffectChoice
     fame: state.fame - price,
     deck: [...state.deck, cardId],
     actionsRemaining: state.actionsRemaining - 1,
+    actedThisMarketPhase: true,
     market: marketAfterRemoval,
   }
 
@@ -603,6 +625,26 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
       }
       case 'other':
         throw new Error(`phases.ts: applyEffects — effect 'other' (${JSON.stringify((effect as { text?: string }).text)}) on ${card.name} has no structured implementation`)
+      case 'flipOwnBigButtonFaceUp':
+      // fallthrough — see below.
+      case 'flipAllBigButtonsFaceUp': {
+        // Axolotl (S1) / Platypus (S2). Both are MANDATORY and take no
+        // choice, and from the ACTING player's own view they do the same
+        // thing, which is why one case covers both.
+        //
+        // They differ only in reach: Platypus's is "ALL big button cards",
+        // every seat's. A PlayerView cannot see another seat, so this half
+        // is deliberately only the acting player's; match.ts's matchHire
+        // does the other seats and is the only place that can. Solo needs
+        // nothing extra — there is one seat and this is it.
+        //
+        // Unconditional: with no reset effect in play the flag exists but
+        // nothing reads it, and setup.ts keeps both cards out of the deck
+        // in that case anyway, so this can only actually run with the
+        // mini-expansion switched on.
+        next = { ...next, bigButtonFaceUp: true }
+        break
+      }
       default: {
         const exhaustive: never = effect
         throw new Error(`phases.ts: applyEffects — unhandled effect kind on ${card.name}: ${JSON.stringify(exhaustive)}`)
@@ -681,6 +723,21 @@ export function hasAnyLegalMarketAction(state: GameState): boolean {
   // hire()/dismiss() are already refusing to run (above) until it's
   // resolved — false here regardless of actionsRemaining/affordability.
   if (state.pendingPostMarketChoice) return false
+
+  // RESET: MARKET costs 0 fame and 0 actions, so it is a legal Market action
+  // for a seat that can afford nothing else — and it is checked BEFORE the
+  // actionsRemaining gate on purpose, since it does not consume one.
+  //
+  // This matters in three places, all of which auto-END a turn when this
+  // returns false: matchActions.ts's afterMarketAction and its afterTurnBoundary
+  // skip LOOP (which can strip several seats in one call), and solo's
+  // closeMarketIfExhausted. Without this a broke seat silently loses its button.
+  //
+  // No conflict with "before taking any market actions": a seat whose
+  // actionsRemaining has run out has necessarily set actedThisMarketPhase, so
+  // canUseMarketReset is already false for it.
+  if (canUseMarketReset(state)) return true
+
   if (state.phase !== 'market' || state.actionsRemaining <= 0) return false
 
   const canHire = state.market.slots.some(
@@ -728,6 +785,7 @@ export function dismiss(state: GameState, pos: GridPos, index?: number, choices?
     grid,
     dismissed: [...state.dismissed, cardId],
     actionsRemaining: state.actionsRemaining - 1,
+    actedThisMarketPhase: true,
   }
 
   // onDismiss fires AFTER the above (post-decrement) — same ordering

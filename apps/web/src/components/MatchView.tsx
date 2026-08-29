@@ -9,6 +9,7 @@ import type { LobbyState } from '../../../worker/protocol'
 import { BoardPane } from './BoardPane'
 import { CardListOverlay } from './CardListOverlay'
 import { ConfettiBurst } from './ConfettiBurst'
+import { BigButtonPrompt } from './BigButtonPrompt'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
 import { occupiedSlots } from '../../../../packages/engine/grid'
@@ -100,6 +101,17 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
       <Scoreboard match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} />
 
       <EndgameNotice match={match} />
+
+      {/* The Big Button's RESET: GRID decision. Its own phase, and its own
+          clockwise walk — separate from the Market phase's turn order, which
+          is why it can't ride on isMyTurn. */}
+      {phase === 'gridReset' && (
+        <BigButtonPrompt
+          isMyDecision={activeId === myPlayerId}
+          waitingOnName={nameOf(activeId)}
+          onDecide={(use) => onAct({ kind: 'bigButtonDecision', use })}
+        />
+      )}
 
       {/* The mandatory Skunk dismissal. It blocks the Market phase for the
           whole table, so it gets its own prompt rather than hiding inside the
@@ -267,6 +279,8 @@ function phaseLabel(phase: Phase): string | null {
   switch (phase) {
     case 'market':
       return 'Market'
+    case 'gridReset':
+      return 'Big Button'
     case 'ended':
       return 'Game over'
     default:

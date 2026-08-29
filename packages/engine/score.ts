@@ -227,6 +227,7 @@ function evaluateBonus(
   dismissed: CardId[] | undefined,
   camelMarketCount: number | undefined,
   henOrRoosterInMarket: boolean | undefined,
+  bigButtonFaceDown: boolean | undefined,
 ): FameBonusLine {
   if (bonus.kind === 'perQuery' && bonus.query === 'dismissedStartingCard') {
     // Cat: "+1 PER dismissed STARTING card (rank 0)" — counts every entry in
@@ -284,6 +285,26 @@ function evaluateBonus(
     return {
       reason: dogElsewhere ? 'a Dog is in the market or another player\'s grid' : 'no Dog in the market or another player\'s grid',
       amount: dogElsewhere ? bonus.amount : 0,
+    }
+  }
+
+  if (bonus.kind === 'ifCondition' && bonus.condition === 'bigButtonCardFaceDown') {
+    // Platypus: "+3 IF your big button card is face down" — the Big Button
+    // mini-expansion's per-player component (state.ts's
+    // PlayerState.bigButtonFaceUp). Not derivable from the grid at all, so it
+    // arrives through the same externalState channel Dog/Camel/Fox use, and
+    // throws rather than silently scoring 0 when the caller hasn't supplied
+    // it. It is PER-CARD, not per-player, which is why this belongs here and
+    // NOT in roundFame.ts's player-modifier seam: two Platypuses on one grid
+    // each score their own +3.
+    if (bigButtonFaceDown === undefined) {
+      throw new Error(
+        "score.ts: bonus 'bigButtonCardFaceDown' (Platypus) needs externalState.bigButtonFaceDown — pass it as scoreGrid's fourth argument",
+      )
+    }
+    return {
+      reason: bigButtonFaceDown ? 'your big button card is face down' : 'your big button card is face up',
+      amount: bigButtonFaceDown ? bonus.amount : 0,
     }
   }
 
@@ -612,6 +633,7 @@ function computeCardFame(
   dismissed: CardId[] | undefined,
   camelMarketCount: number | undefined,
   henOrRoosterInMarket: boolean | undefined,
+  bigButtonFaceDown: boolean | undefined,
 ): ComputedFame {
   const card = cardsById[cardId]
   if (!card) throw new Error(`score.ts: unknown card id ${cardId}`)
@@ -620,7 +642,7 @@ function computeCardFame(
   }
   const base = card.fame.base
   const bonusLines = (card.fame.bonuses ?? []).map((b) =>
-    evaluateBonus(b, grid, pos, index, cardsById, remainingDeckSize, dogElsewhere, dismissed, camelMarketCount, henOrRoosterInMarket),
+    evaluateBonus(b, grid, pos, index, cardsById, remainingDeckSize, dogElsewhere, dismissed, camelMarketCount, henOrRoosterInMarket, bigButtonFaceDown),
   )
   const total = base + bonusLines.reduce((sum, b) => sum + b.amount, 0)
   return { base, bonusLines, total }
@@ -663,7 +685,7 @@ export function scoreGrid(
   grid: Grid,
   cardsById: Record<CardId, Card>,
   remainingDeckSize?: number,
-  externalState?: { dogElsewhere?: boolean; dismissed?: CardId[]; camelMarketCount?: number; henOrRoosterInMarket?: boolean }, // Check-Fame-time snapshot — see the Dog comment above; never read live once a Market phase exists
+  externalState?: { dogElsewhere?: boolean; dismissed?: CardId[]; camelMarketCount?: number; henOrRoosterInMarket?: boolean; bigButtonFaceDown?: boolean }, // Check-Fame-time snapshot — see the Dog comment above; never read live once a Market phase exists
 ): FameBreakdown {
   const lines: FameLine[] = []
   const resolvedTotals = new Map<string, number>() // slotKey -> resolved fame, filled in as cards resolve
@@ -724,8 +746,8 @@ export function scoreGrid(
       // bonus, in case a future card sharing this condition also has other
       // bonuses) and report both rather than guessing or blanking.
       if (hasDogElsewhereCondition(card) && externalState?.dogElsewhere === undefined) {
-        const falseBranch = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, false, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket)
-        const trueBranch = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, true, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket)
+        const falseBranch = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, false, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket, externalState?.bigButtonFaceDown)
+        const trueBranch = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, true, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket, externalState?.bigButtonFaceDown)
         lines.push({
           pos,
           stackIndex: i,
@@ -743,7 +765,7 @@ export function scoreGrid(
         continue // not added to resolvedTotals — ambiguous, can't anchor a Cow's copy either
       }
 
-      const computed = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, externalState?.dogElsewhere, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket)
+      const computed = computeCardFame(cardId, pos, i, grid, cardsById, remainingDeckSize, externalState?.dogElsewhere, externalState?.dismissed, externalState?.camelMarketCount, externalState?.henOrRoosterInMarket, externalState?.bigButtonFaceDown)
       resolvedTotals.set(key, computed.total)
       lines.push({ pos, stackIndex: i, cardId, name: card.name, base: computed.base, bonuses: computed.bonusLines, total: computed.total })
     }

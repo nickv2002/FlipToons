@@ -17,7 +17,7 @@ type Client = {
   close: () => void
 }
 
-async function createRoom(opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }): Promise<CreateRoomResponse> {
+async function createRoom(opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }): Promise<CreateRoomResponse> {
   const res = await SELF.fetch('https://fliptoons.example/api/rooms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -60,8 +60,14 @@ async function connect(roomCode: string): Promise<Client> {
   }
 }
 
-async function seatedPair(opts: { fameToTriggerEndgame?: number; seed?: number } = {}) {
-  const created = await createRoom({ name: 'Ana', season: 1, seed: opts.seed ?? 11, fameToTriggerEndgame: opts.fameToTriggerEndgame ?? 999 })
+async function seatedPair(opts: { fameToTriggerEndgame?: number; seed?: number; bigButton?: 'market' | 'grid' } = {}) {
+  const created = await createRoom({
+    name: 'Ana',
+    season: 1,
+    seed: opts.seed ?? 11,
+    fameToTriggerEndgame: opts.fameToTriggerEndgame ?? 999,
+    bigButton: opts.bigButton,
+  })
   const host = await connect(created.roomCode)
   host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
   const hostSeat = await host.next('seated')
@@ -465,4 +471,114 @@ afterEach(() => {
       // Already closed.
     }
   }
+})
+
+// ---------------------------------------------------------------------------
+// The Big Button mini-expansion
+// ---------------------------------------------------------------------------
+//
+// Two things can only be proved at this layer. The room-level SETTING has to
+// survive handleStart's match rebuild — a room always opens at MAX_SEATS and
+// is re-dealt at the size that actually turned up, so a setting held only on
+// the dealt match would be silently discarded in every real game. And the
+// RESET: GRID decision phase is turn-gated, so a disconnected seat can stall
+// the whole table unless strandingSeat knows about it.
+describe('Big Button', () => {
+  test('a room created without it is unaffected — the default is off', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 11 })
+    expect(created.lobby.bigButton).toBeNull()
+  })
+
+  test('the reset effect survives handleStart rebuilding the match at the real seat count', async () => {
+    const pair = await seatedPair({ bigButton: 'grid' })
+    opened.push(pair.host, pair.guest)
+    expect(pair.hostSeat.lobby.bigButton).toBe('grid')
+
+    const match = await startGame(pair)
+    // The room opened at MAX_SEATS and was re-dealt at 2. Both halves of the
+    // setting have to have made it through that rebuild: the shared reset
+    // effect, and the per-seat button.
+    expect(match.shared.resetEffect).toBe('grid')
+    expect(match.players).toHaveLength(2)
+    expect(match.players.every((p) => p.bigButtonFaceUp)).toBe(true)
+  })
+
+  test('the server stops at the decision phase instead of flipping past it', async () => {
+    const pair = await seatedPair({ bigButton: 'grid' })
+    opened.push(pair.host, pair.guest)
+    const match = await startGame(pair)
+    // advanceSharedPhases only loops while the phase is flip/finalFlip, so a
+    // phase that pauses on a player choice stops it — the same way a pending
+    // Skunk prompt does. Asserted here rather than assumed.
+    expect(match.shared.phase).toBe('gridReset')
+    expect(match.shared.gridReset?.context).toBe('round')
+  })
+
+  test('a disconnected seat mid-decision is played for, not left to stall the table', async () => {
+    const pair = await seatedPair({ bigButton: 'grid' })
+    opened.push(pair.host)
+    const match = await startGame(pair)
+    expect(match.shared.phase).toBe('gridReset')
+
+    // Drop whichever seat is being asked. Without strandingSeat's gridReset
+    // branch no alarm is armed at all and the table waits forever.
+    const decider = match.turnOrder[match.activePlayerIndex]
+    const dropped = decider === pair.guestSeat.playerId ? pair.guest : pair.host
+    const watcher = dropped === pair.guest ? pair.host : pair.guest
+    if (dropped === pair.host) opened.push(pair.guest)
+    dropped.close()
+    await watcher.next('lobby')
+
+    const stub = ROOMS.getByName(pair.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      // Fast-forward the armed deadline rather than waiting out TURN_TIMEOUT_MS.
+      const room = await instance.ctx.storage.get('room')
+      expect(room.turnTimeoutDeadline).toBeTruthy()
+      room.turnTimeoutDeadline = Date.now() - 1
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+    await runAlarm(stub)
+
+    const after = await watcher.next('state')
+    // The table is unstuck: the walk has moved past the empty seat. It may
+    // well still be in 'gridReset' — the OTHER seat is connected and has its
+    // own decision to make, which is the whole point of not skipping them too.
+    const stillWaitingOnThem = after.match.shared.phase === 'gridReset' && after.match.turnOrder[after.match.activePlayerIndex] === decider
+    expect(stillWaitingOnThem).toBe(false)
+    expect(after.match.shared.gridReset?.asked ?? []).toContain(decider)
+    // Declined on their behalf — the button is kept, never spent on a guess.
+    expect(after.match.players.every((p: any) => p.bigButtonFaceUp)).toBe(true)
+  })
+
+  test('RESET: MARKET is a Market-phase action that costs neither fame nor an action', async () => {
+    const pair = await seatedPair({ bigButton: 'market' })
+    opened.push(pair.host, pair.guest)
+    const started = await startGame(pair)
+    // RESET: MARKET adds no phase, so the game opens exactly where it always
+    // did (or on the Skunk prompt, which is not this feature's business).
+    expect(started.shared.phase).not.toBe('gridReset')
+
+    // Drive whatever the table owes until the Market phase is open.
+    let match = started
+    for (let step = 0; step < 4 && match.shared.phase !== 'market'; step++) {
+      const owing = match.players.find((p: any) => p.pendingPostFameChoice)
+      if (!owing) break
+      const client = owing.playerId === pair.hostSeat.playerId ? pair.host : pair.guest
+      const option = owing.pendingPostFameChoice!.options[0]
+      client.send({ type: 'action', action: { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index } })
+      match = (await client.next('state')).match
+    }
+    if (match.shared.phase !== 'market') return // nothing to assert about; not this test's subject
+
+    const actingId = match.turnOrder[match.activePlayerIndex]
+    const actor = actingId === pair.hostSeat.playerId ? pair.host : pair.guest
+    const fameBefore = match.players.find((p: any) => p.playerId === actingId)!.fame
+    actor.send({ type: 'action', action: { kind: 'useBigButton' } })
+    const after = (await actor.next('state')).match
+    const me = after.players.find((p: any) => p.playerId === actingId)!
+    expect(me.bigButtonFaceUp).toBe(false)
+    expect(me.fame).toBe(fameBefore)
+    expect(me.actionsRemaining).toBe(2)
+  })
 })

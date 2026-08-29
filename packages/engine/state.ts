@@ -21,7 +21,14 @@ import type { Grid, GridPos } from './types'
 // it: solo resolves at a normal Cleanup off a normal Check Fame snapshot,
 // because the Final Flip exists to run a CROSS-PLAYER "most fame wins"
 // comparison that one player has no use for (§3.7).
-export type Phase = 'flip' | 'checkFame' | 'postFameHooks' | 'market' | 'cleanup' | 'finalFlip' | 'ended'
+export type Phase = 'flip' | 'checkFame' | 'gridReset' | 'postFameHooks' | 'market' | 'cleanup' | 'finalFlip' | 'ended'
+
+// The Big Button mini-expansion (Referance/IMG_4308.HEIC). ONE reset effect
+// card is chosen at setup and shared by the whole table; `null` means the
+// expansion is not in play at all, which is the default and must stay a
+// complete no-op — with it null the new 'gridReset' phase is unreachable and
+// the Big Button toon cards stay excluded from every deck exactly as before.
+export type ResetEffect = 'market' | 'grid'
 
 // See SharedState.winCondition.
 export type WinCondition = 'soloFameTarget' | 'highestFinalFlip'
@@ -158,6 +165,37 @@ export type PlayerState = {
   // Non-null while a hired/dismissed Pig is waiting to be put into a deck.
   // Always null in solo — the Pig is excluded from solo's toon deck.
   pendingDeckPlacement: PendingDeckPlacement | null
+
+  // Big Button: "place a Big Button card face up in front of each player."
+  // One use per game — flipping it face down IS the cost of its reset effect,
+  // and nothing ever flips it back except Axolotl's/Platypus's onHire. It is
+  // therefore NOT reset at Cleanup; runMatchCleanup's per-seat reset block is
+  // exactly where someone would reflexively add it, so don't.
+  //
+  // Always present, even with SharedState.resetEffect null: a field that is
+  // simply never consulted is cheaper than one every read site has to
+  // ?? -default, and score.ts's Platypus condition wants a real boolean.
+  bigButtonFaceUp: boolean
+
+  // Whether this seat has taken a hire/dismiss yet in the CURRENT Market
+  // phase. Exists solely for RESET: MARKET's "this action must be taken on a
+  // player's turn before taking any market actions."
+  //
+  // `actionsRemaining === MARKET_ACTIONS_PER_ROUND` looks like the same
+  // predicate and is not: hiring a Peacock decrements and then re-adds an
+  // action (2 - 1 + 1 = 2), so the count is back where it started with a card
+  // already bought. Set true in phases.ts's hire/dismiss, back to false at the
+  // one place actionsRemaining is dealt out (the postFameHooks -> market
+  // transition). Each seat gets exactly one turn per Market phase, so that
+  // single reset point is enough — there is no per-turn reset to forget.
+  actedThisMarketPhase: boolean
+}
+
+// See SharedState.gridReset.
+export type GridResetState = {
+  context: 'round' | 'finalFlip'
+  asked: PlayerId[]
+  optedIn: PlayerId[]
 }
 
 export type SharedState = {
@@ -219,6 +257,26 @@ export type SharedState = {
   // rediscovered at every consumer.
   winCondition: WinCondition
 
+  // Big Button (see Phase/ResetEffect above): which reset effect card is on
+  // the table, or null for "the mini-expansion is not in play". Fixed at
+  // setup and never changed during a match.
+  resetEffect: ResetEffect | null
+
+  // Non-null ONLY while the 'gridReset' phase is collecting decisions.
+  //
+  // RESET: GRID is "starting with the first player, each player in clockwise
+  // order decides if they want to use their face-up Big Button card" — so the
+  // decisions are SEQUENCED (a later decider sees what the earlier ones
+  // chose) even though the resets themselves resolve simultaneously
+  // afterwards. `asked` is how the walk knows when it has been all the way
+  // round; `optedIn` is who actually resets when it has.
+  //
+  // `context` is load-bearing: the same phase is entered from a normal
+  // round's Check Fame and from the Final Flip's, and it is the only thing
+  // that tells the resolution step whether to hand off to postFameHooks or to
+  // resume the Final Flip's tiebreak-and-score tail.
+  gridReset: GridResetState | null
+
   // criticsChoiceHolder (§3.2.1) and the Final Flip land here in Stage 2.
   // They were previously documented as deliberately-skipped solo omissions;
   // that reasoning (no Final Flip in solo -> the +3 can never apply) still
@@ -270,6 +328,8 @@ const PLAYER_FIELDS = [
   'pendingPostMarketChoice',
   'pendingPostFameChoice',
   'pendingDeckPlacement',
+  'bigButtonFaceUp',
+  'actedThisMarketPhase',
 ] as const satisfies readonly (keyof PlayerState)[]
 
 // `satisfies` only checks that every listed key EXISTS on PlayerState — it
@@ -334,6 +394,8 @@ export function commitView(match: Match, index: number, view: PlayerView): Match
     criticsChoiceHolder: view.criticsChoiceHolder,
     winnerId: view.winnerId,
     winCondition: view.winCondition,
+    resetEffect: view.resetEffect,
+    gridReset: view.gridReset,
     viewEpoch: match.shared.viewEpoch + 1,
   }
 
@@ -349,6 +411,9 @@ export function createSoloGameState(params: {
   prices: number[]
   fameToTriggerEndgame: number
   playerId?: PlayerId
+  // Big Button: which reset effect card is on the table. Omitted (undefined)
+  // means the mini-expansion is not in play, which is the default.
+  resetEffect?: ResetEffect | null
 }): GameState {
   const cards = cardsById()
   // §3.1: the market starts already filled — "reveal the top five cards of
@@ -385,6 +450,12 @@ export function createSoloGameState(params: {
     pendingPostMarketChoice: null,
     pendingPostFameChoice: null,
     pendingDeckPlacement: null,
+    // "Place a Big Button card face up in front of each player" — face up is
+    // the starting state whether or not the expansion is in play.
+    bigButtonFaceUp: true,
+    actedThisMarketPhase: false,
+    resetEffect: params.resetEffect ?? null,
+    gridReset: null,
   }
 }
 
@@ -413,6 +484,8 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
     criticsChoiceHolder: view.criticsChoiceHolder,
     winnerId: view.winnerId,
     winCondition: view.winCondition,
+    resetEffect: view.resetEffect,
+    gridReset: view.gridReset,
     viewEpoch: 0,
   }
 
@@ -431,6 +504,8 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingPostMarketChoice: view.pendingPostMarketChoice,
       pendingPostFameChoice: view.pendingPostFameChoice,
       pendingDeckPlacement: view.pendingDeckPlacement,
+      bigButtonFaceUp: view.bigButtonFaceUp,
+      actedThisMarketPhase: view.actedThisMarketPhase,
     },
     ...others.map((o) => ({
       playerId: o.playerId,
@@ -446,6 +521,8 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingPostMarketChoice: null,
       pendingPostFameChoice: null,
       pendingDeckPlacement: null,
+      bigButtonFaceUp: true,
+      actedThisMarketPhase: false,
     })),
   ]
 

@@ -16,12 +16,13 @@ the Big Button mini-expansion pass **nothing is `unencodable` any more** —
 Axolotl and Platypus were the last two, and both were blocked on that
 component rather than on the effect vocabulary.
 
-**The Big Button mini-expansion is implemented but OFF BY DEFAULT.**
-`SharedState.resetEffect` is `null` unless a caller asks for it, and that
-null is load-bearing: with it, the new `gridReset` phase is unreachable, both
-Big Button toon cards stay excluded from every deck, and the pre-existing
-engine/DO/Playwright suites needed no edits at all. See the Big Button
-section below.
+**The Big Button mini-expansion is playable — solo and at a table — but OFF
+BY DEFAULT.** You switch it on when starting a game (the solo panel or the
+host panel); `SharedState.resetEffect` is `null` otherwise, and that null is
+load-bearing: with it, the `gridReset` phase is unreachable, both Big Button
+toon cards stay excluded from every deck, no Big Button control or chip
+renders anywhere, and the pre-existing engine/DO/Playwright suites needed no
+edits at all. See the Big Button section below.
 
 **Multiplayer was built after an audit found it did not exist.** What the
 room-code feature used to be: a hosted *solo* game — one shared `GameState`
@@ -84,8 +85,15 @@ apps/web/             React + Vite client.
   src/useGame.ts          local solo game state + localStorage save/resume
   src/useMatch.ts         WS client for seated multiplayer rooms (+ reconnect token)
   src/components/         Grid, Slot, Card, Market, effect-choice prompts, Lobby, MatchView
+    TopBar.tsx              the ONE play-screen header, rendered by App for both modes
+    FameRace.tsx            the fame-vs-threshold strip (replaced the 5-column scoreboard)
+    CounterChip.tsx         a count that is also the control that opens what it counts
+    LogDrawer.tsx           the log, on demand (it used to be a permanent sidebar)
+    BigButtonOption.tsx     the mini-expansion's Off / Reset Market / Reset Grid setup pick
 
 e2e/*.e2e.ts           Playwright browser tests (NOT *.spec.ts — `bun test` claims that suffix)
+  big-button.e2e.ts      the mini-expansion from the browser, plus the log drawer
+  mobile.e2e.ts          phone widths — the layout most players actually see
 
 scripts/*.sh           Wrappers behind the Makefile targets (see Makefile comments)
 cards.csv              Verbatim transcription source of truth for card text/rank/fame
@@ -187,8 +195,9 @@ Toolchain is **bun** — runtime, package manager, test runner — for `packages
   yours and every opponent's, in every phase. The only difference is
   `readOnly`, which renders cards as inert `<div>`s rather than the enabled,
   focusable, click-less `<button>`s opponent grids used to get. Two rules
-  protect the parity: `.grid`'s `max-width` (so a grid in a wide pane draws
-  the same card size as one in the narrow column beside the market) and
+  protect the parity: `.match .grid`'s `max-width` (so a grid in a wide pane
+  draws the same card size as one in the narrow column beside the market — it
+  matters more since the log drawer freed the sidebar's width) and
   `.round-view__controls:disabled .card:disabled { opacity: 1 }` (an
   it-isn't-your-turn grey says nothing, and made your own board look unlike
   the opponent boards next to it).
@@ -205,23 +214,59 @@ Toolchain is **bun** — runtime, package manager, test runner — for `packages
   board, so identical names in a flat row are not interchangeable. Butterfly
   used to render a whole `<Grid>` for that reason; the position captions
   replaced it, and `Grid`/`Slot` no longer have a choice-picker mode at all.
+- **There is exactly ONE header, and `App` renders it.** `TopBar` — round,
+  status, Log / touch-mode / Leave — for solo AND multiplayer. It used to be
+  two: `MatchView` printed "Round N" and a phase chip, and the `RoundView`
+  nested inside it printed "Round N" again about eight pixels lower with its
+  own deck button, touch toggle and Leave button. That duplication is what
+  `RoundView`'s old `showRoundScore` prop existed to paper over; with the
+  header lifted out there was nothing left to suppress and the prop is gone.
+  Touch mode state lifted to `App` for the same reason — the toggle now sits
+  above `RoundView`, outside it.
 - **The phase chip only names phases a player can see.** `MatchView`'s
-  `phaseLabel` returns a label for `market` and `ended` and null for the rest —
-  it used to print the raw `Phase` union member, which showed players
-  `POSTFAMEHOOKS`. `postFameHooks` is the one non-transient phase left unnamed
-  on purpose: the Skunk prompt or the "waiting for the other players" line is
-  already saying what is happening.
-- **The scoreboard shows one fame number, not two.** "Fame this round" is a bar
-  against `shared.fameToTriggerEndgame` — the only comparison the rules make —
-  next to deck / on-board / dismissed counts. "On board" counts the grid
-  (stacks included), NOT cards drawn: nothing in state tracks draws, and a
-  dismissal takes a card off the board without returning it to the deck. The
-  old "To spend" column equalled the scored fame until someone hired, so it
-  read as the same number twice; your own spendable fame lives on your board in
-  `RoundView`, the only place you can spend it. `RoundView`'s own
-  `showRoundScore` header is off in multiplayer for the same reason — the
-  scoreboard is already drawing that bar, eight pixels above it. Solo has no
-  scoreboard, so it keeps the header.
+  `phaseLabel` returns a label for `market`, `gridReset` and `ended` and null
+  for the rest — it used to print the raw `Phase` union member, which showed
+  players `POSTFAMEHOOKS`. `postFameHooks` is the one non-transient phase left
+  unnamed on purpose: the Skunk prompt or the "waiting for the other players"
+  line is already saying what is happening. The chip renders inside `TopBar`'s
+  status slot, via `MatchView`'s exported `MatchStatus`.
+- **The scoreboard is a fame race, and nothing else.** `FameRace` draws one
+  bar per seat against `shared.fameToTriggerEndgame` — the only comparison the
+  rules make, which is why it empties every round instead of filling up. The
+  five-column table it replaced also carried Deck / On board / Dismissed, all
+  three of which `BoardPane`'s own heading already prints for every board
+  including opponents', so it said each number twice; they now live only on the
+  boards. Its earlier "To spend" column had gone for the same reason. Solo
+  renders the same component with one row and `variant="solo"`, so there is no
+  second implementation of the bar.
+- **A counter and the control that opens it are one object.** `CounterChip`.
+  "Remaining deck (7)" used to be a button in the round header while the deck
+  it counted was inert text in the board heading below it; the dismissed pile
+  had the reverse arrangement. A chip with `onClick` renders as a `<button>`,
+  one without as a `<span>` — load-bearing, not cosmetic: your own deck opens a
+  list overlay and an opponent's does not, so theirs must not look pressable.
+  Spendable fame and actions remaining moved out of `ChoicePrompt` (below the
+  market) into the market pane's heading (above the prices they cover) for the
+  same reason.
+- **Phone width is the layout that matters, and it has its own spec.**
+  `mobile.e2e.ts`, at 390px and 320px. Every other browser spec runs at
+  Playwright's desktop default, so a page that scrolls SIDEWAYS on a phone is
+  invisible to all of them — which is how three separate rules shipped one:
+  `.app__game`'s `1fr` track (a `1fr` is `minmax(auto, 1fr)`, so it grows to
+  the widest child's min-content and drags every sibling out with it — now
+  `minmax(0, 1fr)`), `.opponents__list`'s bare `minmax(320px, 1fr)` track (now
+  `min(320px, 100%)`), and an un-wrappable run of buttons in `TopBar`. The
+  spec asserts `scrollWidth === clientWidth`, exactly, on the widest thing the
+  app draws: a 3-seat table at 320px. `TopBar` is `position: sticky` for the
+  same reason — that table is ~1900px tall on a phone, so the turn banner and
+  the way out scroll off within one swipe otherwise; its `top` is negative to
+  cancel `body`'s padding, so the two must be changed together.
+- **The log is a drawer, not a sidebar.** `LogDrawer`. `.app__game` is single
+  column at every width now; it used to split `2fr 1fr` above 1100px, and its
+  `max-width` was raised twice to stop the permanent log squeezing the market
+  pane to ~64px per card. `ResolveLog` lost its own frame, title and
+  Hide/Show toggle — the drawer supplies all three, and a collapse control
+  inside something you opened on purpose is a click that does nothing.
 - **The table size is not declared when hosting.** A room always opens at
   `MAX_SEATS` and `buildNewMatch` is called with 4; `handleStart` rebuilds the
   match at however many seats actually turned up. That rebuild is the ORDINARY
@@ -337,15 +382,34 @@ cards is chosen at setup and shared by the whole table.
   `playForAbsentSeat` answers for them by DECLINING: keeping the button costs
   that player nothing, where spending it on a guess burns a once-per-game
   resource.
+- **Two setup call sites turn it on, and both go through `BigButtonOption`.**
+  Solo: `NewGameForm` -> `startNewGame`'s 4th arg -> `buildNewGameState`.
+  Multiplayer: `MultiplayerStart` -> `CreateRoomRequest.bigButton` (the host
+  panel only; joiners read it off `LobbyState.bigButton` in the lobby, since
+  it changes the deck they are about to play with). For a while neither
+  existed and the whole feature was live engine code no browser could reach —
+  `big-button.e2e.ts` exists so that can't quietly become true again.
+- **Every seat's button state is drawn on its own board, opponents included.**
+  `BoardPane`'s `bigButtonFaceUp` prop, `undefined` when the expansion is off
+  so NOTHING renders — the same load-bearing default `SharedState.resetEffect`
+  has. It is public and it matters: Platypus flips every seat's button face
+  up, and the `gridReset` walk is asking who still holds one.
+- **`BigButtonPrompt` shows the whole walk, not just your turn.** "Starting
+  with the first player, each player in clockwise order" means a later decider
+  knows what everyone before them chose, so the per-seat status line is the
+  point rather than decoration. `asked` and `optedIn` are read separately: a
+  seat that opted in still has a face-up button until every seat has answered
+  and the resets resolve together, so `faceUp` alone cannot tell you who
+  pressed it.
 
 ## Testing
 
 442 tests across 19 files (the pure-engine suite) plus 28 tests in
 `apps/worker/room.vitest.ts` — `make test` runs both (the second via `cd
 apps/worker && bunx vitest run`, since it needs the real Workers runtime, not
-Bun; see Running Things above) — plus the 17 Playwright browser tests `make
-e2e` runs (the two long-form specs are skipped there; see `make e2e-long`
-below).
+Bun; see Running Things above) — plus the 31 Playwright browser tests `make
+e2e` runs (33 collected; the two long-form specs are skipped there, see `make
+e2e-long` below).
 Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
 there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
 oracle/fixtures design was superseded; tests just assert expected values

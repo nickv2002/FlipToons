@@ -3,6 +3,7 @@ import type { Card as CardData, CardId } from '../../../../packages/engine/cards
 import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
 import type { DismissEntry } from '../../../../packages/engine/actions'
 import { Grid } from './Grid'
+import { CounterChip } from './CounterChip'
 import type { ZoomRequest } from './CardZoomSheet'
 
 // One definition of "a board on this table", so your grid and everyone else's
@@ -32,6 +33,20 @@ export type BoardPaneProps = {
   // isn't the active seat's.
   dismissedCount?: number
   onShowDismissed?: () => void
+  // Makes the deck chip open a list of this deck's remaining cards. Your own
+  // board only: an opponent's undrawn deck is not viewable, so theirs stays an
+  // inert chip and must not look pressable. This is where the old
+  // "Remaining deck (N)" button from the round header moved to — the count and
+  // the control that opens what it counts are now one object.
+  onShowDeck?: () => void
+  // The Big Button mini-expansion's per-player component. Undefined means the
+  // expansion is not in play and NOTHING renders — same load-bearing default
+  // as SharedState.resetEffect being null.
+  //
+  // Rendered for EVERY board, opponents included: the state is public and
+  // load-bearing. Platypus flips every seat's button face up, and the
+  // gridReset walk is asking who still holds one.
+  bigButtonFaceUp?: boolean
   // False replays no deal-in animation on this render — for a board that's
   // redrawing because of a same-round face toggle (a dismiss-choice prompt
   // resolving, another player's flip effect) rather than an actual new deal.
@@ -62,7 +77,7 @@ export type BoardPaneProps = {
   controlsDisabled?: boolean
 }
 
-export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, dismissedCount, onShowDismissed, animateDeal = true, isOwn, isActive = true, roundFame, touchMode, onZoom, controlsDisabled }: BoardPaneProps) {
+export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDismiss, fame, readOnly, dismissedCount, onShowDismissed, onShowDeck, bigButtonFaceUp, animateDeal = true, isOwn, isActive = true, roundFame, touchMode, onZoom, controlsDisabled }: BoardPaneProps) {
   const className = `round-view__grid-pane${isOwn ? ' round-view__grid-pane--own' : ''}`
   // Only the grid itself dims for "not this seat's turn" — the heading (deck
   // count, dismissed-pile button) sits outside round-view__grid-body so it
@@ -72,14 +87,27 @@ export function BoardPane({ title, grid, cards, deckCount, dismissEntries, onDis
     <div className={className}>
       <div className="round-view__grid-heading">
         <h2>{title}</h2>
-        <span className="round-view__deck-count" title="Cards left undrawn in this player's deck">
-          Deck: <strong>{deckCount}</strong> left
-        </span>
-        {onShowDismissed && (
-          <button type="button" className="round-view__dismissed-button" onClick={onShowDismissed}>
-            Dismissed cards ({dismissedCount ?? 0})
-          </button>
-        )}
+        <div className="round-view__chips">
+          <CounterChip
+            label="Deck"
+            value={deckCount}
+            tone="accent"
+            title="Cards left undrawn in this player's deck"
+            onClick={onShowDeck}
+          />
+          {onShowDismissed && (
+            <CounterChip label="Dismissed" value={dismissedCount ?? 0} onClick={onShowDismissed} title="Dismissed cards are public — anyone may look" />
+          )}
+          {bigButtonFaceUp !== undefined && (
+            <CounterChip
+              label="Big Button"
+              value={bigButtonFaceUp ? 'ready' : 'used'}
+              tone={bigButtonFaceUp ? 'warning' : 'neutral'}
+              title={bigButtonFaceUp ? 'Face up — the reset effect is still available' : 'Face down — already used this game'}
+              testId="big-button-chip"
+            />
+          )}
+        </div>
       </div>
       <fieldset className={bodyClassName} disabled={controlsDisabled}>
         <Grid

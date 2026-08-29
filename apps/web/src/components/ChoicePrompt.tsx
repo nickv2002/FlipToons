@@ -1,6 +1,8 @@
 import type { GameState } from '../../../../packages/engine/state'
 
-// Market-phase action controls only (Market actions remaining / End Market).
+// Market-phase action BUTTONS only — the Big Button's RESET: MARKET and the
+// end-of-turn control. The fame/actions counters it used to carry moved into
+// the market pane's heading (see RoundView), next to what they buy.
 // Effect-specific player choices (Panther/Butterfly/Raccoon/Crow/Horse) are
 // handled separately, by EffectChoicePrompt.tsx — RoundView.tsx swaps this
 // out for that when a hire/dismiss needs one. Threading EffectChoices through
@@ -28,17 +30,9 @@ export function ChoicePrompt({ state, onEndMarket, onUseBigButton, endLabel = 'E
   const canReset = onUseBigButton !== undefined && canUseMarketReset(state)
   return (
     <div className="choice-prompt">
-      <div className="choice-prompt__stats">
-        <div className="choice-prompt__stat">
-          <span className="choice-prompt__stat-label">Actions remaining</span>
-          <span className="choice-prompt__stat-value">{state.actionsRemaining}</span>
-        </div>
-        <div className="choice-prompt__stat">
-          <span className="choice-prompt__stat-label">Spendable fame</span>
-          <span className="choice-prompt__stat-value choice-prompt__currency">{state.fame}</span>
-        </div>
-      </div>
-      <p className="choice-prompt__note">Fame resets to 0 after this phase — spend it or lose it.</p>
+      {/* Spendable fame and actions remaining used to live here, BELOW the
+          market they are spent on. They moved into the market pane's own
+          heading, directly above the cards whose prices they have to cover. */}
       {canReset && (
         <button type="button" className="choice-prompt__big-button" data-testid="use-big-button" onClick={onUseBigButton}>
           Use Big Button — reset the market

@@ -11,14 +11,13 @@ import type { PendingChoice } from '../../../../packages/engine/hireChoices'
 import { roundFameLookup } from '../../../../packages/engine/score'
 import { BoardPane } from './BoardPane'
 import { ConfettiBurst } from './ConfettiBurst'
+import { CounterChip } from './CounterChip'
 import { Market } from './Market'
 import { BigButtonPrompt } from './BigButtonPrompt'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
 import { CardListOverlay } from './CardListOverlay'
 import { CardZoomSheet, type ZoomRequest } from './CardZoomSheet'
-import { TouchModeToggle } from './TouchModeToggle'
-import { loadSettings, saveSettings } from '../settings'
 
 const cards = cardsById()
 
@@ -38,28 +37,24 @@ export type RoundViewProps = {
   // lost for ONE player is not a lost game at a table, where the others still
   // have real decisions to make. Off in multiplayer.
   soloWarnings?: boolean
-  // "Abandon game" reads wrong when three other people are still playing.
-  leaveLabel?: string
   // See ChoicePrompt's endLabel.
   endMarketLabel?: string
   // Multiplayer: it is someone else's turn, so nothing on the board may be
   // touched. Applied HERE rather than by the caller wrapping the whole
-  // component, because the header's Leave button and the deck/dismissed
-  // overlays are not board actions — a native <fieldset disabled> reaches
-  // every descendant control, so wrapping the lot took the exit away from
-  // exactly the players who most need it (an opponent who dropped mid-turn
-  // leaves everyone else waiting with nothing to click).
+  // component, because the deck/dismissed overlays are not board actions — a
+  // native <fieldset disabled> reaches every descendant control, so wrapping
+  // the lot took the public piles away from exactly the players who most need
+  // to study them.
   controlsDisabled?: boolean
-  // Multiplayer draws this round's fame against the endgame threshold once, in
-  // the scoreboard above every board — so the header's own copy of the same
-  // number and bar would be the second one on the screen. Solo has no
-  // scoreboard, so it keeps it.
-  showRoundScore?: boolean
   // See BoardPane's isOwn/isActive. Default true/true: solo is always both —
   // there's no "someone else's turn" to dim against. MatchView threads real
   // values through here for the seated player's own board.
   isOwn?: boolean
   isActive?: boolean
+  // Touch UI mode (settings.ts). Owned by App now rather than by this
+  // component: the toggle that sets it lives in the shared TopBar, which is
+  // rendered above this and outside it.
+  touchMode?: boolean
   // Raccoon at a table: MatchView threads the other seats' dismissed piles
   // through here so computePendingChoice (hireChoices.ts) can offer "any
   // dismissed card" rather than just this player's own. Solo omits both —
@@ -70,21 +65,21 @@ export type RoundViewProps = {
 }
 
 // Top-level per-phase orchestrator (plan §8's "Key files"). state.phase only
-// ever rests at 'market' or 'ended' here — flip/checkFame/postFameHooks/
-// cleanup are no-decision pass-throughs that actions.ts's applyAction now
-// cascades through automatically (see advanceThroughPassthroughPhases), so
-// none of them is ever a screen the player sees.
+// ever rests at 'market', 'gridReset' or 'ended' here — flip/checkFame/
+// postFameHooks/cleanup are no-decision pass-throughs that actions.ts's
+// applyAction cascades through automatically (see
+// advanceThroughPassthroughPhases), so none of them is ever a screen the
+// player sees.
 export function RoundView({
   state,
   dispatch,
   onAbandon,
   soloWarnings = true,
-  leaveLabel = 'Abandon game',
   endMarketLabel,
   controlsDisabled = false,
-  showRoundScore = true,
   isOwn = true,
   isActive = true,
+  touchMode = false,
   otherDismissedPiles,
   nameOf,
   myPlayerId,
@@ -101,7 +96,6 @@ export function RoundView({
   const [pending, setPending] = useState<Pending | null>(null)
   const [listOverlay, setListOverlay] = useState<ListOverlay>(null)
   const [hireWarning, setHireWarning] = useState<HireWarning | null>(null)
-  const [touchMode, setTouchMode] = useState(() => loadSettings().touchMode)
   const [zoomRequest, setZoomRequest] = useState<ZoomRequest | null>(null)
 
   // The deal-in animation should play once per round's Flip, not every time
@@ -121,6 +115,11 @@ export function RoundView({
   // disappears along with the card (lastCheckFame doesn't track later
   // dismissals), which is exactly the desired behavior, not a bug to guard.
   const roundFame = state.lastCheckFame ? roundFameLookup(state.lastCheckFame, state.finalGrid ?? state.grid) : undefined
+
+  // The Big Button chip renders on every board, but only when the
+  // mini-expansion is actually in play — undefined is the "nothing here"
+  // signal BoardPane reads, mirroring SharedState.resetEffect's null default.
+  const bigButtonFaceUp = state.resetEffect === null ? undefined : state.bigButtonFaceUp
 
   // Dispatches the hire unless doing so would leave the round guaranteed
   // lost (toon deck too depleted for solo's per-round decay to refill) — in
@@ -186,6 +185,17 @@ export function RoundView({
     dispatch({ kind: 'resolvePostMarketChoice', pos: target.pos, index: target.index })
   }
 
+  const overlays = (
+    <>
+      {listOverlay === 'dismissed' && (
+        <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
+      )}
+      {listOverlay === 'deck' && (
+        <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
+      )}
+    </>
+  )
+
   if (state.phase === 'ended') {
     return (
       <div className="round-view round-view--ended">
@@ -196,79 +206,58 @@ export function RoundView({
             ? `Reached ${state.fameToTriggerEndgame} fame before the toon deck depleted.`
             : `This round generated ${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action could have closed the gap.`}
         </p>
-        <div className="round-view__card-list-buttons">
-          <button type="button" onClick={() => setListOverlay('dismissed')}>
-            Dismissed cards ({state.dismissed.length})
-          </button>
-          <button type="button" onClick={() => setListOverlay('deck')}>
-            Remaining deck ({state.deck.length})
-          </button>
-        </div>
-        <button type="button" onClick={onAbandon}>
+        <button type="button" className="round-view__primary" onClick={onAbandon}>
           Start a new game
         </button>
         <div className="round-view__phase round-view__phase--market">
-          <BoardPane title="Final grid" grid={state.finalGrid ?? state.grid} cards={cards} deckCount={state.finalDeckCount ?? state.deck.length} roundFame={roundFame} readOnly />
+          <BoardPane
+            title="Final grid"
+            grid={state.finalGrid ?? state.grid}
+            cards={cards}
+            deckCount={state.finalDeckCount ?? state.deck.length}
+            roundFame={roundFame}
+            readOnly
+            dismissedCount={state.dismissed.length}
+            onShowDismissed={() => setListOverlay('dismissed')}
+            onShowDeck={() => setListOverlay('deck')}
+            bigButtonFaceUp={bigButtonFaceUp}
+          />
           <div className="round-view__market-pane">
-            <div className="round-view__grid-heading">
-              <h2>Final market</h2>
-              <span className="round-view__deck-count" title="Cards left in the toon deck the market refills from">
-                Deck: <strong>{state.toonDeck.length}</strong> left
-              </span>
-            </div>
+            <MarketHeading state={state} interactive={false} />
             <Market market={state.market} cards={cards} fame={state.fame} />
           </div>
         </div>
-        {listOverlay === 'dismissed' && (
-          <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
-        )}
-        {listOverlay === 'deck' && (
-          <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
-        )}
+        {overlays}
       </div>
     )
   }
 
   return (
     <div className="round-view">
-      <div className="round-view__header">
-        <span>Round {state.round}</span>
-        {showRoundScore && (
-          <span className="round-view__score">
-            <span className="round-view__score-label">Score this round</span>
-            <span className="round-view__score-value">{state.fameGeneratedThisRound}</span>
-            <span className="round-view__score-of">/ {state.fameToTriggerEndgame} to win</span>
-          </span>
-        )}
-        <button type="button" onClick={() => setListOverlay('deck')}>
-          Remaining deck ({state.deck.length})
-        </button>
-        <TouchModeToggle
-          touchMode={touchMode}
-          onChange={(next) => {
-            setTouchMode(next)
-            saveSettings({ touchMode: next })
-          }}
-        />
-        <button type="button" className="round-view__abandon" onClick={onAbandon}>
-          {leaveLabel}
-        </button>
-      </div>
-      {showRoundScore && (
-        <div className="round-view__progress" title={`${state.fameGeneratedThisRound} of ${state.fameToTriggerEndgame} fame needed to win`}>
-          <div
-            className="round-view__progress-bar"
-            style={{ width: `${Math.min(100, (state.fameGeneratedThisRound / state.fameToTriggerEndgame) * 100)}%` }}
-          />
-        </div>
-      )}
-
       {/* The Big Button's RESET: GRID decision. Solo is the one-seat case of
-          the rulebook's clockwise walk, so the decision is always yours. */}
+          the rulebook's clockwise walk, so the decision is always yours — and
+          the board you are judging renders below it, read-only, because the
+          whole question is whether that board is worth re-flipping. */}
       {state.phase === 'gridReset' && (
-        <fieldset className="round-view__controls" disabled={controlsDisabled}>
-          <BigButtonPrompt isMyDecision onDecide={(use) => dispatch({ kind: 'bigButtonDecision', use })} />
-        </fieldset>
+        <>
+          <fieldset className="round-view__controls" disabled={controlsDisabled}>
+            <BigButtonPrompt isMyDecision onDecide={(use) => dispatch({ kind: 'bigButtonDecision', use })} />
+          </fieldset>
+          <BoardPane
+            title="Your grid"
+            grid={state.grid}
+            cards={cards}
+            deckCount={state.deck.length}
+            readOnly
+            animateDeal={false}
+            isOwn={isOwn}
+            roundFame={roundFame}
+            dismissedCount={state.dismissed.length}
+            onShowDismissed={() => setListOverlay('dismissed')}
+            onShowDeck={() => setListOverlay('deck')}
+            bigButtonFaceUp={bigButtonFaceUp}
+          />
+        </>
       )}
 
       {state.phase === 'market' && alligatorChoice && (
@@ -315,13 +304,15 @@ export function RoundView({
           />
         </fieldset>
       )}
+      {/* Deliberately REPLACES the board+market block rather than rendering
+          beside it: a live market next to a pending mandatory choice would let
+          a player hire into a guaranteed engine rejection. */}
       {state.phase === 'market' && !alligatorChoice && !pending && (
         <div className="round-view__phase round-view__phase--market">
-          {/* The dismiss-pile button lives in BoardPane's own heading (see
-              its controlsDisabled prop), which sits OUTSIDE this fieldset on
-              purpose — viewing a public pile is not a turn action, so it
-              stays clickable even while this player's controls are
-              disabled, same as the Leave button above. Only the Grid itself
+          {/* The chips in BoardPane's own heading (deck, dismissed pile, Big
+              Button state) sit OUTSIDE this fieldset on purpose — looking at
+              a public pile is not a turn action, so they stay clickable even
+              while this player's controls are disabled. Only the Grid itself
               (inside BoardPane) is gated by controlsDisabled. */}
           <BoardPane
             title="Your grid"
@@ -333,6 +324,8 @@ export function RoundView({
             fame={state.fame}
             dismissedCount={state.dismissed.length}
             onShowDismissed={() => setListOverlay('dismissed')}
+            onShowDeck={() => setListOverlay('deck')}
+            bigButtonFaceUp={bigButtonFaceUp}
             animateDeal={isFreshDeal}
             isOwn={isOwn}
             isActive={isActive}
@@ -342,12 +335,7 @@ export function RoundView({
             controlsDisabled={controlsDisabled}
           />
           <fieldset className="round-view__market-pane" disabled={controlsDisabled} data-testid="my-controls">
-            <div className="round-view__grid-heading">
-              <h2>Market</h2>
-              <span className="round-view__deck-count" title="Cards left in the toon deck the market refills from">
-                Deck: <strong>{state.toonDeck.length}</strong> left
-              </span>
-            </div>
+            <MarketHeading state={state} interactive />
             <Market
               market={state.market}
               cards={cards}
@@ -366,13 +354,37 @@ export function RoundView({
           </fieldset>
         </div>
       )}
-      {listOverlay === 'dismissed' && (
-        <CardListOverlay title="Dismissed cards" cardIds={state.dismissed} cards={cards} onClose={() => setListOverlay(null)} />
-      )}
-      {listOverlay === 'deck' && (
-        <CardListOverlay title="Remaining deck" cardIds={state.deck} cards={cards} onClose={() => setListOverlay(null)} />
-      )}
+      {overlays}
       {zoomRequest && <CardZoomSheet {...zoomRequest} onClose={() => setZoomRequest(null)} />}
+    </div>
+  )
+}
+
+// The market's own counters, directly above the cards they buy. Spendable
+// fame and actions remaining used to render BELOW the market, in ChoicePrompt,
+// under the row of prices they have to cover.
+//
+// "Spendable fame" is deliberately worded apart from the fame race up top:
+// the race is your SCORE this round, this is the same number as CURRENCY, and
+// they diverge the moment you hire.
+function MarketHeading({ state, interactive }: { state: GameState; interactive: boolean }) {
+  return (
+    <div className="round-view__grid-heading">
+      <h2>{interactive ? 'Market' : 'Final market'}</h2>
+      <div className="round-view__chips">
+        {interactive && (
+          <>
+            <CounterChip
+              label="Spendable fame"
+              value={state.fame}
+              tone="positive"
+              title="Fame resets to 0 when this phase ends — spend it or lose it"
+            />
+            <CounterChip label="Actions remaining" value={state.actionsRemaining} tone="accent" />
+          </>
+        )}
+        <CounterChip label="Toon deck" value={state.toonDeck.length} title="Cards left in the toon deck the market refills from" />
+      </div>
     </div>
   )
 }

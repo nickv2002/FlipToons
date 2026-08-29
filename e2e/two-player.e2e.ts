@@ -152,8 +152,13 @@ test.describe('a two-player game, played from both sides', () => {
     // mid-turn could not act AND could not get out.
     await expect(waiting.page.getByRole('button', { name: 'Leave game' })).toBeEnabled()
     const myBoard = waiting.page.getByTestId('my-board')
-    await expect(myBoard.getByRole('button', { name: /^Dismissed cards/ })).toBeEnabled()
-    await expect(myBoard.getByRole('button', { name: /^Remaining deck/ })).toBeEnabled()
+    // Both are CounterChips in BoardPane's heading now ("Dismissed 1",
+    // "Deck 7") rather than a button in a round header and one under the
+    // grid — the count and the control that opens it are one object. The
+    // heading still sits OUTSIDE the controlsDisabled fieldset, which is what
+    // these two assertions are actually here to protect.
+    await expect(myBoard.getByRole('button', { name: /^Dismissed / })).toBeEnabled()
+    await expect(myBoard.getByRole('button', { name: /^Deck / })).toBeEnabled()
 
     // And it works: clicking it actually leaves.
     await waiting.page.getByRole('button', { name: 'Leave game' }).click()

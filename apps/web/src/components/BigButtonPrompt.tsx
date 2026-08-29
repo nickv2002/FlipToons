@@ -7,36 +7,78 @@
 // post-fame prompt, which is simultaneous — it is TURN-GATED: you only see the
 // buttons when it is actually your turn to decide.
 //
-// Deliberately plain: this is the mechanics pass, and the mini-expansion's
-// visual design comes later.
+// The sequencing is information, not ceremony: a later decider knows what
+// everyone before them chose. That is what `seats` is for — the per-seat
+// status line under the prompt is the only place that knowledge is visible.
+export type BigButtonSeat = {
+  playerId: string
+  name: string
+  faceUp: boolean
+  // A seat that has answered is in gridReset.asked; whether it answered YES is
+  // gridReset.optedIn. The two are separate because the button does not
+  // actually flip face down until every seat has answered and the resets
+  // resolve together — so faceUp alone can't tell you who opted in.
+  choice: 'pending' | 'use' | 'keep'
+  isDeciding: boolean
+  isMe: boolean
+}
+
 export type BigButtonPromptProps = {
-  // Whose decision it is right now — null while you are waiting on someone
+  // Whose decision it is right now — false while you are waiting on someone
   // else, which is also the only difference between the two states.
   isMyDecision: boolean
   waitingOnName?: string
   onDecide: (use: boolean) => void
+  // Solo has one seat and therefore nothing to report; omitted there.
+  seats?: BigButtonSeat[]
 }
 
-export function BigButtonPrompt({ isMyDecision, waitingOnName, onDecide }: BigButtonPromptProps) {
-  if (!isMyDecision) {
-    return (
-      <div className="match__prompt" data-testid="big-button-prompt">
-        <p>Waiting for {waitingOnName ?? 'the other players'} to decide on the Big Button…</p>
-      </div>
-    )
-  }
+export function BigButtonPrompt({ isMyDecision, waitingOnName, onDecide, seats }: BigButtonPromptProps) {
   return (
-    <div className="match__prompt" data-testid="big-button-prompt">
-      <p>
-        <strong>Big Button</strong> — use it to collect your grid back into your deck, shuffle, and flip again? Everyone re-scores
-        afterwards, so a worse board is a real risk. One use per game.
-      </p>
-      <button type="button" data-testid="big-button-use" onClick={() => onDecide(true)}>
-        Use it — flip again
-      </button>
-      <button type="button" data-testid="big-button-keep" onClick={() => onDecide(false)}>
-        Keep it
-      </button>
-    </div>
+    <section className="big-button" data-testid="big-button-prompt">
+      <h2 className="big-button__title">
+        <span className="big-button__dot" aria-hidden="true" /> Big Button — Reset: Grid
+      </h2>
+      {isMyDecision ? (
+        <>
+          <p className="big-button__body">
+            Collect your grid back into your deck, shuffle, and flip again. <strong>One use per game.</strong>
+          </p>
+          <p className="big-button__risk">
+            Everyone re-scores afterwards — a worse board is a real risk, and can cost you the endgame trigger and the Critic's Choice.
+          </p>
+          <div className="big-button__actions">
+            <button type="button" className="big-button__use" data-testid="big-button-use" onClick={() => onDecide(true)}>
+              Use it — flip again
+            </button>
+            <button type="button" className="big-button__keep" data-testid="big-button-keep" onClick={() => onDecide(false)}>
+              Keep it
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="big-button__body">Waiting for {waitingOnName ?? 'the other players'} to decide…</p>
+      )}
+      {seats && seats.length > 0 && (
+        <ul className="big-button__seats" data-testid="big-button-seats">
+          {seats.map((seat) => (
+            <li key={seat.playerId} className={`big-button__seat${seat.isDeciding ? ' big-button__seat--deciding' : ''}`}>
+              <span className="big-button__seat-name">{seat.isMe ? 'You' : seat.name}</span>
+              <span className="big-button__seat-state">{seatState(seat)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
+}
+
+// A spent button takes its holder out of the walk entirely (match.ts skips
+// them), so "used" and "undecided" are genuinely different states here, not
+// two shades of the same one.
+function seatState(seat: BigButtonSeat): string {
+  if (!seat.faceUp) return 'already used'
+  if (seat.choice === 'use') return 'flipping again'
+  if (seat.choice === 'keep') return 'keeping it'
+  return seat.isDeciding ? 'deciding…' : 'undecided'
 }

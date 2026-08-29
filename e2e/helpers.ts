@@ -50,11 +50,16 @@ export async function openPlayer(browser: Browser, name: string): Promise<Player
 
 export async function hostRoom(
   host: Player,
-  opts: { seed?: string; threshold?: string; season?: 1 | 2 } = {},
+  opts: { seed?: string; threshold?: string; season?: 1 | 2; bigButton?: 'market' | 'grid' } = {},
 ): Promise<string> {
   await host.page.getByTestId('mode-host').click()
   await host.page.getByTestId('name-input').fill(host.name)
   if (opts.season) await host.page.getByTestId(`season-${opts.season}`).click()
+  // The Big Button mini-expansion is OFF unless a spec asks for it, which is
+  // the same load-bearing default SharedState.resetEffect has: with it off,
+  // the gridReset phase is unreachable and neither Big Button toon card is
+  // dealt, so every other spec here sees exactly what it saw before.
+  if (opts.bigButton) await host.page.getByTestId(`big-button-${opts.bigButton}`).click()
   if (opts.seed) await host.page.getByTestId('seed').fill(opts.seed)
   await host.page.getByTestId('fame-threshold').fill(opts.threshold ?? SHORT_FAME_THRESHOLD)
   await host.page.getByTestId('host-game').click()

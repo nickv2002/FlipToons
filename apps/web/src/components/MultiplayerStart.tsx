@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
+import type { ResetEffect } from '../../../../packages/engine/state'
 import { loadSettings, saveSettings } from '../settings'
+import { BigButtonOption } from './BigButtonOption'
 import { OptionCards } from './OptionCards'
 
 export type MultiplayerStartProps = {
@@ -8,7 +10,7 @@ export type MultiplayerStartProps = {
   // two sections of one page. Same component so the name field, the busy
   // state and the error line stay in one place.
   variant: 'host' | 'join'
-  onHost: (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number }) => void
+  onHost: (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect }) => void
   onJoin: (roomCode: string, name: string) => void
   onBack: () => void
   connection: ConnectionState
@@ -22,6 +24,7 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
   const [season, setSeason] = useState<1 | 2>(1)
   const [seed, setSeed] = useState('')
   const [threshold, setThreshold] = useState('')
+  const [bigButton, setBigButton] = useState<ResetEffect | null>(null)
   const [roomCode, setRoomCode] = useState(initialRoomCode ?? '')
 
   const busy = connection === 'connecting' || connection === 'reconnecting'
@@ -50,6 +53,8 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
             ]}
           />
 
+          <BigButtonOption value={bigButton} onChange={setBigButton} />
+
           {/* No table size to pick: you cannot know who will click your link.
               The room opens with every seat free and is dealt for whoever is
               in the waiting room when you press start. */}
@@ -67,6 +72,11 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
                 season,
                 seed: seed.trim() === '' ? undefined : Number(seed),
                 fameToTriggerEndgame: threshold.trim() === '' ? undefined : Number(threshold),
+                // Undefined, not null: CreateRoomRequest's field is optional,
+                // and worker.ts validates it against the two legal values
+                // before it reaches setup.ts (where it decides the toon
+                // deck's composition).
+                bigButton: bigButton ?? undefined,
               })
             }}
           >

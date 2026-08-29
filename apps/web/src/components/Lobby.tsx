@@ -45,6 +45,14 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
         </button>
       </p>
 
+      {/* Joiners had no say in any of this and can't see the host's panel —
+          the reset effect in particular changes the deck they are about to
+          play with. */}
+      <p className="lobby__setup" data-testid="lobby-setup">
+        Season {lobby.season} · {lobby.fameToTriggerEndgame} fame to end
+        {lobby.bigButton && <> · Big Button: reset {lobby.bigButton}</>}
+      </p>
+
       <p className="lobby__count" data-testid="seat-count">
         Players ({lobby.seats.length} of {lobby.capacity})
       </p>

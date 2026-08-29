@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import type { SoloDifficulty } from '../../../../packages/engine/setup'
+import type { ResetEffect } from '../../../../packages/engine/state'
+import { BigButtonOption } from './BigButtonOption'
 import { OptionCards } from './OptionCards'
 
 export type NewGameFormProps = {
-  onStart: (seed: number, difficulty: SoloDifficulty, season: 1 | 2) => void
+  onStart: (seed: number, difficulty: SoloDifficulty, season: 1 | 2, bigButton: ResetEffect | null) => void
   onBack: () => void
 }
 
@@ -18,6 +20,7 @@ function resolveSeed(seed: string): number {
 export function NewGameForm({ onStart, onBack }: NewGameFormProps) {
   const [season, setSeason] = useState<1 | 2>(1)
   const [difficulty, setDifficulty] = useState<SoloDifficulty>('normal')
+  const [bigButton, setBigButton] = useState<ResetEffect | null>(null)
   const [seed, setSeed] = useState(() => String(Date.now() >>> 0))
 
   return (
@@ -48,12 +51,14 @@ export function NewGameForm({ onStart, onBack }: NewGameFormProps) {
         ]}
       />
 
+      <BigButtonOption value={bigButton} onChange={setBigButton} />
+
       <button
         type="button"
         className="config-panel__confirm"
         data-testid="start-solo"
         onClick={() => {
-          onStart(resolveSeed(seed), difficulty, season)
+          onStart(resolveSeed(seed), difficulty, season, bigButton)
         }}
       >
         Start Game

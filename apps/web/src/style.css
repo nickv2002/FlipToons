@@ -50,31 +50,332 @@ button {
 
 .app__game {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr), not 1fr: a `1fr` track is `minmax(auto, 1fr)`, so it
+     grows to the widest child's MIN-content and drags every sibling out with
+     it — which is how one un-wrappable run in the top bar pushed the whole
+     page 24px past a 320px viewport. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
-  /* Was 1100px. A single-row 5-card market (Part 1) needs real width to stay
-     legible once it's also splitting the round-view pane 1fr/1.3fr with the
-     grid (see .round-view__phase--market below) and sharing space with the
-     ResolveLog sidebar here. 1100px capped the market pane at ~64px/card
-     even at its widest — raised so the arithmetic works at common laptop
-     widths (~1280px). Track C: this line is outside .market/.card rules but
-     needed for Part 2 of the same task; flag if it conflicts with your work. */
+  /* Single column at every width. It used to split 2fr/1fr above 1100px to
+     seat the ResolveLog sidebar, and this max-width was raised from 1100px
+     twice to compensate — a single-row 5-card market plus the grid pane
+     beside it plus a permanent log left the market at ~64px per card. The log
+     is a drawer now (LogDrawer), so nothing competes with the boards for
+     width and the whole width goes to the game. */
   max-width: 1400px;
   margin: 0 auto;
 }
 
-/* Bumped from 900px. .round-view__phase--market splits into grid+market
-   panes at its own 900px breakpoint below — letting the ResolveLog sidebar
-   split off here too, at the same width, compounds with that split and
-   squeezed the market pane to ~72px/card at 900-1099px (5 single-row cards
-   fighting for a fraction of a fraction of the available width). Deferring
-   the sidebar split to 1100px means the medium-width range gets the full
-   round-view width to work with, before the sidebar competes for space. */
-@media (min-width: 1100px) {
-  .app__game {
-    grid-template-columns: 2fr 1fr;
-    align-items: start;
-  }
+/* ---------- Top bar ---------- */
+
+/* The one header on the play screen, rendered by App for both modes. There
+   used to be two, stacked eight pixels apart: MatchView's and the RoundView
+   nested inside it. */
+.top-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid color-mix(in srgb, canvastext 12%, transparent);
+  /* Sticky because a phone's page is long — a 3-seat table runs past 1900px,
+     so "whose turn is it" and the way out both scroll off screen within one
+     swipe otherwise. It carries the first item in the page's rank order, so
+     it is the one band worth keeping on screen. `top: -1rem` cancels body's
+     own padding, so it lands flush rather than a gap below the viewport. */
+  position: sticky;
+  top: -1rem;
+  z-index: 20;
+  background: canvas;
+  padding-top: 0.6rem;
+}
+
+/* Two lines of wrapped "Abandon game" in a sticky bar is pure cost. */
+.top-bar__log,
+.top-bar__leave {
+  white-space: nowrap;
+}
+
+.top-bar__round {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.top-bar__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-bar__utilities {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.top-bar__log,
+.top-bar__leave {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
+  background: canvas;
+  color: canvastext;
+}
+
+.top-bar__log-count {
+  margin-left: 0.35rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, canvastext 55%, transparent);
+}
+
+/* ---------- Fame race ---------- */
+
+.fame-race {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.25rem;
+}
+
+.fame-race__title {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, canvastext 55%, transparent);
+}
+
+.fame-race__rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  flex: 1;
+}
+
+.fame-race__row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  min-width: 180px;
+  flex: 1;
+}
+
+.fame-race__row--me .fame-race__name {
+  font-weight: 700;
+}
+
+.fame-race__name {
+  white-space: nowrap;
+}
+
+.fame-race__badge {
+  color: var(--color-positive);
+}
+
+.fame-race__bar {
+  flex: 1;
+  min-width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, canvastext 12%, transparent);
+  overflow: hidden;
+}
+
+.fame-race__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.fame-race__value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.fame-race__value strong {
+  font-size: 1.15rem;
+  color: canvastext;
+}
+
+.fame-race__modifier {
+  color: var(--color-positive);
+}
+
+/* ---------- Counter chips ---------- */
+
+/* A count and the control that opens what it counts are one object. Before
+   this, "Remaining deck (7)" was a button in the round header while the deck
+   it counted was inert text in the board heading below it. */
+.counter-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, canvastext 7%, transparent);
+  color: color-mix(in srgb, canvastext 70%, transparent);
+}
+
+/* Only a chip that opens something looks pressable: an opponent's undrawn
+   deck is not viewable, so theirs must not invite a click. */
+.counter-chip--button {
+  border-color: color-mix(in srgb, canvastext 22%, transparent);
+  background: canvas;
+}
+
+.counter-chip--button:hover {
+  background: color-mix(in srgb, canvastext 8%, transparent);
+}
+
+.counter-chip__value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: canvastext;
+}
+
+.counter-chip--accent .counter-chip__value {
+  color: var(--color-accent);
+}
+
+.counter-chip--positive .counter-chip__value {
+  color: var(--color-positive);
+}
+
+.counter-chip--warning .counter-chip__value {
+  color: var(--color-warning);
+}
+
+.round-view__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* ---------- Log drawer ---------- */
+
+.log-drawer__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 100;
+}
+
+.log-drawer {
+  background: canvas;
+  color: canvastext;
+  width: min(420px, 92vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+.log-drawer__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.log-drawer__title {
+  margin: 0;
+}
+
+.log-drawer__body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ---------- Big Button (mini-expansion) ---------- */
+
+.big-button {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+  background: var(--color-warning-bg);
+}
+
+.big-button__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.big-button__dot {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--color-negative);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-negative) 25%, transparent);
+}
+
+.big-button__body {
+  margin: 0 0 0.4rem;
+}
+
+/* Pressing the button can score you WORSE — it overwrites
+   fameGeneratedThisRound for everyone. That is the risk of the button, not a
+   bug, and it is the one thing a player has to read before deciding. */
+.big-button__risk {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-warning);
+}
+
+.big-button__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.big-button__use,
+.big-button__keep {
+  padding: 0.5rem 1.2rem;
+  border-radius: 6px;
+}
+
+.big-button__seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+}
+
+.big-button__seat-name {
+  font-weight: 600;
+  color: canvastext;
+  margin-right: 0.35rem;
+}
+
+.big-button__seat--deciding {
+  color: var(--color-accent);
+}
+
+.big-button-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 /* ---------- New game form ---------- */
@@ -356,83 +657,11 @@ button {
 
 /* ---------- Round view ---------- */
 
-.round-view__header {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-}
-
-.round-view__abandon {
-  margin-left: auto;
-}
-
-.round-view__score {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-
-.round-view__score-label {
-  font-size: 0.8rem;
-  color: color-mix(in srgb, canvastext 65%, transparent);
-}
-
-.round-view__score-value {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--color-accent);
-  line-height: 1;
-}
-
-.round-view__score-of {
-  font-size: 0.85rem;
-  color: color-mix(in srgb, canvastext 65%, transparent);
-}
-
-/* Score-this-round vs. win threshold — a quick visual read of round
-   progress to complement the "N / M to win" text (state.fameGeneratedThisRound
-   is the round score the win check reads; kept visually distinct from the
-   spendable-currency number in ChoicePrompt via --color-accent here vs.
-   --color-positive there, per the fame/currency vs. fame/score confusion
-   this pass exists to fix). */
-.round-view__progress {
-  height: 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, canvastext 10%, transparent);
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.round-view__progress-bar {
-  height: 100%;
-  background: var(--color-accent);
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
 .round-view__grid-heading {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
   flex-wrap: wrap;
-}
-
-.round-view__deck-count {
-  font-size: 0.9rem;
-  color: color-mix(in srgb, canvastext 65%, transparent);
-}
-
-.round-view__deck-count strong {
-  color: var(--color-accent);
-}
-
-.round-view__card-list-buttons {
-  display: flex;
-  gap: 0.75rem;
-  margin: 0.75rem 0;
 }
 
 /* ---------- Card list overlay ---------- */
@@ -579,6 +808,25 @@ button {
   font-size: 1.1rem;
   padding: 0.6rem 1.5rem;
   margin-top: 1rem;
+}
+
+/* Below the 900px split the market pane sits UNDER the board rather than
+   beside it, so the board pane is alone on its row and the same empty-box
+   problem applies. Above 900px it shares the row and must not be capped. */
+@media (max-width: 899px) {
+  .round-view__phase--market > .round-view__grid-pane {
+    max-width: 30rem;
+  }
+}
+
+/* A board pane with no market pane beside it — the gridReset decision, and
+   every non-Market phase in a match — would otherwise stretch the full page
+   width around a grid capped at 22rem, which reads as an empty box rather
+   than a board. Direct children only: the market-phase pane is nested inside
+   .round-view__phase--market and keeps its own 1fr share of that split. */
+.round-view > .round-view__grid-pane,
+.match__mine > .round-view__grid-pane {
+  max-width: 30rem;
 }
 
 .round-view__phase--market {
@@ -1025,38 +1273,6 @@ img.card__icon {
   padding: 0.5rem 1.2rem;
 }
 
-.choice-prompt__stats {
-  display: flex;
-  gap: 1.5rem;
-}
-
-.choice-prompt__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.choice-prompt__stat-label {
-  font-size: 0.75rem;
-  color: color-mix(in srgb, canvastext 65%, transparent);
-}
-
-.choice-prompt__stat-value {
-  font-size: 1.75rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.choice-prompt__currency {
-  color: var(--color-positive);
-}
-
-.choice-prompt__note {
-  margin: 0;
-  font-size: 0.8rem;
-  color: color-mix(in srgb, canvastext 60%, transparent);
-}
-
 /* ---------- Effect choice prompt ---------- */
 
 .effect-choice {
@@ -1164,32 +1380,18 @@ img.card__icon {
 
 /* ---------- Resolve log ---------- */
 
+/* No frame and no title of its own: LogDrawer supplies both. */
 .resolve-log {
-  border: 1px solid #8883;
-  border-radius: 6px;
-  padding: 0.5rem;
   font-size: 0.8rem;
-}
-
-.resolve-log__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.resolve-log__title {
-  margin: 0;
-  font-size: 1rem;
 }
 
 .resolve-log__header-actions {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
-.resolve-log__toggle,
 .resolve-log__copy {
   font-size: 0.75rem;
   padding: 0.25rem 0.7rem;
@@ -1483,7 +1685,7 @@ img.card__icon {
 
 /* ---------- Multiplayer match ---------- */
 
-/* None of this existed. `.match__*`, `.opponents*` and `.scoreboard*` had zero
+/* None of this existed. `.match__*` and `.opponents*` had zero
    rules in this sheet, so a seated match rendered as default block flow:
    opponent boards stacked full-width UNDER a differently-framed board of your
    own. Same cards, two presentations — which is what made other players'
@@ -1497,17 +1699,6 @@ img.card__icon {
   gap: 1rem;
 }
 
-.match__header {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.match__round {
-  font-weight: 700;
-}
-
 .match__phase {
   font-size: 0.85rem;
   letter-spacing: 0.04em;
@@ -1518,7 +1709,6 @@ img.card__icon {
 }
 
 .match__turn {
-  margin-left: auto;
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
   color: color-mix(in srgb, canvastext 70%, transparent);
@@ -1669,8 +1859,12 @@ img.card__icon {
   opacity: 0.75;
 }
 
-.round-view__grid-pane h2 {
-  margin: 0 0 0.5rem;
+ /* Scoped to the HEADING, not to .round-view__grid-pane: the market pane has
+   the same heading and was falling through to the browser's default h2, so
+   "Market" rendered half again as large as "Your grid" right beside it —
+   glaring once they stack on a phone. */
+.round-view__grid-heading h2 {
+  margin: 0;
   font-size: 1.05rem;
 }
 
@@ -1680,7 +1874,9 @@ img.card__icon {
 
 .opponents__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /* min(320px, 100%), not a bare 320px: on a phone narrower than the track's
+     own minimum the track wins and overflows the page sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 1rem;
   align-items: start;
 }
@@ -1690,72 +1886,8 @@ img.card__icon {
   font-weight: 400;
 }
 
-.round-view__dismissed-button {
-  font-size: 0.85rem;
-}
-
-.scoreboard {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 0.9rem;
-}
-
-.scoreboard th,
-.scoreboard td {
-  text-align: left;
-  padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid color-mix(in srgb, canvastext 10%, transparent);
-}
-
-.scoreboard th {
-  font-weight: 600;
-  color: color-mix(in srgb, canvastext 60%, transparent);
-}
-
-.scoreboard__row--me {
-  background: color-mix(in srgb, canvastext 5%, transparent);
-}
-
-.scoreboard__you {
-  color: color-mix(in srgb, canvastext 55%, transparent);
-}
-
-.scoreboard__badge {
-  margin-left: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--color-positive);
-}
-
-.scoreboard__modifier {
-  color: var(--color-positive);
-}
-
-/* This round against the endgame threshold — the only comparison the rules
-   make. Same look as solo's .round-view__progress, but its own class: the
-   bar lives in a table cell here, not across the page. */
-.scoreboard__progress {
-  height: 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, canvastext 10%, transparent);
-  overflow: hidden;
-  min-width: 80px;
-  margin-bottom: 0.2rem;
-}
-
-.scoreboard__progress-bar {
-  height: 100%;
-  background: var(--color-accent);
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.scoreboard__progress-text {
-  font-variant-numeric: tabular-nums;
-}
-
-.scoreboard__progress-value {
-  font-size: 1.3rem;
-  font-weight: 700;
+.lobby__setup {
+  color: color-mix(in srgb, canvastext 70%, transparent);
 }
 
 /* A grid sizes itself to its container, so the SAME three columns came out at
@@ -1788,4 +1920,76 @@ img.card__icon {
 .round-view__grid-body:disabled .card:disabled,
 .round-view__market-pane:disabled .card:disabled {
   opacity: 1;
+}
+
+/* ---------- Phone ----------
+   Most players are on a phone, and the play screen is long there: a 3-seat
+   table runs past 1900px with everything stacked. What changes here is
+   density and tap targets, not structure — the rank order (status, race,
+   your board + market, the table) is the same one a laptop gets. */
+@media (max-width: 560px) {
+  body {
+    padding: 0.75rem;
+  }
+
+  /* Must track body's padding — see .top-bar's comment. */
+  .top-bar {
+    top: -0.75rem;
+    gap: 0.4rem 0.6rem;
+  }
+
+  .top-bar__utilities {
+    gap: 0.4rem;
+  }
+
+  .top-bar__log,
+  .top-bar__leave {
+    padding: 0.35rem 0.7rem;
+  }
+
+  /* Thumb targets. These are the two controls a turn actually ends on, and
+     they were laptop-sized buttons floating at the left edge. */
+  .choice-prompt {
+    align-items: stretch;
+  }
+
+  .choice-prompt__end,
+  .choice-prompt__big-button {
+    width: 100%;
+    padding: 0.7rem 1rem;
+  }
+
+  .big-button__actions {
+    flex-wrap: nowrap;
+  }
+
+  .big-button__use,
+  .big-button__keep {
+    flex: 1;
+    padding: 0.7rem 0.5rem;
+  }
+
+  .round-view__primary {
+    width: 100%;
+  }
+
+  /* The 30rem cap is wider than the viewport anyway; dropping it keeps the
+     pane from being the one element that doesn't use the full width. */
+  .round-view > .round-view__grid-pane,
+  .match__mine > .round-view__grid-pane {
+    max-width: none;
+  }
+
+  /* A grid row is three slots or it is not a grid row, and the 90px column
+     floor plus the row's gaps and padding is the widest hard minimum on the
+     page. 72px keeps all three on screen at 320px with the pane's padding and
+     body's own taken out; they shrink together rather than wrapping. */
+  .grid__row {
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
+  }
+
+  .mode-picker,
+  .config-panel {
+    margin: 1rem auto;
+  }
 }

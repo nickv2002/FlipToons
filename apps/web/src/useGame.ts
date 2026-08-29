@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { GameState, PlayerId } from '../../../packages/engine/state'
+import type { GameState, PlayerId, ResetEffect } from '../../../packages/engine/state'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
 import type { Action } from '../../../packages/engine/actions'
 import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
@@ -106,15 +106,18 @@ export function useGame() {
     }
   }, [state, dispatch])
 
-  const startNewGame = useCallback((seed: number, difficulty: SoloDifficulty, season: 1 | 2) => {
-    const initial = buildNewGameState(seed, difficulty, season)
+  const startNewGame = useCallback((seed: number, difficulty: SoloDifficulty, season: 1 | 2, bigButton: ResetEffect | null = null) => {
+    const initial = buildNewGameState(seed, difficulty, season, bigButton)
     // A brand-new game starts at phase 'flip' (buildNewGameState) — run the
     // first flip immediately so the very first screen shown is Market, with
     // zero clicks, same as every subsequent round (actions.ts's applyAction
     // 'flip' branch cascades all the way through checkFame/postFameHooks).
     const { state: next, logLines, debugLines } = applyAction(initial, { kind: 'flip' })
     setLog([
-      { round: 1, text: `New game — seed ${seed}, ${difficulty}, season ${season}.` },
+      {
+        round: 1,
+        text: `New game — seed ${seed}, ${difficulty}, season ${season}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`,
+      },
       ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId })),
     ])
     setDebugLog(debugLines.map((text) => ({ round: next.round, text })))

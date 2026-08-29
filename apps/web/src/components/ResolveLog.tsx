@@ -75,8 +75,11 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
 // ever-growing list stopped being scannable once a real game's worth of
 // lines piled up) with color coding by line kind so wins/losses/hires/errors
 // read at a glance.
+//
+// No title and no Hide/Show toggle of its own any more: it renders inside
+// LogDrawer, which supplies both. A collapse control inside a thing you
+// already opened on purpose is one click that does nothing.
 export function ResolveLog({ log, debugLog }: ResolveLogProps) {
-  const [collapsed, setCollapsed] = useState(false)
   // Per-round expand/collapse overrides. Default (no override) is: the
   // latest round is expanded, every earlier round is collapsed — a fresh
   // round pushes the previous one closed automatically. An explicit click
@@ -103,56 +106,48 @@ export function ResolveLog({ log, debugLog }: ResolveLogProps) {
 
   return (
     <div className="resolve-log">
-      <div className="resolve-log__header">
-        <h2 className="resolve-log__title">Log</h2>
+      {debugLog.length > 0 && (
         <div className="resolve-log__header-actions">
-          {debugLog.length > 0 && (
-            <CopyButton label="Copy full detail log" getText={() => debugLog.map((e) => e.text).join('\n')} />
-          )}
-          <button type="button" className="resolve-log__toggle" onClick={() => setCollapsed((c) => !c)}>
-            {collapsed ? 'Show' : 'Hide'}
-          </button>
-        </div>
-      </div>
-      {!collapsed && (
-        <div className="resolve-log__body">
-          {groups.length === 0 && <p className="resolve-log__empty">No events yet.</p>}
-          {groups.map((group, groupIndex) => {
-            const expanded = expandOverrides[group.round] ?? group.round === latestRound
-            const roundDebugLines = debugByRound.get(group.round)
-            return (
-              <div className="resolve-log__group" key={groupIndex}>
-                <div className="resolve-log__round-header-row">
-                  <button
-                    type="button"
-                    className="resolve-log__round-header"
-                    onClick={() => setExpandOverrides((prev) => ({ ...prev, [group.round]: !expanded }))}
-                    aria-expanded={expanded}
-                  >
-                    <span className={`resolve-log__caret${expanded ? ' resolve-log__caret--open' : ''}`} aria-hidden="true">
-                      ▶
-                    </span>
-                    <span>Round {group.round}</span>
-                    <span className="resolve-log__count">{group.entries.length}</span>
-                  </button>
-                  {roundDebugLines && roundDebugLines.length > 0 && (
-                    <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />
-                  )}
-                </div>
-                {expanded && (
-                  <div className="resolve-log__entries">
-                    {group.entries.map((entry, i) => (
-                      <pre className={`resolve-log__entry resolve-log__entry--${classify(entry.text)}`} key={i}>
-                        {entry.text}
-                      </pre>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          <CopyButton label="Copy full detail log" getText={() => debugLog.map((e) => e.text).join('\n')} />
         </div>
       )}
+      <div className="resolve-log__body">
+        {groups.length === 0 && <p className="resolve-log__empty">No events yet.</p>}
+        {groups.map((group, groupIndex) => {
+          const expanded = expandOverrides[group.round] ?? group.round === latestRound
+          const roundDebugLines = debugByRound.get(group.round)
+          return (
+            <div className="resolve-log__group" key={groupIndex}>
+              <div className="resolve-log__round-header-row">
+                <button
+                  type="button"
+                  className="resolve-log__round-header"
+                  onClick={() => setExpandOverrides((prev) => ({ ...prev, [group.round]: !expanded }))}
+                  aria-expanded={expanded}
+                >
+                  <span className={`resolve-log__caret${expanded ? ' resolve-log__caret--open' : ''}`} aria-hidden="true">
+                    ▶
+                  </span>
+                  <span>Round {group.round}</span>
+                  <span className="resolve-log__count">{group.entries.length}</span>
+                </button>
+                {roundDebugLines && roundDebugLines.length > 0 && (
+                  <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />
+                )}
+              </div>
+              {expanded && (
+                <div className="resolve-log__entries">
+                  {group.entries.map((entry, i) => (
+                    <pre className={`resolve-log__entry resolve-log__entry--${classify(entry.text)}`} key={i}>
+                      {entry.text}
+                    </pre>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { useGame } from './useGame'
 import { useMatch, roomCodeFromUrl, hasStoredSeat } from './useMatch'
 import { RoundView } from './components/RoundView'
-import { ResolveLog } from './components/ResolveLog'
+import { FameRace } from './components/FameRace'
+import { LogDrawer } from './components/LogDrawer'
+import { TopBar } from './components/TopBar'
 import { Lobby } from './components/Lobby'
-import { MatchView } from './components/MatchView'
+import { MatchView, MatchStatus } from './components/MatchView'
 import { LaunchScreen } from './components/LaunchScreen'
 import type { LaunchStep } from './components/LaunchScreen'
+import { loadSettings, saveSettings } from './settings'
 
 // Two genuinely different games live here:
 //
@@ -19,6 +22,11 @@ import type { LaunchStep } from './components/LaunchScreen'
 //
 // Both start from the same launch screen: three big cards (Solo / Host a
 // table / Join a Game), each leading into its own config panel.
+//
+// Both also share ONE TopBar and ONE LogDrawer, rendered here. They used to be
+// per-mode: MatchView printed a header and the RoundView nested inside it
+// printed another one about eight pixels lower, and the log was a permanent
+// sidebar competing with the boards for width at every screen size.
 export function App() {
   const local = useGame()
   const match = useMatch()
@@ -29,6 +37,15 @@ export function App() {
   const [mode, setMode] = useState<'solo' | 'multiplayer'>(urlRoom || hasStoredSeat() ? 'multiplayer' : 'solo')
   // A shared ?room= link should land on the join panel with the code in it.
   const [launchStep, setLaunchStep] = useState<LaunchStep>(urlRoom ? 'join' : 'pick')
+  const [logOpen, setLogOpen] = useState(false)
+  // Lifted out of RoundView: the toggle that sets it lives in the shared
+  // TopBar, which renders above and outside RoundView.
+  const [touchMode, setTouchMode] = useState(() => loadSettings().touchMode)
+
+  const changeTouchMode = (next: boolean) => {
+    setTouchMode(next)
+    saveSettings({ touchMode: next })
+  }
 
   // A room code in the URL or a stored seat means "get me back into that
   // game." The old remote hook persisted nothing, so a refresh lost the room
@@ -82,6 +99,7 @@ export function App() {
 
   const leaveMatch = () => {
     match.leave()
+    setLogOpen(false)
     setLaunchStep('pick')
     setMode('solo')
   }
@@ -104,6 +122,16 @@ export function App() {
 
         {match.match && match.lobby && match.myPlayerId ? (
           <div className="app__game">
+            <TopBar
+              round={match.match.shared.round}
+              status={<MatchStatus match={match.match} lobby={match.lobby} myPlayerId={match.myPlayerId} />}
+              onOpenLog={() => setLogOpen(true)}
+              logCount={match.log.length}
+              touchMode={touchMode}
+              onTouchModeChange={changeTouchMode}
+              leaveLabel="Leave game"
+              onLeave={leaveMatch}
+            />
             <MatchView
               match={match.match}
               lobby={match.lobby}
@@ -111,15 +139,19 @@ export function App() {
               onAct={match.act}
               onLeave={leaveMatch}
               onRematch={match.rematch}
+              touchMode={touchMode}
             />
-            <ResolveLog
-              log={match.log.map((l) => ({
-                round: l.round,
-                // Now that the protocol carries an actor, say who did it.
-                text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
-              }))}
-              debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
-            />
+            {logOpen && (
+              <LogDrawer
+                log={match.log.map((l) => ({
+                  round: l.round,
+                  // Now that the protocol carries an actor, say who did it.
+                  text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
+                }))}
+                debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
+                onClose={() => setLogOpen(false)}
+              />
+            )}
           </div>
         ) : match.lobby ? (
           <Lobby
@@ -136,14 +168,48 @@ export function App() {
     )
   }
 
+  const abandonSolo = () => {
+    setLogOpen(false)
+    local.abandonGame()
+  }
+
   return (
     <div className="app">
       {local.state === null ? (
         launchScreen
       ) : (
         <div className="app__game">
-          <RoundView state={local.state} dispatch={local.dispatch} onAbandon={local.abandonGame} />
-          <ResolveLog log={local.log} debugLog={local.debugLog} />
+          <TopBar
+            round={local.state.round}
+            onOpenLog={() => setLogOpen(true)}
+            logCount={local.log.length}
+            touchMode={touchMode}
+            onTouchModeChange={changeTouchMode}
+            leaveLabel="Abandon game"
+            onLeave={abandonSolo}
+          />
+          {/* Solo has one row and no opponents to compare against, so the
+              strip spells the comparison out in words instead of naming a
+              seat. Not rendered on the end screen: the result is already the
+              headline there. */}
+          {local.state.phase !== 'ended' && (
+            <FameRace
+              variant="solo"
+              threshold={local.state.fameToTriggerEndgame}
+              rows={[
+                {
+                  playerId: local.state.playerId,
+                  name: 'You',
+                  value: local.state.fameGeneratedThisRound,
+                  isMe: true,
+                  criticsChoice: false,
+                  settled: null,
+                },
+              ]}
+            />
+          )}
+          <RoundView state={local.state} dispatch={local.dispatch} onAbandon={abandonSolo} touchMode={touchMode} />
+          {logOpen && <LogDrawer log={local.log} debugLog={local.debugLog} onClose={() => setLogOpen(false)} />}
         </div>
       )}
     </div>

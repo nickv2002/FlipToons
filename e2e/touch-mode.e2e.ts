@@ -60,12 +60,12 @@ test.describe('touch mode', () => {
 
     const card = firstDismissable(page)
     await expect(card).toBeVisible()
-    const dismissedBefore = await page.getByRole('button', { name: /Dismissed cards/ }).innerText()
+    const dismissedBefore = await page.getByRole('button', { name: /^Dismissed / }).innerText()
 
     await card.dblclick()
 
     await expect(page.locator('.card-zoom-sheet')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /Dismissed cards/ })).not.toHaveText(dismissedBefore)
+    await expect(page.getByRole('button', { name: /^Dismissed / })).not.toHaveText(dismissedBefore)
   })
 
   test('turning Single-Tap Mode on from the header restores direct clicks', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cardsById } from '../../../../packages/engine/setup'
-import { deckPlacementTargets, matchRoundFame } from '../../../../packages/engine/match'
+import { deckPlacementTargets, gridResetDecider, matchRoundFame } from '../../../../packages/engine/match'
 import { viewOf } from '../../../../packages/engine/state'
 import type { Match } from '../../../../packages/engine/state'
 import type { MatchAction } from '../../../../packages/engine/matchActions'
@@ -10,11 +10,13 @@ import { BoardPane } from './BoardPane'
 import { CardListOverlay } from './CardListOverlay'
 import { ConfettiBurst } from './ConfettiBurst'
 import { BigButtonPrompt } from './BigButtonPrompt'
+import type { BigButtonSeat } from './BigButtonPrompt'
+import { FameRace } from './FameRace'
+import type { FameRow } from './FameRace'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
-import { occupiedSlots } from '../../../../packages/engine/grid'
 import { roundFameLookup } from '../../../../packages/engine/score'
-import type { Grid as GridData, GridPos } from '../../../../packages/engine/types'
+import type { GridPos } from '../../../../packages/engine/types'
 import type { Phase } from '../../../../packages/engine/state'
 
 const cards = cardsById()
@@ -26,6 +28,8 @@ export type MatchViewProps = {
   onAct: (action: MatchAction) => void
   onLeave: () => void
   onRematch: () => void
+  // Owned by App (the TopBar's toggle sets it) and threaded down to the cards.
+  touchMode: boolean
 }
 
 // Translates the solo RoundView's Action vocabulary into MatchActions.
@@ -57,7 +61,7 @@ function toMatchAction(action: Action): MatchAction | null {
   }
 }
 
-export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch }: MatchViewProps) {
+export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch, touchMode }: MatchViewProps) {
   const myIndex = match.players.findIndex((p) => p.playerId === myPlayerId)
   const me = match.players[myIndex]
   const isHost = lobby.seats.find((s) => s.playerId === myPlayerId)?.isHost ?? false
@@ -90,15 +94,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
 
   return (
     <div className="match" data-testid="match">
-      <header className="match__header">
-        <span className="match__round" data-testid="round">Round {match.shared.round}</span>
-        {phaseLabel(phase) && (
-          <span className="match__phase" data-testid="phase">{phaseLabel(phase)}</span>
-        )}
-        <TurnBanner phase={phase} isMyTurn={isMyTurn} activeName={nameOf(activeId)} />
-      </header>
-
-      <Scoreboard match={match} nameOf={nameOf} myPlayerId={myPlayerId} fames={fames} />
+      <FameRace rows={fameRows(match, myPlayerId, nameOf, fames)} threshold={match.shared.fameToTriggerEndgame} />
 
       <EndgameNotice match={match} />
 
@@ -107,9 +103,10 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
           is why it can't ride on isMyTurn. */}
       {phase === 'gridReset' && (
         <BigButtonPrompt
-          isMyDecision={activeId === myPlayerId}
+          isMyDecision={gridResetDecider(match) === myPlayerId}
           waitingOnName={nameOf(activeId)}
           onDecide={(use) => onAct({ kind: 'bigButtonDecision', use })}
+          seats={bigButtonSeats(match, myPlayerId, nameOf)}
         />
       )}
 
@@ -205,7 +202,6 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             // Solo's guaranteed-loss warning is meaningless at a table:
             // a lost round for you is not a lost game for anyone.
             soloWarnings={false}
-            leaveLabel="Leave game"
             endMarketLabel="End turn"
             // RoundView applies this to the board only. It used to be a
             // fieldset wrapped around the whole component here, which also
@@ -213,12 +209,9 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             // leaving a table whose active player had dropped with no way out
             // but closing the tab.
             controlsDisabled={!isMyTurn || me.pendingDeckPlacement !== null}
-            // The scoreboard above already draws this round's fame against the
-            // threshold, for every seat. Twice on one screen was the same
-            // number twice, which is what the scoreboard rework removed.
-            showRoundScore={false}
             isOwn
             isActive={isMyTurn}
+            touchMode={touchMode}
             otherDismissedPiles={match.players.filter((p) => p.playerId !== myPlayerId).map((p) => ({ playerId: p.playerId, cards: p.dismissed }))}
             nameOf={nameOf}
             myPlayerId={myPlayerId}
@@ -239,6 +232,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
             roundFame={roundFameLookup(fames.find((f) => f.playerId === myPlayerId)!.fame.grid, me.grid)}
             dismissedCount={me.dismissed.length}
             onShowDismissed={() => setDismissedOverlayFor(myPlayerId)}
+            bigButtonFaceUp={match.shared.resetEffect === null ? undefined : me.bigButtonFaceUp}
           />
         )}
       </section>
@@ -252,6 +246,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch 
         animateDeal={isFreshDeal}
         fames={fames}
         onShowDismissed={setDismissedOverlayFor}
+        showBigButton={match.shared.resetEffect !== null}
       />
 
       {dismissedOverlayPlayer && (
@@ -288,11 +283,36 @@ function phaseLabel(phase: Phase): string | null {
   }
 }
 
-// Cards on the board right now, stacks included. Deliberately NOT a count of
-// cards drawn this round: nothing in state tracks that, and a dismissal takes
-// a card off the board without putting it back in the deck.
-function boardCount(grid: GridData): number {
-  return occupiedSlots(grid).reduce((n, { slot }) => n + slot.cards.length, 0)
+// The TopBar's status slot for a seated match — the phase chip plus the turn
+// banner. Exported because App owns the one TopBar both modes render, and the
+// "whose turn is it" derivation lives here with the rest of the match logic.
+export function MatchStatus({ match, lobby, myPlayerId }: { match: Match; lobby: LobbyState; myPlayerId: string }) {
+  const phase = match.shared.phase
+  const activeId = match.turnOrder[match.activePlayerIndex]
+  const nameOf = (playerId: string) => lobby.seats.find((s) => s.playerId === playerId)?.name ?? playerId
+  const isMyTurn = phase === 'market' && activeId === myPlayerId
+  return (
+    <>
+      {phaseLabel(phase) && (
+        <span className="match__phase" data-testid="phase">
+          {phaseLabel(phase)}
+        </span>
+      )}
+      {phase === 'gridReset' ? (
+        gridResetDecider(match) === myPlayerId ? (
+          <strong className="match__turn match__turn--mine" data-testid="turn-indicator">
+            Your decision
+          </strong>
+        ) : (
+          <span className="match__turn" data-testid="turn-indicator">
+            Waiting on {nameOf(gridResetDecider(match) ?? activeId)}
+          </span>
+        )
+      ) : (
+        <TurnBanner phase={phase} isMyTurn={isMyTurn} activeName={nameOf(activeId)} />
+      )}
+    </>
+  )
 }
 
 function TurnBanner({ phase, isMyTurn, activeName }: { phase: string; isMyTurn: boolean; activeName: string }) {
@@ -308,95 +328,60 @@ function TurnBanner({ phase, isMyTurn, activeName }: { phase: string; isMyTurn: 
   )
 }
 
-// Per-round fame only. There is deliberately NO cumulative total: fame is one
-// number that is simultaneously your score, your spending power and expiring
-// (§4.2), and the game keeps no running tally. Inventing one here would show
-// players a statistic the rules do not have. The bar measures THIS round
-// against the endgame threshold — that comparison is what the rules actually
-// make, and it is why the bar resets every round instead of filling up.
+// Rows for the fame race strip. Per-round fame only — there is deliberately
+// NO cumulative total: fame is one number that is simultaneously your score,
+// your spending power and expiring (§4.2), and the game keeps no running
+// tally. The bar measures THIS round against the endgame threshold, which is
+// the comparison the rules actually make, and why it resets every round.
 //
-// The old "To spend" column is gone: it equals the scored fame until someone
-// hires, so it read as the same number twice. Your own spendable fame is on
-// your board in RoundView, which is the only place you can spend it.
-function Scoreboard({
-  match,
-  nameOf,
-  myPlayerId,
-  fames,
-}: {
-  match: Match
-  nameOf: (id: string) => string
-  myPlayerId: string
-  fames: ReturnType<typeof matchRoundFame>
-}) {
-  const threshold = match.shared.fameToTriggerEndgame
-  return (
-    <table className="scoreboard" data-testid="scoreboard">
-      <thead>
-        <tr>
-          <th>Player</th>
-          <th>Fame this round</th>
-          <th>Deck</th>
-          <th>On board</th>
-          <th>Dismissed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {match.players.map((p) => {
-          const rf = fames.find((f) => f.playerId === p.playerId)!
-          return (
-            <tr key={p.playerId} data-testid={`score-${p.playerId}`} className={p.playerId === myPlayerId ? 'scoreboard__row--me' : undefined}>
-              <td>
-                {nameOf(p.playerId)}
-                {p.playerId === myPlayerId && <span className="scoreboard__you"> (you)</span>}
-                {match.shared.criticsChoiceHolder === p.playerId && (
-                  <span className="scoreboard__badge" data-testid={`critics-${p.playerId}`} title="Critic's Choice: +3 during the Final Flip">
-                    ★ Critic's Choice
-                  </span>
-                )}
-              </td>
-              <td data-testid={`fame-${p.playerId}`}>
-                {/* Once the endgame has triggered, 30 was only ever the
-                    trigger for the last round — comparing against it again
-                    here says nothing. The Critic's Choice bonus applies from
-                    that same point on, so the two share this branch: show the
-                    settled total (with its bonus spelled out) instead of a
-                    progress bar nobody needs to fill any more. */}
-                {match.shared.endgameTriggered ? (
-                  rf.fame.modifiers.length > 0 ? (
-                    <span className="scoreboard__progress-text">
-                      {rf.fame.grid.total} <span className="scoreboard__modifier">+{rf.fame.modifiers[0].amount}</span> ={' '}
-                      <span className="scoreboard__progress-value">{rf.fame.total}</span>
-                    </span>
-                  ) : (
-                    <span className="scoreboard__progress-value">{rf.fame.total}</span>
-                  )
-                ) : (
-                  <>
-                    <div
-                      className="scoreboard__progress"
-                      title={`${p.fameGeneratedThisRound} of ${threshold} fame needed to trigger the endgame`}
-                    >
-                      <div
-                        className="scoreboard__progress-bar"
-                        style={{ width: `${Math.min(100, (p.fameGeneratedThisRound / threshold) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="scoreboard__progress-text">
-                      <span className="scoreboard__progress-value">{p.fameGeneratedThisRound}</span> / {threshold}
-                    </span>
-                  </>
-                )}
-              </td>
-              <td>{p.deck.length}</td>
-              <td>{boardCount(p.grid)}</td>
-              <td>{p.dismissed.length}</td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
-  )
+// The old five-column scoreboard's Deck / On board / Dismissed columns are
+// gone from here: every board's own heading already prints all three, for
+// opponents as well as for you, so this said each number twice.
+function fameRows(
+  match: Match,
+  myPlayerId: string,
+  nameOf: (id: string) => string,
+  fames: ReturnType<typeof matchRoundFame>,
+): FameRow[] {
+  return match.players.map((p) => {
+    const rf = fames.find((f) => f.playerId === p.playerId)!
+    return {
+      playerId: p.playerId,
+      name: nameOf(p.playerId),
+      value: p.fameGeneratedThisRound,
+      isMe: p.playerId === myPlayerId,
+      criticsChoice: match.shared.criticsChoiceHolder === p.playerId,
+      // Once the endgame has triggered, the threshold was only ever the
+      // trigger for the last round — comparing against it again says nothing,
+      // and the Critic's Choice bonus applies from that same point on. So the
+      // two share this branch: the settled total, with its bonus spelled out,
+      // instead of a progress bar nobody needs to fill any more.
+      settled: match.shared.endgameTriggered
+        ? { grid: rf.fame.grid.total, bonus: rf.fame.modifiers[0]?.amount ?? 0, total: rf.fame.total }
+        : null,
+    }
+  })
+}
+
+// Who is where in the clockwise Big Button walk. The sequencing is
+// information, not ceremony — a later decider knows what everyone before them
+// chose — so this is the part of the gridReset phase actually worth drawing.
+function bigButtonSeats(match: Match, myPlayerId: string, nameOf: (id: string) => string): BigButtonSeat[] {
+  const pending = match.shared.gridReset
+  const decider = gridResetDecider(match)
+  return match.turnOrder.map((playerId) => {
+    const player = match.players.find((p) => p.playerId === playerId)!
+    const asked = pending?.asked.includes(playerId) ?? false
+    const optedIn = pending?.optedIn.includes(playerId) ?? false
+    return {
+      playerId,
+      name: nameOf(playerId),
+      faceUp: player.bigButtonFaceUp,
+      choice: asked ? (optedIn ? 'use' : 'keep') : 'pending',
+      isDeciding: decider === playerId,
+      isMe: playerId === myPlayerId,
+    }
+  })
 }
 
 // Every opponent's board, read-only. All of it is public information (§3.3a:
@@ -416,6 +401,7 @@ function OpponentBoards({
   animateDeal,
   fames,
   onShowDismissed,
+  showBigButton,
 }: {
   match: Match
   myPlayerId: string
@@ -425,6 +411,10 @@ function OpponentBoards({
   animateDeal: boolean
   fames: ReturnType<typeof matchRoundFame>
   onShowDismissed: (playerId: string) => void
+  // Whether the Big Button mini-expansion is in play. Every seat's button
+  // state is public and load-bearing (Platypus flips them all; the gridReset
+  // walk is asking who still holds one), so opponents get the chip too.
+  showBigButton: boolean
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
   if (others.length === 0) return null
@@ -451,6 +441,7 @@ function OpponentBoards({
               roundFame={roundFameLookup(fames.find((f) => f.playerId === p.playerId)!.fame.grid, p.grid)}
               dismissedCount={p.dismissed.length}
               onShowDismissed={() => onShowDismissed(p.playerId)}
+              bigButtonFaceUp={showBigButton ? p.bigButtonFaceUp : undefined}
             />
           </div>
         ))}

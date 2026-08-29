@@ -1273,48 +1273,6 @@ img.card__icon {
   padding: 0.5rem 1.2rem;
 }
 
-/* RESET: GRID's button reuses .choice-prompt__big-button's look (same
-   family of control, same phase pane) — this modifier only distinguishes it
-   visually from RESET: MARKET's when both can legally appear at once. */
-.choice-prompt__big-button--grid {
-  background: #6a4fb0;
-}
-
-/* ---------- Grid reset risk (requirement 1: show the number) ---------- */
-
-.grid-reset-risk {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #8883;
-  border-radius: 6px;
-  background: #8882;
-}
-
-.grid-reset-risk__headline {
-  margin: 0 0 0.4rem;
-  /* Long on a phone ("Your grid generated N fame this round — resetting
-     gives that up.") — must wrap rather than force the pane wider, since
-     mobile.e2e.ts asserts scrollWidth === clientWidth exactly at 320px. */
-  overflow-wrap: anywhere;
-}
-
-.grid-reset-risk__details {
-  margin-bottom: 0.4rem;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.grid-reset-risk__details summary {
-  cursor: pointer;
-}
-
-.grid-reset-risk__others {
-  margin: 0;
-  padding-left: 1.2rem;
-}
-
 /* ---------- Effect choice prompt ---------- */
 
 .effect-choice {

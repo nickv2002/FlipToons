@@ -86,9 +86,7 @@ test.describe('Big Button — RESET: GRID (two seats, in-round)', () => {
     const active = (await activePlayerIsMe(host.page)) ? host : guest
     const idle = active === host ? guest : host
 
-    // Requirement 1: the fame number is visible before pressing.
     await expect(active.page.getByTestId('use-big-button-grid')).toBeVisible()
-    await expect(active.page.getByTestId('grid-reset-risk')).toBeVisible()
 
     const gridBefore = await ownGrid(active.page)
     await active.page.getByTestId('use-big-button-grid').click()

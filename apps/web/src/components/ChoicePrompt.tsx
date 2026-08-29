@@ -9,7 +9,6 @@ import type { GameState } from '../../../../packages/engine/state'
 // hire()/dismiss() is what makes mandatory choice effects (Panther) resolvable
 // at all: without them the engine throws, and optional ones silently decline.
 import { canUseMarketReset, canUseGridResetNow } from '../../../../packages/engine/bigButton'
-import { GridResetRisk } from './GridResetRisk'
 
 export type ChoicePromptProps = {
   state: GameState
@@ -41,21 +40,9 @@ export function ChoicePrompt({ state, onEndMarket, onUseBigButton, endLabel = 'E
           market they are spent on. They moved into the market pane's own
           heading, directly above the cards whose prices they have to cover. */}
       {canGridReset && (
-        <>
-          {/* Requirement 1: the decision to give up this grid needs the
-              number it's giving up right in front of the button, not just in
-              the log after the fact. state.lastCheckFame is the Check-Fame
-              snapshot of the CURRENT (pre-reset) grid. */}
-          {state.lastCheckFame && <GridResetRisk breakdown={state.lastCheckFame} total={state.fameGeneratedThisRound} />}
-          <button
-            type="button"
-            className="choice-prompt__big-button choice-prompt__big-button--grid"
-            data-testid="use-big-button-grid"
-            onClick={onUseBigButton}
-          >
-            Use Big Button — reset your grid
-          </button>
-        </>
+        <button type="button" className="choice-prompt__big-button" data-testid="use-big-button-grid" onClick={onUseBigButton}>
+          Use Big Button — reset your grid
+        </button>
       )}
       {canMarketReset && (
         <button type="button" className="choice-prompt__big-button" data-testid="use-big-button" onClick={onUseBigButton}>

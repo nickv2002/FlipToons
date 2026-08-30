@@ -131,12 +131,6 @@ button {
   background: color-mix(in srgb, canvastext 6%, transparent);
 }
 
-.top-bar__log-count {
-  margin-left: 0.35rem;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, canvastext 55%, transparent);
-}
-
 /* ---------- Fame race ---------- */
 
 .fame-race {

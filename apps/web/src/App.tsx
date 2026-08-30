@@ -126,7 +126,6 @@ export function App() {
               round={match.match.shared.round}
               status={<MatchStatus match={match.match} lobby={match.lobby} myPlayerId={match.myPlayerId} />}
               onOpenLog={() => setLogOpen(true)}
-              logCount={match.log.length}
               touchMode={touchMode}
               onTouchModeChange={changeTouchMode}
               leaveLabel="Leave game"
@@ -182,7 +181,6 @@ export function App() {
           <TopBar
             round={local.state.round}
             onOpenLog={() => setLogOpen(true)}
-            logCount={local.log.length}
             touchMode={touchMode}
             onTouchModeChange={changeTouchMode}
             leaveLabel="Abandon game"

@@ -1,47 +1,45 @@
 # Contributing
 
-This is a hobby project, but PRs and issues are welcome.
+Thanks for taking an interest in this project! It's a side project maintained
+by one person, so a few ground rules keep things manageable.
 
-## Getting set up
+## Pull requests
 
-Requires [bun](https://bun.sh) and
-[wrangler](https://developers.cloudflare.com/workers/wrangler/). See the
-[README](./README.md) for quick-start commands, and [CLAUDE.md](./CLAUDE.md)
-for a full architecture writeup, engine invariants, and testing notes — read
-that before touching `packages/engine` or the multiplayer layer, it covers a
-lot of non-obvious rules-fidelity and Durable Object behavior.
+Pull requests are welcome. Before opening one:
 
-## Before opening a PR
+- Check [`CLAUDE.md`](CLAUDE.md) for the architecture, source layout, build
+  commands, and test instructions.
+- Keep the build clean: `make typecheck` and `make lint` should both pass.
+- Run `make test` (engine + Durable Object suites) and `make e2e` (Playwright)
+  before submitting.
+- For any change to `apps/web`, exercise it in a browser (`make web` or
+  `make play`) — type checking and the test suite verify correctness, not
+  that the feature actually works end-to-end in the UI.
+- For any change to `cards.csv` or `packages/engine/cards/`, run `bun test`
+  afterward — the engine suite pins a lot of card-specific behavior.
 
-Run the full local check suite:
+## AI-assisted code is welcome — with a human attached
 
-```sh
-make typecheck
-make lint
-make test
-make e2e
-```
+Using Claude, Copilot, or any other LLM-based coding tool to help write a PR
+is completely fine. What's required is that **a human has actually read,
+understood, and tested the change** before submitting it. Don't paste in
+unreviewed AI output and open a PR — review it like you'd review your own
+code, because you're vouching for it.
 
-For any change to `apps/web`, exercise it in a browser (`make web` or
-`make play`) — type checking and the test suite verify correctness, not that
-the feature actually works end-to-end in the UI.
+## Feature requests
 
-For any change to `cards.csv` or `packages/engine/cards/`, run `bun test`
-afterward — the engine suite pins a lot of card-specific behavior.
+Feature requests are welcome via Issues. Since this is a one-person side
+project, prioritization is at the maintainer's discretion — there's no SLA
+and no guarantee a given request gets picked up, but they're genuinely read
+and appreciated.
 
-## Style
+## Bug reports
 
-- Keep changes scoped to what the PR is about — no unrelated refactors or
-  drive-by cleanup bundled in.
-- Match existing patterns in the file you're editing before introducing a
-  new one.
-- Write commit messages and PR descriptions that explain *why*, not just
-  *what* — especially for anything that deviates from the printed rulebook
-  (see the "Accepted deviations" called out throughout `CLAUDE.md`).
+Please include repro steps. For anything involving multiplayer (room codes,
+disconnect/reconnect, turn timeouts), include how many players were seated
+and roughly when in the round it happened — that layer is timing-sensitive
+and hard to reproduce from a vague description.
 
-## Reporting bugs
+## Code of Conduct
 
-Open an issue with steps to reproduce. For anything involving multiplayer
-(room codes, disconnect/reconnect, turn timeouts), include how many players
-were seated and roughly when in the round it happened — that layer is
-timing-sensitive and hard to reproduce from a vague description.
+This project follows a [Code of Conduct](CODE_OF_CONDUCT.md). Be civil.

@@ -19,7 +19,6 @@ export type TopBarProps = {
   // The Log button. Kept next to the other utilities rather than in the page
   // body: the log is reference material, not a play control.
   onOpenLog: () => void
-  logCount: number
   touchMode: boolean
   onTouchModeChange: (next: boolean) => void
   // "Abandon game" reads wrong when three other people are still playing.
@@ -27,7 +26,7 @@ export type TopBarProps = {
   onLeave: () => void
 }
 
-export function TopBar({ round, status, onOpenLog, logCount, touchMode, onTouchModeChange, leaveLabel, onLeave }: TopBarProps) {
+export function TopBar({ round, status, onOpenLog, touchMode, onTouchModeChange, leaveLabel, onLeave }: TopBarProps) {
   return (
     <header className="top-bar" data-testid="top-bar">
       <span className="top-bar__round" data-testid="round">
@@ -36,7 +35,7 @@ export function TopBar({ round, status, onOpenLog, logCount, touchMode, onTouchM
       {status && <span className="top-bar__status">{status}</span>}
       <div className="top-bar__utilities">
         <button type="button" className="top-bar__log" data-testid="open-log" onClick={onOpenLog}>
-          Log{logCount > 0 && <span className="top-bar__log-count">{logCount}</span>}
+          Log
         </button>
         <TouchModeToggle touchMode={touchMode} onChange={onTouchModeChange} />
         {/* Never behind a menu and never inside the log drawer: a table whose

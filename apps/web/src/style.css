@@ -803,6 +803,7 @@ button {
 
 .round-view__primary {
   margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 
 /* Below the 900px split the market pane sits UNDER the board rather than

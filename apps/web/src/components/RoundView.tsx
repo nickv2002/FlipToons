@@ -202,7 +202,7 @@ export function RoundView({
         <h2>{state.result === 'win' ? 'You win!' : 'You lose.'}</h2>
         <p>
           {state.result === 'win'
-            ? `Reached ${state.fameToTriggerEndgame} fame before the toon deck depleted.`
+            ? `Reached ${state.fame} fame (threshold ${state.fameToTriggerEndgame}) before the toon deck depleted.`
             : `This round generated ${state.fameGeneratedThisRound}/${state.fameToTriggerEndgame} fame, short of the threshold, and the toon deck doesn't have enough cards left to refill the market — no action could have closed the gap.`}
         </p>
         <button type="button" className="round-view__primary btn-pill" onClick={onAbandon}>

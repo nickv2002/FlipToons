@@ -1059,13 +1059,23 @@ button {
   opacity: 0.75;
 }
 
-.card__top {
+.card__header-row,
+.card__icon-row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
-  opacity: 0.75;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 
+.card__rank {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  flex: none;
+}
+
+/* Face-down back only — icon stacked above name (Card.tsx's faceUp === false
+   branch). The face-up front pairs the icon with rank instead (card__icon-row
+   above), so this rule no longer applies there. */
 .card__name-row {
   display: flex;
   flex-direction: column;
@@ -1098,7 +1108,7 @@ img.card__icon {
 }
 
 .card__name {
-  font-weight: 600;
+  font-weight: 700;
   overflow-wrap: break-word;
   min-width: 0;
 }
@@ -1125,18 +1135,6 @@ img.card__icon {
   border-color: var(--color-warning);
 }
 
-.card--selected {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, canvas);
-}
-
-.card__selected-mark {
-  margin-left: auto;
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
 /* Narrow-context variant (currently: the market's single-row layout) —
    tighter padding/font-size and clamped body text instead of letting
    content overflow or clip as cards shrink. Full text is still available
@@ -1147,7 +1145,8 @@ img.card__icon {
   gap: 1px;
 }
 
-.card--compact .card__top {
+.card--compact .card__header-row,
+.card--compact .card__icon-row {
   font-size: 0.68rem;
 }
 
@@ -1202,9 +1201,17 @@ img.card__icon {
   gap: 0.4rem;
 }
 
-.market__slots > .card {
+.market-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   flex: 1 1 0;
   min-width: 0; /* buttons don't shrink below their content width by default */
+}
+
+.market-slot__price {
+  align-self: flex-end;
+  font-size: 0.75rem;
 }
 
 @media (max-width: 560px) {
@@ -1212,7 +1219,7 @@ img.card__icon {
     flex-wrap: wrap;
   }
 
-  .market__slots > .card {
+  .market-slot {
     /* flex: 1 1 0 never wraps (zero basis can't overflow a line) — give
        cards a real basis here so two-per-row wrapping actually kicks in.
        flex-grow must stay 0: with 5 cards wrapping 2-per-row, the 5th card
@@ -1281,7 +1288,8 @@ img.card__icon {
   gap: 0.4rem;
 }
 
-.effect-choice__cards > .card {
+.effect-choice__cards > .card,
+.effect-choice__cards > .card-slot {
   flex: 1 1 140px;
   max-width: 200px;
 }
@@ -1293,6 +1301,35 @@ img.card__icon {
   margin: -0.3rem 0 0;
   font-size: 0.85rem;
   color: color-mix(in srgb, canvastext 60%, transparent);
+}
+
+/* Cost shown once above a row of same-priced options (hireFromDismissed /
+   hireFromMarketAndRefill) instead of duplicating a price badge per card. */
+.effect-choice__cost {
+  margin: -0.3rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* Wrapper for a selectable option (Horse's discardMarketAndRefill) — the
+   selection state belongs to the slot, not the card (see Card.tsx's removed
+   `selected` prop). */
+.card-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.card-slot--selected .card {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, canvas);
+}
+
+.card-slot__selected-mark {
+  align-self: flex-end;
+  color: var(--color-accent);
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
 /* Raccoon at a table: each owner's pile gets its own labeled group instead

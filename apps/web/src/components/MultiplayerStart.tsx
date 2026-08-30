@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
+import type { Season } from '../../../../packages/engine/cards/types'
 import type { ResetEffect } from '../../../../packages/engine/state'
 import { loadSettings, saveSettings } from '../settings'
 import { BigButtonOption } from './BigButtonOption'
@@ -10,7 +11,7 @@ export type MultiplayerStartProps = {
   // two sections of one page. Same component so the name field, the busy
   // state and the error line stay in one place.
   variant: 'host' | 'join'
-  onHost: (opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect }) => void
+  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect }) => void
   onJoin: (roomCode: string, name: string) => void
   onBack: () => void
   connection: ConnectionState
@@ -21,7 +22,7 @@ export type MultiplayerStartProps = {
 
 export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, initialRoomCode }: MultiplayerStartProps) {
   const [name, setName] = useState(() => loadSettings().lastName)
-  const [season, setSeason] = useState<1 | 2>(1)
+  const [season, setSeason] = useState<Season>(1)
   const [seed, setSeed] = useState('')
   const [threshold, setThreshold] = useState('')
   const [bigButton, setBigButton] = useState<ResetEffect | null>(null)
@@ -46,10 +47,11 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
           <OptionCards
             label="Season"
             value={season}
-            onChange={(value) => setSeason(value as 1 | 2)}
+            onChange={(value) => setSeason(value as Season)}
             options={[
               { value: 1, label: 'Season 1', icon: '🍂', testId: 'season-1' },
               { value: 2, label: 'Season 2', icon: '🌊', testId: 'season-2' },
+              { value: 'both', label: 'Season 1+2', icon: '🍂🌊', testId: 'season-both' },
             ]}
           />
 
@@ -73,9 +75,9 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
                 seed: seed.trim() === '' ? undefined : Number(seed),
                 fameToTriggerEndgame: threshold.trim() === '' ? undefined : Number(threshold),
                 // Undefined, not null: CreateRoomRequest's field is optional,
-                // and worker.ts validates it against the two legal values
-                // before it reaches setup.ts (where it decides the toon
-                // deck's composition).
+                // and worker.ts validates it against the legal values (1, 2,
+                // 'both') before it reaches setup.ts (where it decides the
+                // toon deck's composition).
                 bigButton: bigButton ?? undefined,
               })
             }}

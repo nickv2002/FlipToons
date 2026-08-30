@@ -6,6 +6,11 @@ import type { GridPos } from '../types'
 
 export type SeasonId = 1 | 2
 
+// Setup-time season selection — distinct from SeasonId: a Card is always
+// tagged with one concrete season, but a game/room can be configured to draw
+// from both at once.
+export type Season = SeasonId | 'both'
+
 export type CardId = string
 
 // A count over a grid query, or a flat conditional bonus. Kept intentionally

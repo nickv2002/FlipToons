@@ -75,6 +75,18 @@ describe('with no reset effect chosen, nothing changes', () => {
     }
   })
 
+  test("combined season ('both'): both axolotl and platypus stay out when off, and both come back when on", () => {
+    expect(buildMultiplayerToonDeckUnshuffled('both')).not.toContain('axolotl')
+    expect(buildMultiplayerToonDeckUnshuffled('both')).not.toContain('platypus')
+    expect(buildSoloToonDeckUnshuffled('both')).not.toContain('axolotl')
+    expect(buildSoloToonDeckUnshuffled('both')).not.toContain('platypus')
+
+    expect(buildMultiplayerToonDeckUnshuffled('both', true)).toContain('axolotl')
+    expect(buildMultiplayerToonDeckUnshuffled('both', true)).toContain('platypus')
+    expect(buildSoloToonDeckUnshuffled('both', true)).toContain('axolotl')
+    expect(buildSoloToonDeckUnshuffled('both', true)).toContain('platypus')
+  })
+
   test('neither reset is available to any seat, in any phase', () => {
     const match = buildNewMatch(7, 3, 1, { fameToTriggerEndgame: 999 })
     for (let i = 0; i < match.players.length; i++) {

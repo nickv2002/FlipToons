@@ -16,6 +16,7 @@
 // didn't, so it's now a plain HTTP call that mints the code first.
 import type { Match } from '../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
+import type { Season } from '../../packages/engine/cards/types'
 
 // §6's room-code alphabet: unambiguous characters only (no 0/O, 1/I/l).
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -36,7 +37,7 @@ export type LobbyState = {
   roomCode: string
   seats: SeatInfo[]
   started: boolean
-  season: 1 | 2
+  season: Season
   fameToTriggerEndgame: number
   // Which Big Button reset effect card is on the table, or null for "the
   // mini-expansion is not in play" (the default). Fixed at room creation —
@@ -55,7 +56,7 @@ export type LobbyState = {
 // at room creation because it changes the toon deck's composition (the
 // season's Big Button card is only dealt when a reset effect is chosen), which
 // setup.ts decides before the first Flip.
-export type CreateRoomRequest = { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }
+export type CreateRoomRequest = { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
 // Sent as the first message over a `/ws?room=<code>` connection. There is no

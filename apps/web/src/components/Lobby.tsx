@@ -49,7 +49,7 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
           the reset effect in particular changes the deck they are about to
           play with. */}
       <p className="lobby__setup" data-testid="lobby-setup">
-        Season {lobby.season} · {lobby.fameToTriggerEndgame} fame to end
+        {lobby.season === 'both' ? 'Season 1+2' : `Season ${lobby.season}`} · {lobby.fameToTriggerEndgame} fame to end
         {lobby.bigButton && <> · Big Button: reset {lobby.bigButton}</>}
       </p>
 

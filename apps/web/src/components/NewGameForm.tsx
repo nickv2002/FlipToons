@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import type { Season } from '../../../../packages/engine/cards/types'
 import type { SoloDifficulty } from '../../../../packages/engine/setup'
 import type { ResetEffect } from '../../../../packages/engine/state'
 import { BigButtonOption } from './BigButtonOption'
 import { OptionCards } from './OptionCards'
 
 export type NewGameFormProps = {
-  onStart: (seed: number, difficulty: SoloDifficulty, season: 1 | 2, bigButton: ResetEffect | null) => void
+  onStart: (seed: number, difficulty: SoloDifficulty, season: Season, bigButton: ResetEffect | null) => void
   onBack: () => void
 }
 
@@ -18,7 +19,7 @@ function resolveSeed(seed: string): number {
 // LaunchScreen; season, which used to be baked into the picker's cards, is a
 // choice on this panel.
 export function NewGameForm({ onStart, onBack }: NewGameFormProps) {
-  const [season, setSeason] = useState<1 | 2>(1)
+  const [season, setSeason] = useState<Season>(1)
   const [difficulty, setDifficulty] = useState<SoloDifficulty>('normal')
   const [bigButton, setBigButton] = useState<ResetEffect | null>(null)
   const [seed, setSeed] = useState(() => String(Date.now() >>> 0))
@@ -33,10 +34,11 @@ export function NewGameForm({ onStart, onBack }: NewGameFormProps) {
       <OptionCards
         label="Season"
         value={season}
-        onChange={(value) => setSeason(value as 1 | 2)}
+        onChange={(value) => setSeason(value as Season)}
         options={[
           { value: 1, label: 'Season 1', icon: '🍂', testId: 'season-1' },
           { value: 2, label: 'Season 2', icon: '🌊', testId: 'season-2' },
+          { value: 'both', label: 'Season 1+2', icon: '🍂🌊', testId: 'season-both' },
         ]}
       />
 

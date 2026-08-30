@@ -39,8 +39,8 @@ async function handleCreateRoom(request: Request, env: Env): Promise<Response> {
   } catch {
     return Response.json({ message: 'Malformed request body.' }, { status: 400, headers: CORS_HEADERS })
   }
-  if (body.season !== 1 && body.season !== 2) {
-    return Response.json({ message: 'season must be 1 or 2.' }, { status: 400, headers: CORS_HEADERS })
+  if (body.season !== 1 && body.season !== 2 && body.season !== 'both') {
+    return Response.json({ message: 'season must be 1, 2, or "both".' }, { status: 400, headers: CORS_HEADERS })
   }
 
   const roomCode = mintRoomCode()

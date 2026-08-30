@@ -16,13 +16,14 @@ rules for yourself:
 - **Season 1** — [Buy the game](https://thunderworksgames.com/products/fliptoons-game) · [How to Play video](https://www.youtube.com/watch?v=BP-DW0KpinA) · [Rules PDF](https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FT_Rulebook_10_reduced.pdf)
 - **Season 2** — [Buy the game](https://thunderworksgames.com/products/fliptoons-season-2-game) · [How to Play video](https://www.youtube.com/watch?v=04qv_ghSCAY) · [Rules PDF](https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FlipToons2_Rulebook_18.pdf)
 
-## Quick start
+## Developer info
 
 Requires [bun](https://bun.sh) (runtime, package manager, test runner) and
 [wrangler](https://developers.cloudflare.com/workers/wrangler/) (Cloudflare's
 CLI, for the multiplayer server).
 
 ```sh
+bun install # install dependencies
 make play   # web client + Worker together (room-code hosted games)
 make web    # web client only, local solo play, no server
 ```

@@ -4,9 +4,21 @@
 // and never branches on season.
 
 import { allCards, season1Cards, season2Cards } from './cards'
-import type { Card, CardId } from './cards/types'
-import { makeRng, shuffle } from './rng'
+import type { Card, CardId, Season } from './cards/types'
+import { makeRng, shuffle, type Rng } from './rng'
 import type { ResetEffect, WinCondition } from './state'
+
+export type { Season }
+
+// Resolves a setup-time Season selection to a concrete season for one seat.
+// `'both'` draws a single coin flip from the same rng stream setup already
+// uses, so the whole setup function stays a pure function of `seed`.
+// Concrete selections make zero extra rng() calls, so single-season behavior
+// (and its existing test seeds) is untouched either way.
+function pickStartingDeckSeason(rng: Rng, season: Season): 1 | 2 {
+  if (season !== 'both') return season
+  return rng() < 0.5 ? 1 : 2
+}
 
 // Season 1 starting deck (§3.1, §4.5): 2x Caterpillar, 1x Skunk,
 // 1x Dragonfly, 1x Bee, 1x Snail — the six rank-0 season1Cards, expanded by
@@ -71,6 +83,15 @@ const SOLO_TOON_TRIM_BY_DIFFICULTY: Record<SoloDifficulty, number> = {
   easy: 17,
   normal: 20,
   hard: 23,
+}
+
+// §7 item 9: combined-season solo discard tiers — 67/70/73 — distinct from
+// the single-season tiers above because the merged toon deck is roughly
+// double the size.
+const SOLO_TOON_TRIM_BY_DIFFICULTY_BOTH: Record<SoloDifficulty, number> = {
+  easy: 67,
+  normal: 70,
+  hard: 73,
 }
 
 // §3.7, verbatim: "1 dragonfly, 1 bee, 1 snail, and 3 caterpillars (instead
@@ -155,7 +176,7 @@ function exclusionsFor(base: readonly CardId[], season: 1 | 2, bigButton: boolea
 // regardless of season or solo/multiplayer), minus that season's solo
 // exclusions, expanded by `copies`, in card-table order (shuffled by the
 // caller before use — see buildSoloSetup).
-export function buildSoloToonDeckUnshuffled(season: 1 | 2, bigButton = false): CardId[] {
+function buildSoloToonDeckForOneSeason(season: 1 | 2, bigButton: boolean): CardId[] {
   const seasonCards = season === 1 ? season1Cards : season2Cards
   const excluded = exclusionsFor(SOLO_TOON_DECK_EXCLUSIONS[season], season, bigButton)
   const marketCards = seasonCards.filter((c) => c.rank > 0 && !excluded.has(c.id))
@@ -164,6 +185,15 @@ export function buildSoloToonDeckUnshuffled(season: 1 | 2, bigButton = false): C
     for (let i = 0; i < card.copies; i++) deck.push(card.id)
   }
   return deck
+}
+
+// 'both' shuffles both seasons' market cards into one shared toon deck
+// (§3.0: "Seasons 1 and 2 are shuffled together into one toon deck"), each
+// season's own exclusions (Pig from S1 only, each season's own Big Button
+// card) still applied before the union.
+export function buildSoloToonDeckUnshuffled(season: Season, bigButton = false): CardId[] {
+  if (season === 'both') return [...buildSoloToonDeckForOneSeason(1, bigButton), ...buildSoloToonDeckForOneSeason(2, bigButton)]
+  return buildSoloToonDeckForOneSeason(season, bigButton)
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +257,7 @@ export const MULTIPLAYER_TOON_DECK_EXCLUSIONS: Record<1 | 2, CardId[]> = {
   2: ['platypus'],
 }
 
-export function buildMultiplayerToonDeckUnshuffled(season: 1 | 2, bigButton = false): CardId[] {
+function buildMultiplayerToonDeckForOneSeason(season: 1 | 2, bigButton: boolean): CardId[] {
   const seasonCards = season === 1 ? season1Cards : season2Cards
   const excluded = exclusionsFor(MULTIPLAYER_TOON_DECK_EXCLUSIONS[season], season, bigButton)
   const marketCards = seasonCards.filter((c) => c.rank > 0 && !excluded.has(c.id))
@@ -236,6 +266,11 @@ export function buildMultiplayerToonDeckUnshuffled(season: 1 | 2, bigButton = fa
     for (let i = 0; i < card.copies; i++) deck.push(card.id)
   }
   return deck
+}
+
+export function buildMultiplayerToonDeckUnshuffled(season: Season, bigButton = false): CardId[] {
+  if (season === 'both') return [...buildMultiplayerToonDeckForOneSeason(1, bigButton), ...buildMultiplayerToonDeckForOneSeason(2, bigButton)]
+  return buildMultiplayerToonDeckForOneSeason(season, bigButton)
 }
 
 export type MultiplayerSetup = {
@@ -259,10 +294,31 @@ export type MultiplayerSetup = {
 // because it's the single most useful playtesting knob.
 export const DEFAULT_FAME_TO_TRIGGER_ENDGAME = 30
 
+// Assigns each seat a concrete starting-deck season for 'both' mode, capped
+// at 4 seats per season (§3.0 — a physical-component limit; playerCount is
+// itself capped at 4 today, so the cap can't yet bind, but is enforced here
+// for correctness ahead of any future player-count increase). A season whose
+// count has hit the cap is skipped in favor of the other.
+function assignStartingDeckSeasons(rng: Rng, playerCount: number, season: Season): (1 | 2)[] {
+  if (season !== 'both') return Array.from({ length: playerCount }, () => season)
+  const MAX_PER_SEASON = 4
+  const counts: Record<1 | 2, number> = { 1: 0, 2: 0 }
+  return Array.from({ length: playerCount }, () => {
+    let picked = pickStartingDeckSeason(rng, 'both')
+    if (counts[picked] >= MAX_PER_SEASON) picked = picked === 1 ? 2 : 1
+    counts[picked]++
+    return picked
+  })
+}
+
+function startingDeckForSeason(season: 1 | 2): CardId[] {
+  return season === 1 ? buildSeason1MultiplayerStartingDeck() : buildSeason2MultiplayerStartingDeck()
+}
+
 export function buildMultiplayerSetup(
   seed: number,
   playerCount: number,
-  season: 1 | 2 = 1,
+  season: Season = 1,
   options: { bigButton?: ResetEffect | null } = {},
 ): MultiplayerSetup {
   const resetEffect = options.bigButton ?? null
@@ -270,14 +326,17 @@ export function buildMultiplayerSetup(
     throw new Error(`setup.ts: buildMultiplayerSetup — playerCount must be an integer 2-4 (got ${playerCount}); 5-8 player support is not built yet`)
   }
   const rng = makeRng(seed)
+  // Seat season assignment is drawn before the toon-deck shuffle so this stays
+  // a fixed, documented rng sequence — a pure function of `seed`. Concrete
+  // seasons draw nothing extra, so single-season shuffles are unaffected.
+  const seatSeasons = assignStartingDeckSeasons(rng, playerCount, season)
   const toonDeck = shuffle(buildMultiplayerToonDeckUnshuffled(season, resetEffect !== null), rng)
-  const startingDeck = season === 1 ? buildSeason1MultiplayerStartingDeck() : buildSeason2MultiplayerStartingDeck()
 
   return {
-    // Single-season game: every seat gets that season's deck. (Combined-season
-    // play randomly assigns each seat a Season 1 or Season 2 deck capped at 4
-    // copies each — §3.0 — and is deliberately out of this scope.)
-    startingDecks: Array.from({ length: playerCount }, () => startingDeck.slice()),
+    // Combined-season play: each seat independently gets a whole Season 1 or
+    // Season 2 starting deck (never mixed), capped at 4 seats per season —
+    // see assignStartingDeckSeasons.
+    startingDecks: seatSeasons.map((s) => startingDeckForSeason(s)),
     toonDeck,
     prices: pricesForPlayerCount(playerCount),
     fameToTriggerEndgame: DEFAULT_FAME_TO_TRIGGER_ENDGAME,
@@ -310,22 +369,27 @@ export type SoloSetup = {
 // one-off, not shared with that RngState.
 export function buildSoloSetup(
   seed: number,
-  season: 1 | 2 = 1,
+  season: Season = 1,
   difficulty: SoloDifficulty = 'normal',
   options: { bigButton?: ResetEffect | null } = {},
 ): SoloSetup {
   const resetEffect = options.bigButton ?? null
   const rng = makeRng(seed)
+  // Solo has exactly one seat, so 'both' draws one coin flip for its starting
+  // deck season — before the toon-deck shuffle, so setup stays a pure
+  // function of `seed`. Concrete seasons draw nothing extra.
+  const startingDeckSeason = pickStartingDeckSeason(rng, season)
   const shuffledToonDeck = shuffle(buildSoloToonDeckUnshuffled(season, resetEffect !== null), rng)
   // "When using this mini-expansion, discard two additional toon cards during
   // setup." Applied to the difficulty trim rather than as a separate step —
   // the trim is already "discard N from an already-random shuffle", so N+2 is
   // literally the same operation.
-  const trim = SOLO_TOON_TRIM_BY_DIFFICULTY[difficulty] + (resetEffect !== null ? SOLO_BIG_BUTTON_EXTRA_TRIM : 0)
+  const trimTable = season === 'both' ? SOLO_TOON_TRIM_BY_DIFFICULTY_BOTH : SOLO_TOON_TRIM_BY_DIFFICULTY
+  const trim = trimTable[difficulty] + (resetEffect !== null ? SOLO_BIG_BUTTON_EXTRA_TRIM : 0)
   const toonDeck = shuffledToonDeck.slice(0, Math.max(0, shuffledToonDeck.length - trim))
 
   return {
-    startingDeck: season === 1 ? buildSeason1SoloStartingDeck() : buildSeason2SoloStartingDeck(),
+    startingDeck: startingDeckSeason === 1 ? buildSeason1SoloStartingDeck() : buildSeason2SoloStartingDeck(),
     toonDeck,
     prices: [3, 4, 7, 10, 15],
     fameToTriggerEndgame: 30,

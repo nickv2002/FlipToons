@@ -8,6 +8,8 @@ import { describe, expect, test } from 'bun:test'
 import { season1Cards, season2Cards } from './cards'
 import { createSoloGameState } from './state'
 import {
+  buildMultiplayerSetup,
+  buildMultiplayerToonDeckUnshuffled,
   buildSeason1SoloStartingDeck,
   buildSeason2SoloStartingDeck,
   buildSoloSetup,
@@ -141,5 +143,64 @@ describe('buildSeason2SoloStartingDeck (UNCONFIRMED inference — see setup.ts)'
     expect(deck.length).toBe(6)
     expect(deck.filter((id) => id === 'mosquito').length).toBe(3)
     expect(deck).not.toContain('firefly')
+  })
+})
+
+describe('combined season ("both")', () => {
+  test('solo toon deck is the union of both seasons\' unshuffled decks', () => {
+    const both = buildSoloToonDeckUnshuffled('both')
+    const s1 = buildSoloToonDeckUnshuffled(1)
+    const s2 = buildSoloToonDeckUnshuffled(2)
+    expect(both.length).toBe(s1.length + s2.length)
+    expect(both).toEqual([...s1, ...s2])
+  })
+
+  test('multiplayer toon deck is the union of both seasons\' unshuffled decks', () => {
+    const both = buildMultiplayerToonDeckUnshuffled('both')
+    const s1 = buildMultiplayerToonDeckUnshuffled(1)
+    const s2 = buildMultiplayerToonDeckUnshuffled(2)
+    expect(both.length).toBe(s1.length + s2.length)
+    expect(both).toEqual([...s1, ...s2])
+  })
+
+  const BOTH_TRIM: Record<SoloDifficulty, number> = { easy: 67, normal: 70, hard: 73 }
+  for (const difficulty of ['easy', 'normal', 'hard'] as const) {
+    test(`solo ${difficulty}: toonDeck.length is the unshuffled union length minus the both-season trim`, () => {
+      const unshuffledLength = buildSoloToonDeckUnshuffled('both').length
+      const setup = buildSoloSetup(1, 'both', difficulty)
+      const expected = Math.max(0, unshuffledLength - BOTH_TRIM[difficulty])
+      expect(setup.toonDeck.length).toBe(expected)
+    })
+  }
+
+  test('solo starting deck always matches exactly one whole season, never a mix, and is deterministic per seed', () => {
+    const s1Deck = buildSeason1SoloStartingDeck()
+    const s2Deck = buildSeason2SoloStartingDeck()
+    let sawSeason1 = false
+    let sawSeason2 = false
+    for (let seed = 0; seed < 50; seed++) {
+      const setup = buildSoloSetup(seed, 'both', 'normal')
+      const matchesS1 = JSON.stringify(setup.startingDeck) === JSON.stringify(s1Deck)
+      const matchesS2 = JSON.stringify(setup.startingDeck) === JSON.stringify(s2Deck)
+      expect(matchesS1 || matchesS2).toBe(true)
+      if (matchesS1) sawSeason1 = true
+      if (matchesS2) sawSeason2 = true
+
+      const again = buildSoloSetup(seed, 'both', 'normal')
+      expect(again.startingDeck).toEqual(setup.startingDeck)
+    }
+    expect(sawSeason1).toBe(true)
+    expect(sawSeason2).toBe(true)
+  })
+
+  test('multiplayer: each seat gets a whole single-season starting deck, never mixed', () => {
+    const setup = buildMultiplayerSetup(123, 4, 'both')
+    for (const deck of setup.startingDecks) {
+      const idSet = new Set(deck)
+      const fromSeason1 = [...idSet].every((id) => season1Cards.some((c) => c.id === id))
+      const fromSeason2 = [...idSet].every((id) => season2Cards.some((c) => c.id === id))
+      expect(fromSeason1 || fromSeason2).toBe(true)
+      expect(fromSeason1 && fromSeason2).toBe(false)
+    }
   })
 })

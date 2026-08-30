@@ -5,7 +5,7 @@
 // this SAME module instead of each re-deriving the action vocabulary (see
 // flip-toonz-structure-plan.md §6's client/server split, and §8's original
 // key-files list, which named this file here from the start).
-import type { EffectChoices } from './cards/types'
+import type { EffectChoices, Season } from './cards/types'
 import { getSlot, posLabel } from './grid'
 import { hireCost } from './market'
 import {
@@ -57,7 +57,7 @@ export type ApplyResult = { state: GameState; logLines: EngineLogLine[]; debugLi
 
 const cards = cardsById()
 
-export function buildNewGameState(seed: number, difficulty: SoloDifficulty, season: 1 | 2, bigButton: ResetEffect | null = null): GameState {
+export function buildNewGameState(seed: number, difficulty: SoloDifficulty, season: Season, bigButton: ResetEffect | null = null): GameState {
   const setup = buildSoloSetup(seed, season, difficulty, { bigButton })
   return createSoloGameState({
     seed: setup.seed,

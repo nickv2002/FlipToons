@@ -32,6 +32,7 @@ import type { Match } from '../../packages/engine/state'
 import { log } from './log'
 import { MAX_SEATS } from './protocol'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
+import type { Season } from '../../packages/engine/cards/types'
 
 export type Seat = {
   playerId: string
@@ -53,7 +54,7 @@ export type Room = {
   seats: Seat[]
   hostPlayerId: string
   started: boolean
-  season: 1 | 2
+  season: Season
   // Big Button reset effect, or null for "not in play". Stored on the Room —
   // NOT only on the dealt match — because handleStart REBUILDS the match at
   // the size that actually turned up (see the table-size note in CLAUDE.md),

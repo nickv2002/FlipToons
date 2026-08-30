@@ -44,7 +44,7 @@ import { applyGridResetCollect, canUseGridReset } from './bigButton'
 import { buildMultiplayerSetup, cardsById } from './setup'
 import type { FameModifier, RoundFame } from './roundFame'
 import { roundFame } from './roundFame'
-import type { CardId } from './cards/types'
+import type { CardId, Season } from './cards/types'
 import type { Grid, GridPos } from './types'
 
 // Builds a ready-to-play N-player match: shared market already filled from
@@ -58,7 +58,7 @@ import type { Grid, GridPos } from './types'
 export function buildNewMatch(
   seed: number,
   playerCount: number,
-  season: 1 | 2 = 1,
+  season: Season = 1,
   options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null } = {},
 ): Match {
   const setup = buildMultiplayerSetup(seed, playerCount, season, { bigButton: options.bigButton })

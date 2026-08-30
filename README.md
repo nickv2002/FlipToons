@@ -8,6 +8,14 @@ Playable end-to-end: solo (local, in-browser) and real 2-4 player
 multiplayer with room codes, seats, turn order, and a Final Flip. Live at
 [fliptoons.win](https://fliptoons.win).
 
+## The physical game
+
+This is a digital adaptation of a real board game — buy it and read the
+rules for yourself:
+
+- **Season 1** — [Buy the game](https://thunderworksgames.com/products/fliptoons-game) · [How to Play video](https://www.youtube.com/watch?v=BP-DW0KpinA) · [Rules PDF](https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FT_Rulebook_10_reduced.pdf)
+- **Season 2** — [Buy the game](https://thunderworksgames.com/products/fliptoons-season-2-game) · [How to Play video](https://www.youtube.com/watch?v=04qv_ghSCAY) · [Rules PDF](https://cdn.shopify.com/s/files/1/0525/7753/4134/files/FlipToons2_Rulebook_18.pdf)
+
 ## Quick start
 
 Requires [bun](https://bun.sh) (runtime, package manager, test runner) and

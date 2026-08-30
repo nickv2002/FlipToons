@@ -28,29 +28,33 @@ export function Market({ market, cards, fame, onHire, animateDeal = true, touchM
           const affordable = fame >= price
           const canHire = card && onHire && affordable
           return (
-            <TappableCard
-              key={`${i}-${cardId ?? 'empty'}`}
-              testId={`market-slot-${i}`}
-              card={card}
-              price={price}
-              emptyLabel={`${price} fame`}
-              onClick={canHire ? () => onHire(i) : undefined}
-              // The tap-to-preview flow keeps an unaffordable card tappable so its
-              // detail view is still reachable — only the real hire (and the
-              // non-touch-mode direct click it stands in for) stays gated on
-              // affordability.
-              disabled={!card || (!touchMode && !affordable)}
-              unaffordable={!!card && !affordable}
-              compact
-              dealDelayMs={animateDeal && card ? i * DEAL_STAGGER_MS : undefined}
-              touchMode={touchMode}
-              onZoom={onZoom}
-              zoomRequest={
-                card
-                  ? { card, actionLabel: canHire ? `Hire — ${price} fame` : undefined, onAction: canHire ? () => onHire(i) : undefined }
-                  : undefined
-              }
-            />
+            <div key={`${i}-${cardId ?? 'empty'}`} className="market-slot">
+              {card && (
+                <span className={`market-slot__price${affordable ? ' card__price--affordable' : ' card__price--unaffordable'}`}>
+                  {price} fame
+                </span>
+              )}
+              <TappableCard
+                testId={`market-slot-${i}`}
+                card={card}
+                emptyLabel={`${price} fame`}
+                onClick={canHire ? () => onHire(i) : undefined}
+                // The tap-to-preview flow keeps an unaffordable card tappable so its
+                // detail view is still reachable — only the real hire (and the
+                // non-touch-mode direct click it stands in for) stays gated on
+                // affordability.
+                disabled={!card || (!touchMode && !affordable)}
+                compact
+                dealDelayMs={animateDeal && card ? i * DEAL_STAGGER_MS : undefined}
+                touchMode={touchMode}
+                onZoom={onZoom}
+                zoomRequest={
+                  card
+                    ? { card, actionLabel: canHire ? `Hire — ${price} fame` : undefined, onAction: canHire ? () => onHire(i) : undefined }
+                    : undefined
+                }
+              />
+            </div>
           )
         })}
       </div>

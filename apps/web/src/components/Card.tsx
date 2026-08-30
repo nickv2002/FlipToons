@@ -9,7 +9,6 @@ import { cardEmoji, hasVendoredIcon, vendoredIconUrl } from '../cardIcons'
 export type CardProps = {
   card?: CardData
   faceUp?: boolean // false renders a face-down back; omitted/true renders the front
-  price?: number // market hire cost, shown as a badge
   dismissCost?: number // market-phase dismiss cost, shown as a badge
   // True when the card is immune to dismiss — replaces the dismissCost
   // badge's "dismiss: N fame" with an "immune to dismiss" note instead of
@@ -22,13 +21,8 @@ export type CardProps = {
   // out by its rendered text is ambiguous the moment two slots hold the same
   // card — which is normal.
   testId?: string
-  // True specifically when `disabled` is because the price exceeds current
-  // fame (vs. e.g. an empty slot or dismiss-immunity) — lets the price
-  // badge render in --color-negative instead of just the generic dimmed
-  // `:disabled` opacity, so "can't afford this" reads at a glance instead
-  // of looking identical to "not interactable for some reason".
-  unaffordable?: boolean
-  // Same idea as `unaffordable` above but for `dismissCost` — dismiss isn't
+  // Same idea as the price badge's unaffordable styling (now rendered by the
+  // slot wrapper, not Card) but for `dismissCost` — dismiss isn't
   // gated on affordability (Slot.tsx still lets the click through so the
   // engine's try/catch surfaces the real error), so this only changes the
   // badge's color to flag "can't afford this one" at a glance.
@@ -37,10 +31,6 @@ export type CardProps = {
   // Tighter font-size/padding/line-clamping for narrow contexts (the
   // market's single-row layout) — same markup, no separate component.
   compact?: boolean
-  // Toggled-on styling for a multi-select context (Horse's discard-any-
-  // number-of-market-cards choice) — distinct from `disabled`, which means
-  // "not interactable," not "chosen."
-  selected?: boolean
   // Staggered flip-in delay (ms) for a card that just got dealt into this
   // slot. Undefined means "don't animate" — the caller only supplies this
   // when the card is new, via remount-keying (see Market.tsx/Slot.tsx).
@@ -120,7 +110,7 @@ function CardIcon({ id }: { id: string }) {
   )
 }
 
-export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, onClick, disabled, unaffordable, dismissUnaffordable, emptyLabel, compact, selected, dealDelayMs, testId, readOnly, roundFame, hideText }: CardProps) {
+export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick, disabled, dismissUnaffordable, emptyLabel, compact, dealDelayMs, testId, readOnly, roundFame, hideText }: CardProps) {
   const clickable = !!onClick && !disabled && !readOnly
   const dealStyle = dealDelayMs !== undefined ? ({ '--deal-delay': `${dealDelayMs}ms` } as CSSProperties) : undefined
 
@@ -161,7 +151,7 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
     ? `⚠ effect not simulated by the engine${card.unencodableReason ? ` (${card.unencodableReason})` : ''} — resolve it manually per the text above.`
     : null
 
-  const className = `card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${selected ? ' card--selected' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`
+  const className = `card card--front${clickable ? ' card--clickable' : ''}${card.unencodable ? ' card--unencodable' : ''}${compact ? ' card--compact' : ''}${dealDelayMs !== undefined ? ' card--dealt' : ''}`
   const title = [card.name, bodyText, warningText].filter(Boolean).join('\n')
 
   // Identical class list and children either way, so a read-only card and an
@@ -169,29 +159,17 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
   // none of them on button semantics.
   const body = (
     <>
-      <div className="card__top">
-        <span className="card__rank">rank {card.rank}</span>
-        {price !== undefined && (
-          <span className={`card__price${unaffordable ? ' card__price--unaffordable' : ' card__price--affordable'}`}>{price} fame</span>
-        )}
+      <div className="card__header-row">
+        <div className="card__name">{card.name}</div>
         {roundFame !== undefined && (
           <span className="card__round-fame" title="Fame this card generated this round">
             +{roundFame}
           </span>
         )}
-        {selected && (
-          <span className="card__selected-mark" aria-hidden="true">
-            ✓
-          </span>
-        )}
       </div>
-      <div className="card__name-row">
+      <div className="card__icon-row">
         <CardIcon id={card.id} />
-        <div className="card__name">{card.name}</div>
-      </div>
-      <div className="card__fame">
-        fame: {card.fame.base === '=' ? 'varies' : card.fame.base}
-        {card.fameUnencodable ? ' (needs ruling)' : ''}
+        <span className="card__rank">rank {card.rank}</span>
       </div>
       {dismissImmune ? (
         <div className="card__dismiss-cost card__dismiss-cost--immune">immune to dismiss</div>
@@ -204,7 +182,11 @@ export function Card({ card, faceUp = true, price, dismissCost, dismissImmune, o
           </div>
         )
       )}
-      {!hideText && bodyText && <div className="card__text">{bodyText}</div>}
+      <div className="card__fame">
+        base fame: {card.fame.base === '=' ? 'varies' : card.fame.base}
+        {card.fameUnencodable ? ' (needs ruling)' : ''}
+        {!hideText && bodyText ? ` | ${bodyText}` : ''}
+      </div>
       {!hideText && warningText && <div className="card__warning">{warningText}</div>}
     </>
   )

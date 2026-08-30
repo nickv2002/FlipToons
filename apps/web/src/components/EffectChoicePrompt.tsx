@@ -62,13 +62,14 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
         {note}
         <div className="effect-choice__cards">
           {choice.options.map((i) => (
-            <Card
-              key={i}
-              card={cards[market[i]!]}
-              compact
-              selected={selectedSlots.includes(i)}
-              onClick={() => toggle(i)}
-            />
+            <div key={i} className={`card-slot${selectedSlots.includes(i) ? ' card-slot--selected' : ''}`}>
+              {selectedSlots.includes(i) && (
+                <span className="card-slot__selected-mark" aria-hidden="true">
+                  ✓
+                </span>
+              )}
+              <Card card={cards[market[i]!]} compact onClick={() => toggle(i)} />
+            </div>
           ))}
         </div>
         <button type="button" className="btn-pill" data-testid="effect-choice-confirm" onClick={() => onResolve(selectedSlots)}>
@@ -92,6 +93,11 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
         )}
       </p>
       {note}
+      {(choice.kind === 'hireFromDismissed' || choice.kind === 'hireFromMarketAndRefill') && choice.cost > 0 && (
+        <p className={`effect-choice__cost${affordable ? ' card__price--affordable' : ' card__price--unaffordable'}`}>
+          {choice.cost} fame each
+        </p>
+      )}
       {choice.kind === 'hireFromDismissed' && nameOf && myPlayerId ? (
         groupByOwner(choice.options, myPlayerId).map(([ownerId, group]) => (
           <div className="effect-choice__group" key={ownerId} data-testid={`effect-choice-group-${ownerId}`}>
@@ -105,8 +111,6 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
                   testId={`effect-choice-option-${ownerId}-${i}`}
                   card={cards[opt.cardId]}
                   compact
-                  price={choice.cost}
-                  unaffordable={!affordable}
                   disabled={!affordable}
                   onClick={() => onResolve(opt)}
                 />
@@ -141,8 +145,6 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
                 testId={`effect-choice-option-${i}`}
                 card={cards[opt.cardId]}
                 compact
-                price={choice.cost}
-                unaffordable={!affordable}
                 disabled={!affordable}
                 onClick={() => onResolve(opt)}
               />
@@ -154,8 +156,6 @@ export function EffectChoicePrompt({ cardName, choice, cards, fame, market, onRe
                 testId={`effect-choice-option-${n}`}
                 card={cards[market[i]!]}
                 compact
-                price={choice.cost}
-                unaffordable={!affordable}
                 disabled={!affordable}
                 onClick={() => onResolve(i)}
               />

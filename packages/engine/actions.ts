@@ -26,7 +26,7 @@ import {
 import type { DismissEntry } from './phases'
 export { hasAnyLegalMarketAction, listDismissEntries }
 export type { DismissEntry }
-import { applyGridResetCollect, applyMarketReset, canUseGridResetNow, canUseMarketReset, marketResetReturnedCards } from './bigButton'
+import { applyGridResetCollect, applyMarketReset, canUseGridReset, canUseGridResetNow, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import { cardsById } from './setup'
 import { createSoloGameState } from './state'
 import type { EngineLogLine, GameState, ResetEffect } from './state'
@@ -168,22 +168,31 @@ function resolveEndOfRoundOutcome(state: GameState, logLines: EngineLogLine[]): 
 // Guaranteed-loss short-circuit. soloMarketDecay (market.ts) unconditionally
 // empties 2 market slots every round and needs 2 fresh toon-deck cards to
 // refill them; toonDeck only ever shrinks (refills draw from it, nothing ever
-// returns cards to it). So if this round hasn't already been won and either
-// toonDeckDepleted is already latched from an earlier round, or fewer than 2
-// toon-deck cards remain, this round's loss is locked in before any Market
-// action — no hire/dismiss choice can change it. Skip straight through
-// Market's end-of-phase hooks/refill/decay and Cleanup instead of offering
-// actions that can't matter (reported: a player hired a card as their "last
-// action" immediately before a toon-deck-depleted loss, with no way to have
-// avoided it). Called both from the 'flip' cascade above and from the
+// returns cards to it). So if this round hasn't already been won and
+// toonDeckDepleted is already latched — the toon deck actually ran dry mid-
+// refill, so the market genuinely cannot be filled at the start of a future
+// turn — this round's loss is locked in before any Market action — no
+// hire/dismiss choice can change it. Skip straight through Market's
+// end-of-phase hooks/refill/decay and Cleanup instead of offering actions
+// that can't matter (reported: a player hired a card as their "last action"
+// immediately before a toon-deck-depleted loss, with no way to have avoided
+// it). Called both from the 'flip' cascade above and from the
 // 'continueToMarket' action below (ai.ts's autoplay dispatches that action
 // directly, bypassing the cascade).
-// Shared predicate: is `state` a round that's already lost no matter what
-// Market actions happen from here — not won on fame, and the toon deck is
-// too thin (already latched `toonDeckDepleted`, or fewer than the 2 fresh
-// cards solo's per-round soloMarketDecay unconditionally needs) to avoid it?
+//
+// A thin-but-not-depleted deck (fewer than the 2 fresh cards decay wants) is
+// NOT on its own a guaranteed loss when the player still holds an unspent
+// RESET: GRID button (canUseGridReset) — a future grid reset re-flips the
+// board and can still reach the fame threshold regardless of how few toon-
+// deck cards are left, so the round only locks in once that recovery path is
+// gone too (reset spent/unavailable) or the deck is actually depleted, which
+// no reset can undo either. Shared predicate: is `state` a round that's
+// already lost no matter what Market actions (including a future grid
+// reset) happen from here?
 function isGuaranteedLoss(state: GameState): boolean {
-  return state.fameGeneratedThisRound < state.fameToTriggerEndgame && (state.toonDeckDepleted || state.toonDeck.length < 2)
+  if (state.fameGeneratedThisRound >= state.fameToTriggerEndgame) return false
+  if (state.toonDeckDepleted) return true
+  return state.toonDeck.length < 2 && !canUseGridReset(state)
 }
 
 function skipGuaranteedLossMarketPhase(next: GameState, logLines: EngineLogLine[]): GameState {

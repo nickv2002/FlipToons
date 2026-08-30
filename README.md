@@ -1,8 +1,8 @@
 # FlipToons (digital adaptation)
 
-An unofficial, fan-made digital implementation of the FlipToons board game
-by Thunderworks Games. Not affiliated with or endorsed by Thunderworks
-Games — see [LICENSE](./LICENSE).
+A free-to-play, unofficial fan-made digital implementation of the FlipToons
+board game by Thunderworks Games. Not affiliated with or endorsed by
+Thunderworks Games — see [LICENSE](./LICENSE).
 
 Playable end-to-end: solo (local, in-browser) and real 2-4 player
 multiplayer with room codes, seats, turn order, and a Final Flip. Live at

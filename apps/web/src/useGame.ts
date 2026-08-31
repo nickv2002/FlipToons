@@ -7,51 +7,67 @@ import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAny
 
 const STORAGE_KEY = 'fliptoons-solo-save-v1'
 
-// Save/resume substitute for §4.7's action-log replay (never built — see
-// flip-toonz-structure-plan.md §12): the whole GameState is JSON.stringify'd
-// straight to localStorage on every change. Not a replay log, just a
-// snapshot.
-function loadSavedState(): GameState | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as GameState
-    // A save persisted mid-phase from before the auto-advance change (see
-    // actions.ts's advanceThroughPassthroughPhases) may rest in a phase the
-    // UI no longer ever shows. Fast-forward it to 'market' or 'ended' before
-    // handing it to the UI. The cascade's log lines are discarded here —
-    // same as the rest of a resumed session's history, which isn't
-    // reconstructed either (see this file's header comment on save/resume).
-    if (parsed.phase === 'checkFame' || parsed.phase === 'postFameHooks' || parsed.phase === 'cleanup') {
-      return advanceThroughPassthroughPhases(parsed, [])
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-function saveState(state: GameState | null): void {
-  try {
-    if (state === null) localStorage.removeItem(STORAGE_KEY)
-    else localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // Best-effort persistence — a full/blocked localStorage shouldn't crash the game.
-  }
-}
+// Cap kept in line with multiplayer's MAX_LOG_LINES (apps/worker/room.ts) —
+// bounds how much a single save round-trips through localStorage.
+const MAX_LOG_LINES = 2000
 
 // playerId carries through from EngineLogLine for type parity with
 // multiplayer's LogLine — solo has one seat, so ResolveLog never prefixes it.
 export type LogEntry = { round: number; text: string; playerId?: PlayerId | null }
 
+type SavedGame = { state: GameState; log: LogEntry[]; debugLog: LogEntry[] }
+
+// Applied at append time (not just at save) so the in-memory arrays — and
+// therefore every render and every localStorage write — stay bounded, not
+// just the write.
+function capLog(entries: LogEntry[]): LogEntry[] {
+  return entries.length > MAX_LOG_LINES ? entries.slice(entries.length - MAX_LOG_LINES) : entries
+}
+
+// Whole GameState (plus log/debugLog) is JSON.stringify'd straight to
+// localStorage on every change — a full snapshot, not an event-sourced
+// replay log.
+function loadSaved(): SavedGame | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as GameState | SavedGame
+    // Pre-log-persistence saves (fliptoons-solo-save-v1 used to store a bare
+    // GameState) have no `state` key — treat the parsed value itself as the
+    // state and start with an empty log rather than failing to load.
+    const saved: SavedGame = 'state' in parsed && 'log' in parsed ? (parsed as SavedGame) : { state: parsed as GameState, log: [], debugLog: [] }
+    // A save persisted mid-phase from before the auto-advance change (see
+    // actions.ts's advanceThroughPassthroughPhases) may rest in a phase the
+    // UI no longer ever shows. Fast-forward it to 'market' or 'ended' before
+    // handing it to the UI. The cascade's own log lines are discarded here —
+    // they're a one-time internal fast-forward, not part of play history.
+    if (saved.state.phase === 'checkFame' || saved.state.phase === 'postFameHooks' || saved.state.phase === 'cleanup') {
+      return { ...saved, state: advanceThroughPassthroughPhases(saved.state, []) }
+    }
+    return saved
+  } catch {
+    return null
+  }
+}
+
+function saveGame(saved: SavedGame | null): void {
+  try {
+    if (saved === null) localStorage.removeItem(STORAGE_KEY)
+    else localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
+  } catch {
+    // Best-effort persistence — a full/blocked localStorage shouldn't crash the game.
+  }
+}
+
 export function useGame() {
-  const [state, setState] = useState<GameState | null>(() => loadSavedState())
-  const [log, setLog] = useState<LogEntry[]>([])
-  const [debugLog, setDebugLog] = useState<LogEntry[]>([])
+  const [initialSaved] = useState(() => loadSaved())
+  const [state, setState] = useState<GameState | null>(() => initialSaved?.state ?? null)
+  const [log, setLog] = useState<LogEntry[]>(() => initialSaved?.log ?? [])
+  const [debugLog, setDebugLog] = useState<LogEntry[]>(() => initialSaved?.debugLog ?? [])
 
   useEffect(() => {
-    saveState(state)
-  }, [state])
+    saveGame(state === null ? null : { state, log, debugLog })
+  }, [state, log, debugLog])
 
   // Deliberately NOT the setState-updater form (`setState(prev => ...)`) —
   // React 18 StrictMode double-invokes updater functions to surface
@@ -71,20 +87,22 @@ export function useGame() {
         // line is the actual boundary: everything before it is state.round,
         // everything from it onward is next.round.
         const boundary = logLines.findIndex((line) => /^Round \d+: flip order —/.test(line.text))
-        setLog((prevLog) => [
-          ...prevLog,
-          ...logLines.map((line, i) => ({
-            round: boundary !== -1 && i >= boundary ? next.round : state.round,
-            text: line.text,
-            playerId: line.playerId,
-          })),
-        ])
+        setLog((prevLog) =>
+          capLog([
+            ...prevLog,
+            ...logLines.map((line, i) => ({
+              round: boundary !== -1 && i >= boundary ? next.round : state.round,
+              text: line.text,
+              playerId: line.playerId,
+            })),
+          ]),
+        )
       }
       if (debugLines.length > 0) {
         // debugLines only ever come from a single runFlip call within this
         // dispatch (at most one flip per cascade) — no boundary-splitting
         // needed, everything belongs to the round that flip just filled.
-        setDebugLog((prevLog) => [...prevLog, ...debugLines.map((text) => ({ round: next.round, text }))])
+        setDebugLog((prevLog) => capLog([...prevLog, ...debugLines.map((text) => ({ round: next.round, text }))]))
       }
     },
     [state],
@@ -114,14 +132,16 @@ export function useGame() {
     // zero clicks, same as every subsequent round (actions.ts's applyAction
     // 'flip' branch cascades all the way through checkFame/postFameHooks).
     const { state: next, logLines, debugLines } = applyAction(initial, { kind: 'flip' })
-    setLog([
-      {
-        round: 1,
-        text: `New game — seed ${seed}, ${difficulty}, season ${season}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`,
-      },
-      ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId })),
-    ])
-    setDebugLog(debugLines.map((text) => ({ round: next.round, text })))
+    setLog(
+      capLog([
+        {
+          round: 1,
+          text: `New game — seed ${seed}, ${difficulty}, season ${season}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`,
+        },
+        ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId })),
+      ]),
+    )
+    setDebugLog(capLog(debugLines.map((text) => ({ round: next.round, text }))))
     setState(next)
   }, [])
 

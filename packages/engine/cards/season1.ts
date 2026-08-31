@@ -51,6 +51,7 @@ export const season1Cards: Card[] = [
     id: 'ostrich', name: 'Ostrich', season: 1, rank: 1, copies: 3,
     fame: { base: 1 },
     onPlace: [{ kind: 'stackNextRevealed' }],
+    rawBodyText: 'Stack the next revealed card on this card',
     faqNote: "FAQ: \"If an ostrich is placed as the final card of a player's grid, do not reveal or place another card. The next revealed card is stacked before its ability is resolved. If the next revealed card moves after being stacked on the ostrich, the next revealed card does not stack on the ostrich instead.\" This is an edge case on the base ability above (what happens when Ostrich fills the grid's final/6th slot) — not a general stop-reveals effect.",
   },
   {

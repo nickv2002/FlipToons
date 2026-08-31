@@ -33,6 +33,7 @@ export const season1Cards: Card[] = [
   {
     id: 'skunk', name: 'Skunk', season: 1, rank: 0, copies: 1,
     fame: { base: 0 },
+    rawBodyText: 'If you have the least fame after the Check Fame phase, dismiss a card in your grid',
     postFameHook: {
       condition: 'strictlyLowestFame',
       mandatory: true,
@@ -137,7 +138,7 @@ export const season1Cards: Card[] = [
     fame: { base: 3 },
     immune: ['flip'],
     onPlace: [{ kind: 'stackOnFirstMatchOrFaceDown', matchCardId: 'rabbit' }],
-    rawBodyText: 'Stack this card on the first RABBIT or face-down card in your grid',
+    rawBodyText: 'Stack this card on the first Rabbit or face-down card in your grid',
     // UNCONFIRMED ASSUMPTION (flagged here and in flip.ts's
     // findRabbitOrFaceDownTarget): if no face-up Rabbit and no face-down
     // card exist anywhere in the grid yet, this Rabbit is placed in the

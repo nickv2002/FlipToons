@@ -1204,14 +1204,30 @@ img.card__icon {
 .market-slot {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0;
   flex: 1 1 0;
   min-width: 0; /* buttons don't shrink below their content width by default */
 }
 
+.market-slot > .card {
+  border-radius: 0 0 6px 6px;
+}
+
 .market-slot__price {
-  align-self: flex-end;
+  display: block;
+  text-align: center;
   font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.3rem;
+  border-radius: 5px 5px 0 0;
+}
+
+.market-slot__price.card__price--affordable {
+  background: var(--color-positive-bg);
+}
+
+.market-slot__price.card__price--unaffordable {
+  background: var(--color-negative-bg);
 }
 
 @media (max-width: 560px) {

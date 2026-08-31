@@ -40,6 +40,18 @@ export type SlotProps = {
 // unaffordable, caught by actions.ts's try/catch and surfaced in the log via
 // its playerFacingMessage — no client-side affordability gate here. `fame` is
 // only used to color the badge red as a heads-up.
+// Fixed vertical reveal amounts a stacked card is pushed down by, matching
+// the header markup in Card.tsx: a face-up card's header is one line (name +
+// fame); a face-down card's is two (the "flipped down" tag, then the name).
+// A slot can hold more than 2 cards (Rabbit/Turkey/Elephant can all target an
+// already-stacked slot — see flip.ts's determineTarget/findRabbitOrFaceDownTarget,
+// which impose no cap on slot.cards.length), so each member's offset is the
+// CUMULATIVE sum of the reveal amounts of every card below it, not a single
+// fixed class — otherwise a 3rd+ card would land at the same offset as the
+// 2nd and overlap it instead of cascading further down.
+const FACEUP_REVEAL_REM = 1.7
+const FACEDOWN_REVEAL_REM = 2.6
+
 export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, fame, readOnly, animateDeal = true, roundFame, touchMode, onZoom }: SlotProps) {
   if (!slot) {
     return <div className="slot slot--empty" />
@@ -49,6 +61,7 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
     <div className="slot">
       {slot.cards.map((cardId, i) => {
         const faceUp = slot.faceUp[i]
+        const stackOffsetRem = slot.faceUp.slice(0, i).reduce((sum, fu) => sum + (fu ? FACEUP_REVEAL_REM : FACEDOWN_REVEAL_REM), 0)
         const card = cards[cardId]
         const dismissEntry = faceUp ? dismissEntries?.find((e) => e.pos.section === pos.section && e.pos.row === pos.row && e.pos.col === pos.col && e.stackIndex === i) : undefined
         const dismissCost = dismissEntry?.cost
@@ -62,7 +75,8 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
         const canOfferDismissInSheet = canDismiss && !dismissUnaffordable
         return (
           <div
-            className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}${i > 0 && !slot.faceUp[i - 1] ? ' slot__member--stacked-over-facedown' : ''}`}
+            className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`}
+            style={i > 0 ? { marginTop: `${stackOffsetRem}rem`, zIndex: i } : undefined}
             key={`${i}-${cardId ?? 'empty'}`}
           >
             <TappableCard

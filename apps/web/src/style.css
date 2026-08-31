@@ -883,14 +883,11 @@ button {
 }
 
 .slot__member--stacked {
-  margin-top: var(--stack-reveal, 1.7rem);
-  z-index: 1;
+  /* margin-top and z-index are set inline per-member — see Slot.tsx's
+     cumulative stackOffsetRem, needed because a slot can hold more than 2
+     cards and each one must cascade further down than the last. */
   box-shadow: -4px -4px 6px -2px rgba(0, 0, 0, 0.35);
   border-radius: 6px;
-}
-
-.slot__member--stacked-over-facedown {
-  --stack-reveal: 2.6rem;
 }
 
 /* ---------- Card ---------- */

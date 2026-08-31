@@ -30,5 +30,5 @@ export function TappableCard({ touchMode, onZoom, zoomRequest, ...cardProps }: T
   // that's what keeps an unaffordable card tappable-for-viewing instead of
   // falling through to a plain `undefined` onClick.
   const effectiveOnClick = touchMode && zoomRequest ? doubleTapHandler : action
-  return <Card {...cardProps} onClick={effectiveOnClick} hideText={touchMode} />
+  return <Card {...cardProps} onClick={effectiveOnClick} />
 }

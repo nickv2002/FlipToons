@@ -877,6 +877,10 @@ button {
   position: relative;
 }
 
+.slot__member--stacked .card--facedown {
+  opacity: 1;
+}
+
 .slot__member--stacked {
   margin-top: -35%;
   margin-left: 10px;

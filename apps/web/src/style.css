@@ -1073,17 +1073,6 @@ button {
   flex: none;
 }
 
-/* Face-down back only — icon stacked above name (Card.tsx's faceUp === false
-   branch). The face-up front pairs the icon with rank instead (card__icon-row
-   above), so this rule no longer applies there. */
-.card__name-row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
 .card__icon {
   flex: none;
   font-size: 1.1rem;
@@ -1107,10 +1096,18 @@ img.card__icon {
   }
 }
 
+/* Long names (Caterpillar, Dragonfly, Butterfly) never wrap to a second
+   line — they truncate to one line and fade to transparent near the right
+   edge instead, reading as e.g. "Caterpil" fading out next to the round-fame
+   badge rather than an ugly two-line wrap. */
 .card__name {
   font-weight: 700;
-  overflow-wrap: break-word;
   min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.25rem), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 1.25rem), transparent 100%);
 }
 
 .card__fame,
@@ -1156,10 +1153,13 @@ img.card__icon {
 
 .card--compact .card__name {
   font-size: 0.85rem;
+  white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .card--compact .card__fame,

@@ -130,11 +130,13 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
     return (
       <div data-testid={testId} className={`card card--facedown${dealDelayMs !== undefined ? ' card--dealt' : ''}`} style={dealStyle}>
         <span className="card__facedown-tag">flipped down</span>
-        <div className="card__name-row">
-          <CardIcon id={card.id} />
+        <div className="card__header-row">
           <div className="card__name">{card.name}</div>
         </div>
-        <span className="card__rank">rank {card.rank}</span>
+        <div className="card__icon-row">
+          <CardIcon id={card.id} />
+          <span className="card__rank">rank {card.rank}</span>
+        </div>
       </div>
     )
   }

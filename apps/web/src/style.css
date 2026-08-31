@@ -879,6 +879,7 @@ button {
 
 .slot__member--stacked .card--facedown {
   opacity: 1;
+  background: color-mix(in srgb, canvastext 20%, canvas);
 }
 
 .slot__member--stacked {

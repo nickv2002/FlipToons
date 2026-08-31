@@ -50,11 +50,10 @@ export type CardProps = {
   // Flip→CheckFame transition, distinct from the static base-fame line
   // (card.fame.base) that's always shown. Undefined renders no badge.
   roundFame?: number
-  // Tap-to-preview flow (TappableCard, Single-Tap Mode off): suppresses the rules-text/warning lines
-  // in the grid/market's in-place card — those clutter a small card whose
-  // job there is just "what is this and can I act on it"; the zoom sheet's
-  // own Card render (CardZoomSheet.tsx) never sets this, so full text is
-  // still one tap away.
+  // Suppresses the rules-text/warning lines for contexts where a card is
+  // shown too small for them to be legible. Not tied to Single-Tap Mode —
+  // TappableCard always shows full text now, since the modal vs. direct-
+  // action choice that setting makes shouldn't also decide text visibility.
   hideText?: boolean
 }
 

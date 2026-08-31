@@ -847,4 +847,24 @@ describe('FameLine.stackIndex — disambiguating two lines sharing one slot', ()
     // An untouched slot elsewhere on the same grid is unaffected.
     expect(lookupAfter(pos1, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'caterpillar')!.total)
   })
+
+  // Panther's onPlace ('stackOnPreviousPlaced', season2.ts) APPENDS a card to
+  // a slot rather than splicing — the opposite direction from a dismiss.
+  // Every stackIndex the breakdown already knows about still points at the
+  // same card it always did, so only the newly-appended index (no line for
+  // it at all) should come back undefined.
+  test('roundFameLookup keeps the original card badge when a new card is stacked ON TOP after the snapshot', () => {
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'caterpillar')
+    const pos = { section: 'base', row: 0, col: 0 } as const
+    const breakdown = scoreGrid(grid, cards)
+
+    // Simulate Panther stacking on top mid-Market-phase, after the breakdown snapshot.
+    grid.base[0][0]!.cards.push('bee')
+    grid.base[0][0]!.faceUp.push(false)
+
+    const lookupAfter = roundFameLookup(breakdown, grid)
+    expect(lookupAfter(pos, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'caterpillar')!.total)
+    expect(lookupAfter(pos, 1)).toBeUndefined()
+  })
 })

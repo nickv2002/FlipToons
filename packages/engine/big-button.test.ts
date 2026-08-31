@@ -23,7 +23,7 @@
 import { describe, expect, test } from 'bun:test'
 import { applyGridResetCollect, applyMarketReset, canUseGridReset, canUseGridResetNow, canUseMarketReset } from './bigButton'
 import { applyAction, buildNewGameState } from './actions'
-import { playAutomatically } from './ai'
+import { playSoloAutomatically } from './ai/index'
 import { emptyGrid, occupiedSlots } from './grid'
 import {
   buildNewMatch,
@@ -983,7 +983,7 @@ describe("the AI evaluator does not stall on the decision phase", () => {
   // play should play to a stopping point and NEVER reach 'gridReset'.
   test('a solo game plays itself to the end with RESET: GRID in play, and never reaches gridReset', () => {
     const state = buildNewGameState(5, 'normal', 1, 'grid')
-    const result = playAutomatically(state, { simulations: 2, maxRoundsPerPlayout: 3, maxRounds: 12 })
+    const result = playSoloAutomatically(state, { simulations: 2, maxStepsPerPlayout: 10, maxSteps: 60 })
     // Reached a real stopping point rather than throwing or spinning...
     expect(result.actionsTaken.length).toBeGreaterThan(0)
     // ...and the phase never becomes 'gridReset' — teaching the AI to weigh a

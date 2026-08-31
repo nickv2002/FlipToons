@@ -692,13 +692,10 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
 //     Caterpillar's explicit `dismissCost: 3` stays 3 whether or not a
 //     Ladybug is adjacent; it is untouched by this rule, not doubly
 //     discounted or overridden.
-//   - Rat ("cards in Rat's stack cost 1 fewer to dismiss"): a face-up Rat
-//     anywhere in the SAME slot (stack) as the target subtracts 1.
-//     UNCONFIRMED (no source resolves this either way, flagged here rather
-//     than guessed silently): whether Rat discounts its OWN dismissal — this
-//     reading says yes (a face-up Rat counts as "a Rat in its own stack"),
-//     chosen for simplicity over inventing a self-exclusion rule no text
-//     supports.
+//   - Rat ("cards in Rat's stack cost 1 fewer to dismiss"): EACH face-up Rat
+//     in the SAME slot (stack) as the target subtracts 1, cumulatively — two
+//     face-up Rats in one stack is -2, not a flat -1. A Rat discounts its
+//     OWN dismissal too (a face-up Rat counts as "a Rat in its own stack").
 //   - Composition (both apply, e.g. a Rat stacked under a card adjacent to a
 //     Ladybug): Ladybug's replacement is applied FIRST (5 -> 3), THEN Rat's
 //     -1, THEN floor at 0 — also UNCONFIRMED, since no source composes the
@@ -714,8 +711,8 @@ export function dismissCostFor(grid: Grid, pos: GridPos, index: number, cardsByI
     if (adjacentIds.includes('ladybug')) cost = 3
   }
 
-  const hasFaceUpRatInStack = slot.cards.some((id, i) => id === 'rat' && slot.faceUp[i])
-  if (hasFaceUpRatInStack) cost -= 1
+  const faceUpRatsInStack = slot.cards.filter((id, i) => id === 'rat' && slot.faceUp[i]).length
+  cost -= faceUpRatsInStack
 
   return Math.max(0, cost)
 }

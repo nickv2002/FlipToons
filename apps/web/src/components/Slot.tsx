@@ -61,7 +61,10 @@ export function Slot({ pos, slot, cards, dismissEntries, onDismiss, slotIndex, f
         // surfaces); this only trims what the sheet's button offers.
         const canOfferDismissInSheet = canDismiss && !dismissUnaffordable
         return (
-          <div className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}`} key={`${i}-${cardId ?? 'empty'}`}>
+          <div
+            className={`slot__member${i > 0 ? ' slot__member--stacked' : ''}${i > 0 && !slot.faceUp[i - 1] ? ' slot__member--stacked-over-facedown' : ''}`}
+            key={`${i}-${cardId ?? 'empty'}`}
+          >
             <TappableCard
               card={card}
               faceUp={faceUp}

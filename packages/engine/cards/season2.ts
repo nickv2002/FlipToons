@@ -39,6 +39,7 @@ export const season2Cards: Card[] = [
   {
     id: 'firefly', name: 'Firefly', season: 2, rank: 0, copies: 1,
     fame: { base: 1 },
+    rawBodyText: 'If you have the least fame after the Check Fame phase, gain 2 fame',
     postFameHook: {
       condition: 'strictlyLowestFame',
       mandatory: true,
@@ -283,6 +284,7 @@ export const season2Cards: Card[] = [
     id: 'sloth', name: 'Sloth', season: 2, rank: 25, copies: 1,
     fame: { base: 3, bonuses: [{ kind: 'ifCondition', condition: 'gridHasAtLeastEightCards', amount: 5 }] },
     onPlace: [{ kind: 'stackOnPreviousPlaced' }],
+    rawBodyText: 'Stack this card on the previous placed card',
   },
   {
     id: 'platypus', name: 'Platypus', season: 2, rank: 26, copies: 2,

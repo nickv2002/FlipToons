@@ -867,4 +867,23 @@ describe('FameLine.stackIndex — disambiguating two lines sharing one slot', ()
     expect(lookupAfter(pos, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'caterpillar')!.total)
     expect(lookupAfter(pos, 1)).toBeUndefined()
   })
+
+  // A face-down card never gets a breakdown line at all (score.ts only
+  // scores face-up cards) — a stack with one anywhere in the middle
+  // (Starfish's flipPreviousPlaced, season2.ts) used to have fewer LINES
+  // than live cards even when nothing had changed since the snapshot,
+  // which a line-count-based staleness check misread as "grown" and
+  // blanked every card's badge above the face-down one, including ones
+  // with a perfectly valid line waiting for them.
+  test('roundFameLookup still finds a card above a face-down stack-mate, untouched since the snapshot', () => {
+    const grid = emptyGrid()
+    grid.base[0][0] = { cards: ['bee', 'caterpillar', 'snail'], faceUp: [true, false, true] }
+    const pos = { section: 'base', row: 0, col: 0 } as const
+    const breakdown = scoreGrid(grid, cards)
+
+    const lookup = roundFameLookup(breakdown, grid)
+    expect(lookup(pos, 0)).toBe(breakdown.lines.find((l) => l.cardId === 'bee')!.total)
+    expect(lookup(pos, 1)).toBeUndefined() // face-down: no line, no badge
+    expect(lookup(pos, 2)).toBe(breakdown.lines.find((l) => l.cardId === 'snail')!.total)
+  })
 })

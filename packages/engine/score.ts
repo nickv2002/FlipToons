@@ -133,27 +133,32 @@ export function findFameLine(breakdown: FameBreakdown, pos: GridPos, stackIndex:
 // the survivor's live array index shifts down, no longer matching the
 // snapshotted breakdown's stackIndex for it, which would otherwise show the
 // DISMISSED card's fame line on the SURVIVING card (a wrong number, not just
-// a missing one). There is no stable per-card identity to remap against
-// (cardId isn't unique — every card has `copies: 2`), so a slot whose count
-// SHRANK since the breakdown was taken gets no accessor at all (Slot.tsx's
-// badge simply doesn't render there), rather than guessing.
+// a missing one).
 //
-// A slot that GREW, though, is a different case: Panther's `onPlace:
-// stackOnPreviousPlaced` (season2.ts) always APPENDS the new card at the top
-// of the stack rather than splicing, so every stackIndex below the
-// breakdown's original count still points at the same card it always did —
-// only the newly-appended index (which the breakdown has no line for at
-// all) is genuinely unknown. Bailing on the whole slot here used to blank
-// the ALREADY-SCORED card's badge too just because a stack-mate was added
-// next to it later in the same Market phase.
+// This used to compare `slot.cards.length` against a count of breakdown
+// LINES for the slot to detect that kind of shift — but a face-down card
+// never gets a line at all (score.ts only scores face-up cards), so any
+// slot with a face-down member (e.g. Starfish's `flipPreviousPlaced`
+// leaving the card underneath it face-down) always had fewer lines than
+// live cards, even completely untouched. That falsely read as "grown",
+// which blanked every card's badge from that point up the stack — including
+// perfectly valid ones with a real line waiting for them.
+//
+// Comparing cardId identity at each index instead needs no count at all:
+// if the live card at this stackIndex is the same id the breakdown scored
+// there, the line is still the right one. `cardId` isn't a fully stable
+// identity (every card has `copies: 2`), so a swap between two same-named
+// copies at the same two indices could in theory slip through — accepted,
+// same as the rest of this file's stance on that ambiguity — but every
+// index whose card actually changed (a dismiss-splice shift, most of all)
+// is caught, which a pure count comparison could not do.
 export function roundFameLookup(breakdown: FameBreakdown, grid: Grid): (pos: GridPos, stackIndex: number) => number | undefined {
   return (pos, stackIndex) => {
     const slot = getSlot(grid, pos)
     if (!slot) return undefined
-    const originalCount = breakdown.lines.filter((l) => l.pos.section === pos.section && l.pos.row === pos.row && l.pos.col === pos.col).length
-    if (slot.cards.length < originalCount) return undefined
-    if (slot.cards.length > originalCount && stackIndex >= originalCount) return undefined
-    return findFameLine(breakdown, pos, stackIndex)?.total
+    const line = findFameLine(breakdown, pos, stackIndex)
+    if (!line || slot.cards[stackIndex] !== line.cardId) return undefined
+    return line.total
   }
 }
 

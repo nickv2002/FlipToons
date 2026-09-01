@@ -1069,8 +1069,8 @@ button {
 
 .card__header-row,
 .card__icon-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 0.4rem;
 }
@@ -1078,11 +1078,9 @@ button {
 .card__rank {
   font-size: 0.75rem;
   opacity: 0.75;
-  flex: none;
 }
 
 .card__icon {
-  flex: none;
   font-size: 1.1rem;
   line-height: 1;
 }

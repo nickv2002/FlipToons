@@ -90,15 +90,24 @@ describe('playSoloAutomatically', () => {
     expect(result.actionsTaken.length).toBeLessThanOrEqual(1)
   })
 
-  test('reaches an actual WIN on easy difficulty across a batch of seeds, without throwing on choice cards', () => {
-    let wins = 0
-    const seeds = Array.from({ length: 12 }, (_, i) => 100 + i)
-    for (const seed of seeds) {
-      const state = buildNewGameState(seed, 'easy', 1)
-      const result = playSoloAutomatically(state, { simulations: 8, maxStepsPerPlayout: 30, maxSteps: 200, rng: makeRng(seed) })
-      expect(result.state.phase).toBe('ended')
-      if (result.state.result === 'win') wins++
-    }
-    expect(wins).toBeGreaterThan(0)
-  })
+  test(
+    'reaches an actual WIN on easy difficulty across a batch of seeds, without throwing on choice cards',
+    () => {
+      let wins = 0
+      const seeds = Array.from({ length: 12 }, (_, i) => 100 + i)
+      for (const seed of seeds) {
+        const state = buildNewGameState(seed, 'easy', 1)
+        const result = playSoloAutomatically(state, { simulations: 8, maxStepsPerPlayout: 30, maxSteps: 200, rng: makeRng(seed) })
+        expect(result.state.phase).toBe('ended')
+        if (result.state.result === 'win') wins++
+      }
+      expect(wins).toBeGreaterThan(0)
+    },
+    // This batch's own options (sim=8/mspp=30) are intentionally far below
+    // core.ts's tuned normal-difficulty defaults (150/150 — see core.ts's
+    // comment) to stay a quick regression test, not a benchmark; ~5s for 12
+    // easy-difficulty games is enough to bump past bun:test's default 5000ms
+    // timeout on a loaded machine.
+    15000,
+  )
 })

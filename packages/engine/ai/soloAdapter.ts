@@ -97,8 +97,22 @@ export const soloAdapter: AiAdapter<GameState, Action> = {
   isTerminal(state) {
     return state.phase === 'ended'
   },
+  // Terminal states score exactly 1 (win) / 0 (loss). A playout that hit
+  // core.ts's maxStepsPerPlayout cap without reaching 'ended' is neither —
+  // scoring it 0 (the old bug) makes every candidate look equally losing
+  // whenever playouts commonly run long (season 2's bigger card pool means
+  // more market steps per round — see soloAdapter's benchmark notes), which
+  // collapses the ranking to candidate order (endMarket first) instead of
+  // the actual search. Give partial credit off this round's progress toward
+  // the fame threshold, capped well below a real win and docked further if
+  // the toon deck is already depleted (an early signal the rollout is
+  // trending toward a loss it hasn't reached yet) — mirrors the old
+  // (deleted) ai.ts's scoreOutcome, ported to the terminal/non-terminal split
+  // core.ts's adapter contract expects here.
   reward(state) {
-    return state.result === 'win' ? 1 : 0
+    if (state.phase === 'ended') return state.result === 'win' ? 1 : 0
+    const progress = Math.min(0.95, state.fameGeneratedThisRound / state.fameToTriggerEndgame)
+    return Math.max(0, progress - (state.toonDeckDepleted ? 0.1 : 0))
   },
   clone(state) {
     return structuredClone(state)

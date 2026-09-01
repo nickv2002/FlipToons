@@ -172,7 +172,7 @@ export const season2Cards: Card[] = [
     id: 'coyote', name: 'Coyote', season: 2, rank: 14, copies: 2,
     fame: { base: 5 },
     immune: ['return'],
-    rawBodyText: 'Return the previous placed card unless it cannot be returned, and place this card in its space; if it cannot be returned, stack the coyote on it instead (FAQ)',
+    rawBodyText: 'Return the previous placed card unless it cannot be returned, and place this card in its space; if it cannot be returned, stack the coyote on it instead',
     onPlace: [{ kind: 'returnPreviousPlacedOrStack' }],
     // Encoded this pass — GRID-return (an already-placed card is pulled off
     // the grid, unlike Salamander's deferred pre-placement return) with an

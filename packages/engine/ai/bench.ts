@@ -163,14 +163,13 @@ await Promise.all(workerPromises)
 for (const season of seasons) {
   const agg = batchByKey.get(String(season))!
   const elapsedS = agg.finishedAt / 1000
-  const winRate = ((agg.wins / agg.seedCount) * 100).toFixed(1)
-  console.log(
-    `season ${String(season).padEnd(4)} difficulty=${difficulty}: ${agg.wins}/${agg.seedCount} wins (${winRate}%)` +
-      (agg.notEnded ? `, ${agg.notEnded} did not terminate` : '') +
-      ` — ${elapsedS.toFixed(1)}s total, ${(elapsedS / agg.seedCount).toFixed(2)}s/game` +
-      ` [sims=${simulations ?? 'default'} steps=${maxStepsPerPlayout ?? 'default'}]`,
-  )
   if (season === 'both') {
+    // A single "season both" aggregate blends two different starting
+    // conditions (setup.ts coin-flips a whole season-1- or season-2-shaped
+    // starting deck for 'both' mode — see index.ts/heuristic.ts's history
+    // comments) into one number, which is exactly the number that hid the
+    // starting-deck-dependent win-rate gap in the first place. Report only
+    // the two starting-deck-specific lines, never the blended one.
     for (const deckSeason of [1, 2] as const) {
       const deckAgg = agg.byStartingDeck.get(deckSeason)!
       if (deckAgg.count === 0) continue
@@ -180,6 +179,14 @@ for (const season of seasons) {
           (deckAgg.notEnded ? `, ${deckAgg.notEnded} did not terminate` : ''),
       )
     }
+  } else {
+    const winRate = ((agg.wins / agg.seedCount) * 100).toFixed(1)
+    console.log(
+      `season ${String(season).padEnd(4)} difficulty=${difficulty}: ${agg.wins}/${agg.seedCount} wins (${winRate}%)` +
+        (agg.notEnded ? `, ${agg.notEnded} did not terminate` : '') +
+        ` — ${elapsedS.toFixed(1)}s total, ${(elapsedS / agg.seedCount).toFixed(2)}s/game` +
+        ` [sims=${simulations ?? 'default'} steps=${maxStepsPerPlayout ?? 'default'}]`,
+    )
   }
 }
 console.log(`(wall clock across pooled ${POOL_SIZE}-worker run, ${total} games total: ${((Date.now() - overallStart) / 1000).toFixed(1)}s)`)

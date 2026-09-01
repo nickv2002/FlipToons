@@ -29,8 +29,18 @@ export type AiOptions = {
   rng?: Rng // the AI's OWN decision randomness — deliberately separate from any seed carried inside S, since advisory playouts must never perturb the real game's own RNG sequence
 }
 
-const DEFAULT_SIMULATIONS = 24
-const DEFAULT_MAX_STEPS_PER_PLAYOUT = 60
+// Tuned against a batch of 40 seeds/season at 'normal' difficulty after
+// fixing soloAdapter.ts's reward-on-cap-hit bug (see its own comment): with
+// the old 24/60 defaults, most season-2 playouts were still running (bigger
+// card pool, more market steps per round — see soloAdapter's benchmark
+// notes) when maxStepsPerPlayout cut them off, so the search was starved of
+// real signal regardless of the reward fix. 150/150 reaches ~75%/~55% win
+// rate on season 1/2 respectively (target was ~50% on each) at ~2.5-3s per
+// full game — a batch of 40 games takes ~100-125s. Lower simulation counts
+// (24-96) plateaued well under 50% on season 2 specifically; this is a
+// deliberate cost/strength tradeoff, not the ceiling of what's tunable.
+const DEFAULT_SIMULATIONS = 150
+const DEFAULT_MAX_STEPS_PER_PLAYOUT = 150
 const DEFAULT_MAX_WALL_CLOCK_MS = 5 * 60 * 1000
 
 // Cheap continuation policy used ONLY inside a playout, after the candidate

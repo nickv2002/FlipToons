@@ -70,6 +70,39 @@ export type PendingPostFameChoice = {
   options: { pos: GridPos; index: number; cardId: CardId }[]
 }
 
+// Set while a card deferred by Snake's stack (flip.ts's
+// pendingOnHireCardIds) needs a player choice before its onHire can resolve
+// — Panther's mandatory dismissChosenGridCard is the case that motivated
+// this (a Snake-stacked Panther used to throw: both runPostFameHooks and
+// resolvePostFameChoice drained pendingOnHireCardIds unconditionally, with
+// no choices, AFTER already committing phase: 'market'). Mirrors
+// PendingPostFameChoice's shape one level more general — `choice` is
+// whatever hireChoices.ts's computePendingChoice returned for this card's
+// onHire, so it covers every choice-needing onHire kind (including OPTIONAL
+// ones like Raccoon's hireFromDismissed, not just Panther's mandatory one),
+// not just Panther specifically. Non-null pauses the postFameHooks phase
+// mid-queue: `pendingOnHireCardIds` still holds the cards not yet processed,
+// and `cardId` here names the one currently waiting on an answer.
+export type PendingOnHireChoice = {
+  cardId: CardId
+  choice: PendingChoiceLike
+}
+
+// A structural copy of hireChoices.ts's PendingChoice. state.ts cannot
+// import that type directly: hireChoices.ts imports GameState FROM state.ts
+// (for computePendingChoice's signature), so a state.ts -> hireChoices.ts
+// type import would be circular. Keep this shape in lockstep with
+// PendingChoice by hand — hireChoices.ts's own file header/PendingChoice
+// comment is the place a new choice kind gets added, and this union must
+// grow to match.
+export type PendingChoiceLike =
+  | { kind: 'dismissByName'; mandatory: false; cost: number; options: { pos: GridPos; index: number; cardId: CardId }[] }
+  | { kind: 'dismissChosenGridCard'; mandatory: true; cost: number; options: { pos: GridPos; index: number; cardId: CardId }[] }
+  | { kind: 'hireFromDismissed'; mandatory: false; cost: number; options: { cardId: CardId; ownerPlayerId?: PlayerId }[] }
+  | { kind: 'hireFromMarketAndRefill'; mandatory: false; cost: number; options: number[] }
+  | { kind: 'discardMarketAndRefill'; mandatory: false; options: number[] }
+  | { kind: 'dismissAlligatorTarget'; mandatory: true; cost: 0; options: { pos: GridPos; index: number; cardId: CardId }[] }
+
 // Set while a Pig owes a destination deck. The card has already been detached
 // from wherever it landed (grid on hire, dismissed pile on dismiss) and is
 // held here until the player names a deck — any seat's, or the toon deck.
@@ -161,6 +194,12 @@ export type PlayerState = {
   // Non-null while this seat owes a Skunk dismissal before the Market phase
   // can open — see PendingPostFameChoice. Always null in solo.
   pendingPostFameChoice: PendingPostFameChoice | null
+
+  // Non-null while a Snake-stacked card's onHire is waiting on a player
+  // choice — see PendingOnHireChoice. Unlike pendingPostFameChoice this CAN
+  // fire in solo: only season === 'both' toon decks can draw both Snake (S1)
+  // and a choice-needing onHire card (Panther/Raccoon, both S2) together.
+  pendingOnHireChoice: PendingOnHireChoice | null
 
   // Non-null while a hired/dismissed Pig is waiting to be put into a deck.
   // Always null in solo — the Pig is excluded from solo's toon deck.
@@ -336,6 +375,7 @@ const PLAYER_FIELDS = [
   'pendingOnHireCardIds',
   'pendingPostMarketChoice',
   'pendingPostFameChoice',
+  'pendingOnHireChoice',
   'pendingDeckPlacement',
   'bigButtonFaceUp',
   'actedThisMarketPhase',
@@ -458,6 +498,7 @@ export function createSoloGameState(params: {
     winCondition: 'soloFameTarget',
     pendingPostMarketChoice: null,
     pendingPostFameChoice: null,
+    pendingOnHireChoice: null,
     pendingDeckPlacement: null,
     // "Place a Big Button card face up in front of each player" — face up is
     // the starting state whether or not the expansion is in play.
@@ -512,6 +553,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingOnHireCardIds: view.pendingOnHireCardIds,
       pendingPostMarketChoice: view.pendingPostMarketChoice,
       pendingPostFameChoice: view.pendingPostFameChoice,
+      pendingOnHireChoice: view.pendingOnHireChoice,
       pendingDeckPlacement: view.pendingDeckPlacement,
       bigButtonFaceUp: view.bigButtonFaceUp,
       actedThisMarketPhase: view.actedThisMarketPhase,
@@ -529,6 +571,7 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
       pendingOnHireCardIds: [] as CardId[],
       pendingPostMarketChoice: null,
       pendingPostFameChoice: null,
+      pendingOnHireChoice: null,
       pendingDeckPlacement: null,
       bigButtonFaceUp: true,
       actedThisMarketPhase: false,

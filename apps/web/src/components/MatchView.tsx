@@ -146,7 +146,30 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
         </div>
       )}
 
-      {phase === 'postFameHooks' && !me.pendingPostFameChoice && (
+      {/* A Snake-stacked card's own onHire prompt (Panther's mandatory
+          dismissChosenGridCard, Raccoon's optional hireFromDismissed) — same
+          reasoning as the Skunk block above: it blocks the Market phase for
+          the whole table, so it gets its own prompt rather than hiding
+          inside the board. Reuses EffectChoicePrompt with the choice
+          computed by the engine (state.ts's PendingOnHireChoice), so this is
+          wiring only — the component already renders every choice kind
+          (including hireFromDismissed's Skip). */}
+      {me.pendingOnHireChoice && (
+        <div className="match__prompt" data-testid="on-hire-prompt">
+          <EffectChoicePrompt
+            cardName={cards[me.pendingOnHireChoice.cardId].name}
+            choice={me.pendingOnHireChoice.choice}
+            cards={cards}
+            fame={me.fame}
+            market={match.shared.market.slots}
+            nameOf={nameOf}
+            myPlayerId={myPlayerId}
+            onResolve={(selection) => onAct({ kind: 'resolvePendingOnHireChoice', selection })}
+          />
+        </div>
+      )}
+
+      {phase === 'postFameHooks' && !me.pendingPostFameChoice && !me.pendingOnHireChoice && (
         <p className="match__waiting" data-testid="waiting-others">Waiting for the other players to resolve their abilities…</p>
       )}
 

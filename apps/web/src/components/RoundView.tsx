@@ -239,6 +239,24 @@ export function RoundView({
           also never enters). The decision moved onto the Market phase's own
           turn: it's just another button in ChoicePrompt below, next to
           GridResetRisk showing what pressing it gives up. */}
+      {/* A Snake-stacked card's own onHire choice (Panther's mandatory
+          dismissChosenGridCard, Raccoon's optional hireFromDismissed — see
+          state.ts's PendingOnHireChoice) pauses BEFORE the Market phase
+          opens: unlike every prompt below, `state.phase` is still
+          'postFameHooks' here, not 'market' — advanceThroughPassthroughPhases
+          (actions.ts) stops the auto-cascade right at this pause. */}
+      {state.phase === 'postFameHooks' && state.pendingOnHireChoice && (
+        <fieldset className="round-view__controls" disabled={controlsDisabled}>
+          <EffectChoicePrompt
+            cardName={cards[state.pendingOnHireChoice.cardId].name}
+            choice={state.pendingOnHireChoice.choice}
+            cards={cards}
+            fame={state.fame}
+            market={state.market.slots}
+            onResolve={(selection) => dispatch({ kind: 'resolvePendingOnHireChoice', selection })}
+          />
+        </fieldset>
+      )}
       {state.phase === 'market' && alligatorChoice && (
         <fieldset className="round-view__controls" disabled={controlsDisabled}>
           <EffectChoicePrompt

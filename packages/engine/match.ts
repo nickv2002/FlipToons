@@ -33,6 +33,7 @@ import {
   runPostFameHooks,
   runPostMarketHooks,
   resolvePostFameChoice,
+  resolvePendingOnHireChoice,
   runStandardRefill,
 } from './phases'
 import { emptyGrid, occupiedSlots } from './grid'
@@ -462,7 +463,7 @@ export function runMatchPostFameHooks(match: Match): Match {
 // dismissal — that hook is explicitly resolved BEFORE the Market phase (§3.4).
 // Callers poll this after each resolvePostFameChoice.
 function openMarketPhaseIfReady(match: Match): Match {
-  if (match.players.some((p) => p.pendingPostFameChoice)) return match
+  if (match.players.some((p) => p.pendingPostFameChoice || p.pendingOnHireChoice)) return match
   // Defense in depth: the Final Flip is Flip + Check Fame only (§3.2). Nothing
   // should reach here during one, but if something ever does, refusing to open
   // a Market phase is far better than silently granting everyone 2 more
@@ -488,6 +489,30 @@ export function matchResolvePostFameChoice(match: Match, playerId: PlayerId, cho
     const done = resolvePostFameChoice({ ...view, phase: 'postFameHooks' }, choice)
     // resolvePostFameChoice opens the Market phase for a solo game; at N seats
     // that transition belongs to openMarketPhaseIfReady below.
+    return { ...done, phase: view.phase }
+  })
+  return openMarketPhaseIfReady(resolved)
+}
+
+// Answers one seat's pending Snake-deferred onHire choice (Panther/Raccoon/
+// etc — see phases.ts's PendingOnHireChoice/resolvePendingOnHireChoice).
+// Same non-turn-gated reasoning as matchResolvePostFameChoice above:
+// postFameHooks is simultaneous, so whichever seat holds this prompt may
+// answer it whenever they like.
+export function matchResolvePendingOnHireChoice(
+  match: Match,
+  playerId: PlayerId,
+  selection: Parameters<typeof resolvePendingOnHireChoice>[1],
+): Match {
+  const index = playerIndex(match, playerId)
+  if (!match.players[index].pendingOnHireChoice) {
+    throw new Error(`match.ts: matchResolvePendingOnHireChoice — ${playerId} has no pending on-hire choice`)
+  }
+  const resolved = withPlayer(match, index, (view) => {
+    const done = resolvePendingOnHireChoice({ ...view, phase: 'postFameHooks' }, selection)
+    // Same reasoning as matchResolvePostFameChoice: resolvePendingOnHireChoice
+    // opens the Market phase for a solo game; at N seats that transition
+    // belongs to openMarketPhaseIfReady below.
     return { ...done, phase: view.phase }
   })
   return openMarketPhaseIfReady(resolved)

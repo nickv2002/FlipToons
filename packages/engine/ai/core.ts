@@ -21,6 +21,12 @@ export type AiAdapter<S, A> = {
   isTerminal(state: S): boolean
   reward(state: S): number // meaningful only once isTerminal(state) — 1 win / 0 loss (or a shaped value in between), adapter-defined
   clone(state: S): S // an independent copy safe to branch a rollout from
+  // OPTIONAL. When supplied, rolloutStep below weights its pick toward
+  // higher-scoring candidates (softmax over each candidate's resulting-state
+  // score) instead of picking uniformly at random. Absent, behavior is
+  // UNCHANGED — core.ts stays adapter-agnostic either way: it only ever
+  // calls this hook, never reasons about what S/A actually contain.
+  heuristicScore?(state: S): number
 }
 
 export type AiOptions = {
@@ -39,17 +45,93 @@ export type AiOptions = {
 // full game — a batch of 40 games takes ~100-125s. Lower simulation counts
 // (24-96) plateaued well under 50% on season 2 specifically; this is a
 // deliberate cost/strength tradeoff, not the ceiling of what's tunable.
+//
+// UPDATE after adding heuristicScore-weighted rollouts (heuristic.ts): kept
+// these defaults AS-IS — 150/150 with the heuristic on measured 82.5%/57.5%/
+// 90.0% on season 1/2/both (40 seeds each, up from the ~75%/~55%/~65%
+// pre-heuristic baseline, no regression on any season) — but per-game
+// wall-clock rose to ~8-11s (heuristicScore-weighted rolloutStep applies
+// several extra candidates per rollout step — see
+// MAX_SCORED_ROLLOUT_CANDIDATES below — instead of one uniform pick). A
+// reduced-budget sweep (100x100, 50x75; 20 seeds/season) was tried
+// specifically to see whether the smarter rollouts could buy back that cost
+// and came back strictly worse on BOTH axes, not just slower-for-the-same-
+// quality: season 2 fell to 45% at 100x100 and 15% at 50x75, and per-game
+// wall-clock at 50x75 (18s) was WORSE than full budget, not better — a
+// weaker search takes longer to stumble into a terminal state, not shorter.
+// Left unchanged rather than force a tradeoff that measured worse both ways.
 const DEFAULT_SIMULATIONS = 150
 const DEFAULT_MAX_STEPS_PER_PLAYOUT = 150
 const DEFAULT_MAX_WALL_CLOCK_MS = 5 * 60 * 1000
 
+// Softmax temperature for heuristic-weighted rollout sampling. Low enough to
+// meaningfully favor better-looking candidates, high enough that the policy
+// stays stochastic (a rollout is still a SAMPLE, not another best-action
+// search — chooseBestAction already does exhaustive comparison via many such
+// samples; a near-greedy rollout policy would just collapse every playout to
+// the same line and lose the averaging benefit of Monte Carlo sampling).
+const HEURISTIC_ROLLOUT_TEMPERATURE = 0.5
+
+// Scoring a candidate means APPLYING it (adapter.apply runs the whole real
+// reducer, not a cheap simulation of it) — so weighted rolloutStep's cost is
+// proportional to the branching factor at every single rollout step, not
+// just once per real decision the way it was under uniform-random picking.
+// Left unbounded, a market phase with a dozen-plus hire/dismiss candidates
+// (season 'both' especially) turned every playout step into a dozen-plus
+// full applies instead of one, which measured as a ~15x wall-clock blowup on
+// an unrelated regression test before this cap was added. Capping the
+// scored SAMPLE bounds worst-case rollout cost to a small constant
+// regardless of branching factor; the candidates left unscored this step
+// just don't get a heuristic-informed weight (uniform miss), which is fine —
+// a rollout step is a sample, not the real search, and which few candidates
+// get scored varies playout to playout.
+const MAX_SCORED_ROLLOUT_CANDIDATES = 3
+
 // Cheap continuation policy used ONLY inside a playout, after the candidate
-// action under evaluation has already been applied — uniform-random among
-// whatever's currently legal. This is intentionally not "smart"; the outer
-// evaluateAction/chooseBestAction loop is what does the actual comparison,
-// by averaging outcomes across many such playouts per candidate.
+// action under evaluation has already been applied. Uniform-random among
+// whatever's currently legal when the adapter supplies no heuristic; when it
+// does, weighted toward higher-scoring resulting states via softmax sampling
+// instead of a flat pick. Either way this is intentionally not exhaustive
+// search — the outer evaluateAction/chooseBestAction loop is what does the
+// actual comparison, by averaging outcomes across many such playouts per
+// candidate; the heuristic only makes each individual playout's random walk
+// a more realistic approximation of how the game is actually played.
+// `count` indices in [0, n) without replacement, via partial Fisher-Yates —
+// O(min(count, n)), never allocates/shuffles the full range when n is large.
+function sampleIndices(n: number, count: number, rng: Rng): number[] {
+  if (count >= n) return Array.from({ length: n }, (_, i) => i)
+  const pool = Array.from({ length: n }, (_, i) => i)
+  for (let i = 0; i < count; i++) {
+    const j = i + Math.floor(rng() * (n - i))
+    ;[pool[i], pool[j]] = [pool[j]!, pool[i]!]
+  }
+  return pool.slice(0, count)
+}
+
 function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng): S {
   const candidates = adapter.legalCandidates(state)
+  if (candidates.length === 1) return adapter.apply(state, candidates[0]!)
+
+  if (adapter.heuristicScore) {
+    const heuristicScore = adapter.heuristicScore
+    // apply() is documented pure (AiAdapter's contract) — it must not mutate
+    // its `state` argument, so scoring a candidate's resulting state needs
+    // no adapter.clone() here (an earlier version of this cloned per
+    // candidate per rollout step and made soloAdapter's structuredClone the
+    // dominant cost).
+    const pool = sampleIndices(candidates.length, MAX_SCORED_ROLLOUT_CANDIDATES, rng)
+    const scores = pool.map((i) => heuristicScore(adapter.apply(state, candidates[i]!)))
+    const max = Math.max(...scores)
+    const weights = scores.map((s) => Math.exp((s - max) / HEURISTIC_ROLLOUT_TEMPERATURE))
+    const total = weights.reduce((sum, w) => sum + w, 0)
+    let pick = rng() * total
+    for (let i = 0; i < weights.length; i++) {
+      pick -= weights[i]!
+      if (pick <= 0) return adapter.apply(state, candidates[pool[i]!]!)
+    }
+    return adapter.apply(state, candidates[pool[pool.length - 1]!]!)
+  }
+
   const action = candidates[Math.floor(rng() * candidates.length)]!
   return adapter.apply(state, action)
 }
@@ -81,6 +163,21 @@ export type ScoredAction<A> = { action: A; score: number }
 
 // Ranked highest-score-first; ties resolve by candidate order (whatever the
 // adapter's legalCandidates puts first among equal scores).
+//
+// A heuristicScore-based pre-sort was tried here (break ties toward the
+// heuristically-better candidate instead of raw array order) and reverted:
+// with a small simulation count, most candidates' averaged reward ties or
+// nearly ties (`evaluateAction`'s .sort below is STABLE, so a tie keeps
+// whatever order it was handed), and it turns out soloAdapter's
+// heuristicScore ranks "dismiss the whole grid" surprisingly high (several
+// fame bonuses read the dismissed pile — see soloAdapter's own reward()
+// comment for the measured seed). A pre-sort meant as a minor tie-break
+// ended up deciding real games outright: seed 102 (easy, season 1) got
+// stuck dismissing forever with the pre-sort in, and resolved normally at
+// 90 real decisions with it out. Rollout-step weighting (below) doesn't
+// have this failure mode — it only nudges a bounded RANDOM SAMPLE inside a
+// playout, never deterministically decides a real top-level action — so it
+// stays; only this pre-sort was removed.
 export function evaluateCandidates<S, A>(adapter: AiAdapter<S, A>, state: S, opts: AiOptions = {}): ScoredAction<A>[] {
   return adapter
     .legalCandidates(state)

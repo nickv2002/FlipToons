@@ -15,6 +15,7 @@ import { hireCost } from '../market'
 import { cardsById } from '../setup'
 import type { GameState } from '../state'
 import type { AiAdapter } from './core'
+import { scoreState } from './heuristic'
 
 const cards = cardsById()
 
@@ -85,10 +86,33 @@ function marketCandidates(state: GameState): Action[] {
   return candidates
 }
 
+// One candidate per legal option of a paused Snake-stacked onHire choice
+// (Panther, Raccoon — see state.ts's pendingOnHireChoice comment), mirroring
+// choicesForEffects/selectionsFor's own choice-to-candidate expansion above.
+// Optional (mandatory: false) choices additionally get a 'skip' candidate.
+function pendingOnHireCandidates(state: GameState): Action[] {
+  const pending = state.pendingOnHireChoice
+  if (!pending) return []
+  const choice = pending.choice
+  const selections: (DismissTarget | HireFromDismissedTarget | number | number[])[] =
+    choice.kind === 'discardMarketAndRefill' ? choice.options.map((slot) => [slot]) : choice.options
+  const built: Action[] = selections.map((selection) => ({ kind: 'resolvePendingOnHireChoice', selection }))
+  return choice.mandatory ? built : [...built, { kind: 'resolvePendingOnHireChoice', selection: 'skip' }]
+}
+
 export const soloAdapter: AiAdapter<GameState, Action> = {
   legalCandidates(state) {
     if (state.phase === 'ended') return []
+    if (state.pendingOnHireChoice) return pendingOnHireCandidates(state)
     if (state.phase !== 'market') return [{ kind: 'flip' }]
+    // NOT pre-sorted here on purpose — legalCandidates is called on every
+    // single rollout step (core.ts's rolloutStep), not just once per real
+    // decision, so a per-call sort (each entry itself an applyAction +
+    // scoreState) turned into the dominant cost of every playout regardless
+    // of core.ts's own MAX_SCORED_ROLLOUT_CANDIDATES cap. core.ts's
+    // evaluateCandidates does the equivalent tie-break sort itself, once per
+    // real decision, using this same adapter.heuristicScore hook — see its
+    // comment.
     return marketCandidates(state)
   },
   apply(state, action) {
@@ -103,12 +127,25 @@ export const soloAdapter: AiAdapter<GameState, Action> = {
   // whenever playouts commonly run long (season 2's bigger card pool means
   // more market steps per round — see soloAdapter's benchmark notes), which
   // collapses the ranking to candidate order (endMarket first) instead of
-  // the actual search. Give partial credit off this round's progress toward
-  // the fame threshold, capped well below a real win and docked further if
-  // the toon deck is already depleted (an early signal the rollout is
-  // trending toward a loss it hasn't reached yet) — mirrors the old
-  // (deleted) ai.ts's scoreOutcome, ported to the terminal/non-terminal split
-  // core.ts's adapter contract expects here.
+  // the actual search. Give partial credit off this round's FROZEN progress
+  // toward the fame threshold (fameGeneratedThisRound, only updated at Check
+  // Fame), docked further if the toon deck is already depleted.
+  //
+  // scoreState (live grid read) was tried here too — both alone and blended
+  // 50/50 with this frozen formula — and rejected both times: several fame
+  // bonuses read `externalState.dismissed` (Tiger/Cat-shaped cards) or an
+  // adjacency condition a neighboring card can turn negative, so ANY live
+  // weight in reward() makes repeatedly dismissing the grid down to
+  // whichever single card scores best look like a winning strategy to the
+  // search. Measured directly: with live-based reward (pure OR blended),
+  // seed 102 (easy, season 1) never terminates — it dismisses every grid
+  // card, every round, indefinitely (still going after 400 top-level
+  // decisions); with the frozen-only formula below it plays out normally in
+  // 101. fameGeneratedThisRound is immune to this because it doesn't move
+  // until Check Fame actually re-runs, so hollowing out the grid mid-round
+  // can't inflate it. scoreState still earns its keep elsewhere — the
+  // rollout bias and the candidate pre-sort (both bounded, not the sole
+  // driver of a real decision the way reward() is) — see core.ts.
   reward(state) {
     if (state.phase === 'ended') return state.result === 'win' ? 1 : 0
     const progress = Math.min(0.95, state.fameGeneratedThisRound / state.fameToTriggerEndgame)
@@ -117,6 +154,7 @@ export const soloAdapter: AiAdapter<GameState, Action> = {
   clone(state) {
     return structuredClone(state)
   },
+  heuristicScore: scoreState,
 }
 
 // Convenience constructor mirroring actions.ts's buildNewGameState, so

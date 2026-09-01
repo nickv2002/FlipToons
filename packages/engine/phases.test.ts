@@ -1,6 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { emptyGrid, getSlot, occupiedSlots, placeCardFaceUp } from './grid'
-import { dismiss, endMarketPhase, hire, resolvePostMarketChoice, runCheckFame, runCleanup, runFlip, runPostFameHooks, runPostMarketHooks } from './phases'
+import {
+  dismiss,
+  endMarketPhase,
+  hire,
+  resolvePendingOnHireChoice,
+  resolvePostMarketChoice,
+  runCheckFame,
+  runCleanup,
+  runFlip,
+  runPostFameHooks,
+  runPostMarketHooks,
+} from './phases'
 import { buildExplicitDeck, buildSoloSetup, cardsById } from './setup'
 import { createSoloGameState } from './state'
 import type { EngineLogLine, GameState } from './state'
@@ -42,8 +53,21 @@ function totalPlayerCards(state: GameState): number {
 //   alligator 6 + axolotl 7 + peacock 5 + horse 4 + bull 3 + bear (1+6) 7 = 32
 const HIGH_FAME_DECK = buildExplicitDeck(['alligator', 'axolotl', 'peacock', 'horse', 'bull', 'bear'], cards)
 
+// A Snake-stacked card's own onHire (Panther, Raccoon) can pause
+// postFameHooks with pendingOnHireChoice — greedily pick its first legal
+// option (or skip, for a non-mandatory choice), same "greedy, not
+// exhaustive" convention as endMarketPhaseAutoResolving above, so fuzz/
+// invariant tests that just want a full game to completion aren't blocked by
+// a season-'both' Snake+Panther/Raccoon draw.
 function runToMarket(state: GameState): GameState {
-  return runPostFameHooks(runCheckFame(runFlip(state)))
+  let next = runPostFameHooks(runCheckFame(runFlip(state)))
+  while (next.pendingOnHireChoice) {
+    const choice = next.pendingOnHireChoice.choice
+    const first = choice.kind === 'discardMarketAndRefill' ? [choice.options[0]] : choice.options[0]
+    const selection = choice.mandatory ? first : (first ?? 'skip')
+    next = resolvePendingOnHireChoice(next, selection)
+  }
+  return next
 }
 
 describe('win trigger: reaching the fame threshold', () => {

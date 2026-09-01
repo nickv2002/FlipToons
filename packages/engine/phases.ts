@@ -23,6 +23,7 @@ import { shuffleWithState } from './rng'
 import { scoreGrid } from './score'
 import { canUseGridResetNow, canUseMarketReset } from './bigButton'
 import { cardsById } from './setup'
+import { buildEffectChoices, computePendingChoice } from './hireChoices'
 
 // One shared card table for the whole module. This was thirteen separate
 // `const cards = cardsById()` lines, one per function — several of them on
@@ -106,7 +107,7 @@ function countFaceUpInGrid(grid: Grid, ids: readonly CardId[]): number {
   return n
 }
 
-function dogElsewhereFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
+export function dogElsewhereFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
   if (state.market.slots.some((id) => id === 'dog')) return true
   // "any OTHER player's grid" — Dog excludes its own grid, because the
   // condition is about OTHER Dogs. This is the one resolver of the three that
@@ -126,7 +127,7 @@ function dogElsewhereFromMarket(state: GameState, otherGrids: Grid[] = []): bool
 // market, or any other player's grid — not a sum. That makes the comparison
 // read exactly as the FAQ states it: "no one has STRICTLY MORE camels than
 // you," with ties still qualifying.
-function camelMarketCountFromMarket(state: GameState, otherGrids: Grid[] = []): number {
+export function camelMarketCountFromMarket(state: GameState, otherGrids: Grid[] = []): number {
   const marketCount = state.market.slots.filter((id) => id === 'camel').length
   return Math.max(marketCount, ...otherGrids.map((g) => countFaceUpInGrid(g, ['camel'])), 0)
 }
@@ -143,7 +144,7 @@ function camelMarketCountFromMarket(state: GameState, otherGrids: Grid[] = []): 
 // (Hen/Rooster), so the Fox owner's own grid counts too. score.ts already
 // checks the own-grid half directly, so only the market plus every other
 // player's grid needs supplying here.
-function henOrRoosterInMarketFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
+export function henOrRoosterInMarketFromMarket(state: GameState, otherGrids: Grid[] = []): boolean {
   if (state.market.slots.some((id) => id === 'hen' || id === 'rooster')) return true
   return otherGrids.some((g) => countFaceUpInGrid(g, ['hen', 'rooster']) > 0)
 }
@@ -236,6 +237,59 @@ export function rescoreAfterGridReset(state: GameState, otherGrids: Grid[] = [])
 // tie case: "Only one player can benefit from the skunk's ability each round.
 // In case of a tie, the skunk has no effect." Hence STRICTLY lowest: a tie
 // for last means the hook does not fire for anyone.
+// Drains state.pendingOnHireCardIds one card at a time — Snake's "if the
+// stacked card has a When-Hired ability, resolve it after the Flip phase is
+// complete" (FAQ; see flip.ts's dismissOwnDeckTopAndStackFromToonDeck case).
+//
+// A card in this queue can need a player choice before its onHire resolves
+// (Panther's mandatory dismissChosenGridCard is the case that motivated
+// this — a legal target existing and no choice being supplied used to
+// throw; Raccoon's optional hireFromDismissed is the same shape but
+// declinable). Reuses hireChoices.ts's computePendingChoice/buildEffectChoices
+// — the same machinery the UI uses to prompt for a hire()/dismiss() choice —
+// rather than special-casing Panther, so any future choice-needing onHire
+// card drawn this way is handled the same way with no changes here.
+//
+// Pauses the phase (returns with `phase` left as-is, i.e. still
+// 'postFameHooks', and the NOT-yet-processed ids still in
+// pendingOnHireCardIds) the moment a card needs an answer. Callers must not
+// open the Market phase off a state this returned with pendingOnHireChoice
+// still set — see runPostFameHooks/resolvePostFameChoice/
+// resolvePendingOnHireChoice below, all of which check that before
+// proceeding to the market-opening rewrite.
+function drainPendingOnHireCards(state: GameState): GameState {
+  let next = state
+  const ids = next.pendingOnHireCardIds
+  for (let i = 0; i < ids.length; i++) {
+    const cardId = ids[i]
+    const card = cards[cardId]
+    const pending = computePendingChoice(next, card.onHire, cards)
+    if (pending) {
+      return { ...next, pendingOnHireCardIds: ids.slice(i + 1), pendingOnHireChoice: { cardId, choice: pending } }
+    }
+    next = applyEffects(next, card, card.onHire)
+  }
+  return { ...next, pendingOnHireCardIds: [] }
+}
+
+// The shared "open the Market phase" rewrite both runPostFameHooks and
+// resolvePostFameChoice perform once postFameHooks/pendingOnHireCardIds have
+// fully drained with no pause — actionsRemaining dealt out, pendingOnHireChoice
+// left null (drainPendingOnHireCards only returns non-null here when it just
+// paused, which callers check before reaching this point), actedThisMarketPhase
+// cleared. See state.ts's actedThisMarketPhase comment for why this is the
+// one place it's reset.
+function openMarketAfterPostFameHooks(state: GameState): GameState {
+  // ADDS, not overwrites: actionsRemaining is 0 entering postFameHooks (see
+  // state.ts's field comment), but drainPendingOnHireCards may already have
+  // applied a Peacock-drawn-via-Snake bonusMarketAction onto it BEFORE this
+  // runs (drain happens first now, so a pending choice can still pause the
+  // phase) — an overwrite would silently discard that bonus instead of it
+  // being additive on top of the normal 2 (same ordering concern hire()'s
+  // own onHire-firing comment flags).
+  return { ...state, actionsRemaining: state.actionsRemaining + MARKET_ACTIONS_PER_ROUND, phase: 'market', actedThisMarketPhase: false }
+}
+
 export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true): GameState {
   assertPhase(state, 'postFameHooks', 'runPostFameHooks')
 
@@ -280,25 +334,21 @@ export function runPostFameHooks(state: GameState, isStrictlyLowestFame = true):
     return { ...state, fame, pendingPostFameChoice }
   }
 
+  // Snake's deferred onHire cards (see drainPendingOnHireCards's header
+  // comment) drain BEFORE the Market-phase actionsRemaining reset below —
+  // unlike the old unconditional loop, a choice-needing card (Panther,
+  // Raccoon) can pause here with `phase` left at 'postFameHooks' instead of
+  // throwing or silently opening Market with an unanswered choice.
+  const drained = drainPendingOnHireCards({ ...state, fame })
+  if (drained.pendingOnHireChoice) return drained
+
   // actedThisMarketPhase is cleared HERE and nowhere else: this is the one
   // place actionsRemaining is dealt out, every seat passes through it once per
   // round, and each seat takes exactly one turn per Market phase. See the
   // field's comment in state.ts. It now rides RESET: GRID's start-of-turn
   // gate (canUseGridResetNow) rather than RESET: MARKET's — clearing it here
   // is what re-arms the grid-reset button at the top of each new Market turn.
-  let next: GameState = { ...state, fame, actionsRemaining: MARKET_ACTIONS_PER_ROUND, phase: 'market', pendingOnHireCardIds: [], actedThisMarketPhase: false }
-
-  // Snake's deferred "if the stacked card has a When-Hired ability,
-  // resolve it after the Flip phase is complete" (FAQ) — see flip.ts's
-  // dismissOwnDeckTopAndStackFromToonDeck case. Applied AFTER the Market-
-  // phase actionsRemaining reset above, so Peacock's bonus action is
-  // additive on top of the normal 2, not a wash (same ordering concern as
-  // hire()'s own onHire-firing comment).
-  for (const cardId of state.pendingOnHireCardIds) {
-    next = applyEffects(next, cards[cardId], cards[cardId].onHire)
-  }
-
-  return next
+  return openMarketAfterPostFameHooks(drained)
 }
 
 // Answers a pending Skunk dismissal, then finishes the postFameHooks pass the
@@ -321,25 +371,60 @@ export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; 
   const removedId = removeCardRaw(grid, target.pos, target.index)
 
   // The hook has now fired, so re-running the pass would re-prompt off the
-  // same Skunk. Open the Market phase directly instead.
-  // Same clear-and-rearm as runPostFameHooks above: this is the OTHER place
-  // actionsRemaining is dealt out for a new Market phase, so it is also
-  // another place that re-arms RESET: GRID's start-of-turn gate.
-  let next: GameState = {
+  // same Skunk. Drain any Snake-deferred onHire cards next (may pause again,
+  // e.g. a stacked Panther/Raccoon), then open the Market phase.
+  const next: GameState = {
     ...state,
     grid,
     dismissed: [...state.dismissed, removedId],
     fame: state.fame - pending.cost,
     pendingPostFameChoice: null,
-    actionsRemaining: MARKET_ACTIONS_PER_ROUND,
-    phase: 'market',
-    pendingOnHireCardIds: [],
-    actedThisMarketPhase: false,
   }
-  for (const cardId of state.pendingOnHireCardIds) {
-    next = applyEffects(next, cards[cardId], cards[cardId].onHire)
+  const drained = drainPendingOnHireCards(next)
+  if (drained.pendingOnHireChoice) return drained
+  // Same clear-and-rearm as runPostFameHooks above: this is the OTHER place
+  // actionsRemaining is dealt out for a new Market phase, so it is also
+  // another place that re-arms RESET: GRID's start-of-turn gate.
+  return openMarketAfterPostFameHooks(drained)
+}
+
+// Answers a pending Snake-deferred onHire choice (Panther's mandatory
+// dismissChosenGridCard, Raccoon's optional hireFromDismissed, or any other
+// choice-needing onHire kind drawn this way) — see PendingOnHireChoice /
+// drainPendingOnHireCards. `selection` is 'skip' for an optional choice a
+// player declines; mandatory choices (mandatory: true) must not be skipped —
+// callers should not offer a skip control for those (mirrors
+// hireChoices.ts's buildEffectChoices comment).
+export function resolvePendingOnHireChoice(
+  state: GameState,
+  selection: Parameters<typeof buildEffectChoices>[1],
+): GameState {
+  const pending = state.pendingOnHireChoice
+  if (!pending) throw new Error('phases.ts: resolvePendingOnHireChoice — this state has no pending on-hire choice')
+  if (pending.choice.mandatory && selection === 'skip') {
+    throw new Error(`phases.ts: resolvePendingOnHireChoice — ${pending.choice.kind} is mandatory and cannot be skipped`)
   }
-  return next
+  if (selection !== 'skip') {
+    // discardMarketAndRefill selects MULTIPLE slots (selection is number[]);
+    // every other kind selects ONE option from the list. Validate against
+    // pending.choice.options accordingly rather than a single generic
+    // equality check, since the option/selection shapes differ by kind.
+    const legal =
+      pending.choice.kind === 'discardMarketAndRefill'
+        ? Array.isArray(selection) && selection.length > 0 && selection.every((s) => (pending.choice.options as number[]).includes(s))
+        : (pending.choice.options as unknown[]).some((o) => JSON.stringify(o) === JSON.stringify(selection))
+    if (!legal) {
+      throw new Error(`phases.ts: resolvePendingOnHireChoice — ${JSON.stringify(selection)} is not a legal selection among ${pending.choice.options.length} option(s)`)
+    }
+  }
+
+  const card = cards[pending.cardId]
+  const choices = buildEffectChoices(pending.choice, selection)
+  const applied = applyEffects({ ...state, pendingOnHireChoice: null }, card, card.onHire, choices)
+
+  const drained = drainPendingOnHireCards(applied)
+  if (drained.pendingOnHireChoice) return drained
+  return openMarketAfterPostFameHooks(drained)
 }
 
 // ---------------------------------------------------------------------------

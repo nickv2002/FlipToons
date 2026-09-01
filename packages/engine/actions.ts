@@ -16,6 +16,7 @@ import {
   hire,
   listDismissEntries,
   rescoreAfterGridReset,
+  resolvePendingOnHireChoice,
   resolvePostMarketChoice,
   runCheckFame,
   runCleanup,
@@ -23,6 +24,7 @@ import {
   runPostFameHooks,
   unencodableNote,
 } from './phases'
+import type { DismissTarget, HireFromDismissedTarget } from './hireChoices'
 import type { DismissEntry } from './phases'
 export { hasAnyLegalMarketAction, listDismissEntries }
 export type { DismissEntry }
@@ -44,6 +46,12 @@ export type Action =
   | { kind: 'dismiss'; pos: GridPos; index: number; choices?: EffectChoices } // choices resolves the dismissed card's own onDismiss prompt (Crow), if any
   | { kind: 'endMarket' }
   | { kind: 'resolvePostMarketChoice'; pos: GridPos; index: number } // answers GameState.pendingPostMarketChoice — Alligator's stack-target pick
+  // Answers GameState.pendingOnHireChoice — a Snake-stacked card's own
+  // choice-needing onHire (Panther's mandatory dismissChosenGridCard,
+  // Raccoon's optional hireFromDismissed). `selection` mirrors
+  // hireChoices.ts's PendingChoice option shapes; 'skip' only for a
+  // non-mandatory choice.
+  | { kind: 'resolvePendingOnHireChoice'; selection: DismissTarget | HireFromDismissedTarget | number | number[] | 'skip' }
   | { kind: 'advanceCleanup' }
   // Big Button. A Market-phase action costing no fame and no action, that
   // dispatches on GameState.resetEffect since only one reset is ever in
@@ -138,10 +146,20 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: Engi
   // multiplayer's Final Flip (match.ts), which solo never reaches (§3.7).
 
   if (next.phase === 'postFameHooks') {
-    // Provably a pass-through in solo — see phases.ts's runPostFameHooks
-    // header comment (Skunk/Firefly are both starting-deck-only and solo's
-    // setup swaps the least-fame starter out).
+    // The Skunk/Firefly hooks themselves are provably a pass-through in solo
+    // (see phases.ts's runPostFameHooks header comment) — but a Snake-
+    // stacked card's own onHire (Panther, Raccoon — see state.ts's
+    // pendingOnHireChoice comment) is NOT: it's reachable in solo whenever a
+    // season-'both' toon deck draws both Snake (S1) and a choice-needing
+    // onHire card (both S2) together.
     next = runPostFameHooks(next)
+    if (next.pendingOnHireChoice) {
+      // Paused mid-postFameHooks waiting on that choice — do not cascade
+      // into resolveEndOfRoundOutcome below, which assumes 'market' or
+      // 'ended'. resolvePendingOnHireChoice (below) resumes this same
+      // cascade once answered.
+      return next
+    }
   }
 
   return resolveEndOfRoundOutcome(next, logLines)
@@ -366,6 +384,26 @@ function applyActionRaw(state: GameState, action: Action): ApplyResult {
       say('Ended the Market phase.')
       if (next.phase === 'cleanup') next = advanceThroughPassthroughPhases(next, logLines, debugLines)
       return { state: next, logLines, debugLines }
+    } catch (err) {
+      if (isEngineBug(err)) throw err
+      say(`Can't do that: ${playerFacingMessage(err)}`)
+      return { state, logLines, debugLines }
+    }
+  }
+
+  if (action.kind === 'resolvePendingOnHireChoice') {
+    if (!state.pendingOnHireChoice) {
+      say(`Can't do that: there's no pending choice to resolve.`)
+      return { state, logLines, debugLines }
+    }
+    try {
+      const next = resolvePendingOnHireChoice(state, action.selection)
+      if (next.pendingOnHireChoice) return { state: next, logLines, debugLines } // another Snake-stacked card needs a choice too
+      // resolvePendingOnHireChoice lands on 'market' once the queue drains —
+      // resume the same cascade advanceThroughPassthroughPhases would have
+      // continued into (win/guaranteed-loss checks), rather than leaving the
+      // caller to re-derive them.
+      return { state: resolveEndOfRoundOutcome(next, logLines), logLines, debugLines }
     } catch (err) {
       if (isEngineBug(err)) throw err
       say(`Can't do that: ${playerFacingMessage(err)}`)

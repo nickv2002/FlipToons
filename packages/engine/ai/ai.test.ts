@@ -80,7 +80,7 @@ describe('playSoloAutomatically', () => {
     expect(result.actionsTaken.length).toBeGreaterThan(0)
     const kinds = new Set(result.actionsTaken.map((a) => a.kind))
     for (const k of kinds) {
-      expect(['flip', 'hire', 'dismiss', 'endMarket', 'resolvePostMarketChoice']).toContain(k)
+      expect(['flip', 'hire', 'dismiss', 'endMarket', 'resolvePostMarketChoice', 'resolvePendingOnHireChoice']).toContain(k)
     }
   })
 

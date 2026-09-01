@@ -28,6 +28,7 @@
 
 import type { EffectChoices } from './cards/types'
 import { formatBreakdown } from './score'
+import type { DismissTarget, HireFromDismissedTarget } from './hireChoices'
 import { applyMarketReset, canUseGridResetNow, canUseMarketReset, marketResetReturnedCards } from './bigButton'
 import {
   activePlayerId,
@@ -38,6 +39,7 @@ import {
   matchHire,
   matchResolveDeckPlacement,
   matchResolvePostFameChoice,
+  matchResolvePendingOnHireChoice,
   matchResolvePostMarketChoice,
   playerIndex,
   runMatchCheckFame,
@@ -59,6 +61,13 @@ import type { GridPos } from './types'
 
 const cards = cardsById()
 
+// Wire shape for resolvePendingOnHireChoice's selection — a JSON-serializable
+// union covering every hireChoices.ts PendingChoice option shape this can
+// reach today (DismissTarget for dismissChosenGridCard, HireFromDismissedTarget
+// for hireFromDismissed) plus 'skip'. Extend this union, not a generic `any`,
+// if a future card drags a market-slot-choice kind into pendingOnHireCardIds.
+export type OnHireSelection = DismissTarget | HireFromDismissedTarget | number | number[] | 'skip'
+
 export type MatchAction =
   // Shared, NOT turn-gated: §6's MVP pacing, chosen by the user — all seats'
   // reveals advance together off one control. Any seat may press it.
@@ -67,6 +76,14 @@ export type MatchAction =
   // seat holding a Skunk prompt answers it whenever they like. Nobody is
   // waiting for a turn to come round.
   | { kind: 'resolvePostFameChoice'; pos: GridPos; index: number }
+  // Per-player, NOT turn-gated, same reasoning as resolvePostFameChoice above
+  // — a Snake-deferred onHire choice (Panther's mandatory
+  // dismissChosenGridCard, Raccoon's optional hireFromDismissed, or any
+  // other choice-needing onHire kind). `selection` mirrors
+  // hireChoices.ts's PendingChoice option shapes (the client selects one
+  // entry verbatim from PendingOnHireChoice.choice.options and forwards it
+  // here) plus 'skip', which only a non-mandatory choice may use.
+  | { kind: 'resolvePendingOnHireChoice'; selection: OnHireSelection }
   // Turn-gated (§3.0: first player, then clockwise).
   | { kind: 'hire'; slotIndex: number; choices?: EffectChoices }
   | { kind: 'dismiss'; pos: GridPos; index: number; choices?: EffectChoices }
@@ -184,6 +201,26 @@ export function applyMatchAction(match: Match, playerId: PlayerId, action: Match
         throw new IllegalActionError(err instanceof Error ? err.message : String(err))
       }
       say(`${card.name}: dismissed ${target?.name ?? 'a card'}.`)
+      return { match: next, logLines, debugLines }
+    }
+
+    case 'resolvePendingOnHireChoice': {
+      const pending = match.players[playerIndex(match, playerId)].pendingOnHireChoice
+      if (!pending) throw new IllegalActionError('You have no pending choice to answer.')
+      const card = cards[pending.cardId]
+      let next: Match
+      try {
+        next = matchResolvePendingOnHireChoice(match, playerId, action.selection)
+      } catch (err) {
+        // Same split as resolvePostFameChoice: an illegal/mandatory-skip
+        // selection is the player's mistake, not a phase-machine bug.
+        throw new IllegalActionError(err instanceof Error ? err.message : String(err))
+      }
+      if (action.selection === 'skip') {
+        say(`${card.name}: declined.`)
+      } else {
+        say(`${card.name}: resolved its When-Hired ability.`)
+      }
       return { match: next, logLines, debugLines }
     }
 

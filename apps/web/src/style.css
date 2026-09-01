@@ -905,6 +905,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
 @keyframes card-deal-flip {
@@ -1025,6 +1026,7 @@ button {
   font-weight: 700;
   font-size: 0.85rem;
   color: var(--color-warning);
+  flex: none;
 }
 
 .card--empty {

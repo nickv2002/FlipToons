@@ -17,6 +17,7 @@
 import type { Match } from '../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Season } from '../../packages/engine/cards/types'
+import type { SoloDifficulty } from '../../packages/engine/setup'
 
 // §6's room-code alphabet: unambiguous characters only (no 0/O, 1/I/l).
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -31,6 +32,7 @@ export type SeatInfo = {
   name: string
   connected: boolean
   isHost: boolean
+  isBot: boolean
 }
 
 export type LobbyState = {
@@ -56,7 +58,20 @@ export type LobbyState = {
 // at room creation because it changes the toon deck's composition (the
 // season's Big Button card is only dealt when a reset effect is chosen), which
 // setup.ts decides before the first Flip.
-export type CreateRoomRequest = { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }
+// `vsAi` seats a permanent bot in seat 2 at creation (see room.ts) — the
+// bot's moves are computed in the HOST's browser and relayed as ordinary
+// `action` messages tagged with `asSeat` below, never computed on this
+// server. `aiDifficulty` mirrors packages/engine/setup.ts's SoloDifficulty,
+// the same knob solo play already uses.
+export type CreateRoomRequest = {
+  name: string
+  season: Season
+  seed?: number
+  fameToTriggerEndgame?: number
+  bigButton?: 'market' | 'grid'
+  vsAi?: boolean
+  aiDifficulty?: SoloDifficulty
+}
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
 // Sent as the first message over a `/ws?room=<code>` connection. There is no
@@ -72,8 +87,11 @@ export type ClientMessage =
   | { type: 'start' }
   // NOTE: carries no playerId. The server derives the actor from the
   // connection's assigned seat — a client-asserted id would let anyone act as
-  // anyone.
-  | { type: 'action'; action: MatchAction }
+  // anyone. `asSeat`, if present, is honored ONLY when it names a bot seat in
+  // a vsAi room (see room.ts's handleAction) — this is a low-stakes hobby app,
+  // so there is deliberately no check on WHICH socket sends a bot's move, only
+  // on WHOSE seat it is allowed to move.
+  | { type: 'action'; action: MatchAction; asSeat?: string }
   // Host-only, and only once the match has actually ended: deals a fresh
   // match to the same seats without returning to the lobby.
   | { type: 'rematch' }

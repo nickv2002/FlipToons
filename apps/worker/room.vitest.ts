@@ -17,7 +17,15 @@ type Client = {
   close: () => void
 }
 
-async function createRoom(opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }): Promise<CreateRoomResponse> {
+async function createRoom(opts: {
+  name: string
+  season: 1 | 2
+  seed?: number
+  fameToTriggerEndgame?: number
+  bigButton?: 'market' | 'grid'
+  vsAi?: boolean
+  aiDifficulty?: 'easy' | 'normal' | 'hard'
+}): Promise<CreateRoomResponse> {
   const res = await SELF.fetch('https://fliptoons.example/api/rooms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -460,6 +468,128 @@ describe('surviving eviction', () => {
     expect(seated.lobby.started).toBe(true)
     const state = await rejoined.next('state')
     expect(state.match.players).toHaveLength(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// vsAi rooms — a permanent bot seat, its moves relayed from the host's
+// browser via `asSeat` rather than computed on this server.
+// ---------------------------------------------------------------------------
+describe('vsAi rooms', () => {
+  test('creating a vsAi room synthesizes a bot seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true })
+    expect(created.lobby.seats).toHaveLength(2)
+    const bot = created.lobby.seats.find((s) => s.isBot)
+    expect(bot).toBeTruthy()
+    expect(bot!.playerId).toBe('p1')
+    expect(bot!.connected).toBe(true)
+    expect(created.lobby.seats.find((s) => s.playerId === created.playerId)?.isBot).toBe(false)
+  })
+
+  test('a human joining a vsAi room cannot be assigned the bot seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: 'Bo' })
+    const seated = await guest.next('seated')
+    expect(seated.playerId).not.toBe('p1')
+    expect(seated.lobby.seats.filter((s) => s.isBot)).toHaveLength(1)
+  })
+
+  test('an action tagged asSeat for the bot seat is applied to the bot regardless of who sends it', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    host.drain('lobby')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.send({ type: 'action', action: { kind: 'endTurn' }, asSeat: 'p1' })
+    const state = await host.next('state')
+    // Applied as p1 (the bot), not as p0 (the host's own attached seat) —
+    // the log line names whoever's turn actually ended.
+    expect(state.logLines.some((l) => l.playerId === 'p1' && l.text.includes('ended their turn'))).toBe(true)
+  })
+
+  test('an action tagged asSeat for a human seat is ignored, falling back to the sender own attached seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    host.drain('lobby')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      // It is the bot's (p1) turn — asSeat cannot redirect the host's own
+      // socket onto p0 (a human seat) and have that magically succeed as p1.
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.send({ type: 'action', action: { kind: 'endTurn' }, asSeat: 'p0' })
+    const err = await host.next('error')
+    expect(err.code).toBe('illegalAction')
+  })
+
+  test('the bot seat is eligible for playForAbsentSeat when the host disconnects', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.close()
+    await new Promise((r) => setTimeout(r, 50))
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.turnTimeoutDeadline = Date.now() - 1
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+    const ran = await runAlarm(stub)
+    expect(ran).toBe(true)
+
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      expect(room.log.some((l: any) => l.text.includes('was skipped'))).toBe(true)
+    })
   })
 })
 

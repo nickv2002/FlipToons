@@ -54,6 +54,8 @@ async function handleCreateRoom(request: Request, env: Env): Promise<Response> {
     // the toon deck's composition, so an arbitrary string arriving from a
     // client must land as "not in play", not as a truthy unknown effect.
     bigButton: body.bigButton === 'market' || body.bigButton === 'grid' ? body.bigButton : undefined,
+    vsAi: body.vsAi === true,
+    aiDifficulty: body.aiDifficulty === 'easy' || body.aiDifficulty === 'normal' || body.aiDifficulty === 'hard' ? body.aiDifficulty : undefined,
   })
   return Response.json(result, { headers: CORS_HEADERS })
 }

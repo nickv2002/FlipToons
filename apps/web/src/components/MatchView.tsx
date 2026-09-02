@@ -105,7 +105,7 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
   const dismissedOverlayPlayer = match.players.find((p) => p.playerId === dismissedOverlayFor)
 
   return (
-    <div className="match" data-testid="match">
+    <div className="match" data-phase={phase} data-testid="match">
       <FameRace rows={fameRows(match, myPlayerId, nameOf, fames)} threshold={match.shared.fameToTriggerEndgame} />
 
       <EndgameNotice match={match} />

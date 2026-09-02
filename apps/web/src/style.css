@@ -1939,11 +1939,17 @@ img.card__icon {
    spanning the page — same component, two card sizes, which is most of what
    made the two boards read as different kinds of thing.
 
-   Scoped to `.match` on purpose: solo has only ever had one board, so there
-   is nothing there for it to match, and capping it globally would shrink the
-   solo grid (398px -> 352px at 1024px wide) to fix a problem solo doesn't
-   have. Inside a match it applies to YOUR board and everyone else's alike. */
-.match .grid {
+   Scoped to `.match[data-phase="market"]`, not `.match` unconditionally:
+   solo has only ever had one board, so there is nothing there for it to
+   match, and capping it globally would shrink the solo grid (398px ->
+   352px at 1024px wide) to fix a problem solo doesn't have. Within a match,
+   the narrow-vs-wide mismatch this fixes only exists during the Market
+   phase's two-column grid+market split (`.round-view__phase--market`
+   above) — every other phase (including `ended`, where "Your board" falls
+   back to a full-width read-only BoardPane with no market pane beside it)
+   has no narrow pane to match against, so capping there just wastes width.
+   Applies to YOUR board and everyone else's alike while it's in force. */
+.match[data-phase='market'] .grid {
   max-width: 22rem;
 }
 

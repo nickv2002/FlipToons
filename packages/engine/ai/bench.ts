@@ -34,6 +34,7 @@
 import type { SoloDifficulty } from '../setup'
 import type { Season } from '../cards/types'
 import type { BenchGameTask, BenchGameResult } from './bench-worker'
+import { startProgressTicker } from './bench-progress'
 
 const [seasonsArg, seedsArg, simsArg, stepsArg, difficultyArg] = process.argv.slice(2)
 
@@ -156,9 +157,11 @@ function runPoolWorker(): Promise<void> {
   })
 }
 
+const stopTicker = startProgressTicker(() => completed, total)
 const workerPromises: Promise<void>[] = []
 for (let i = 0; i < POOL_SIZE; i++) workerPromises.push(runPoolWorker())
 await Promise.all(workerPromises)
+stopTicker()
 
 for (const season of seasons) {
   const agg = batchByKey.get(String(season))!

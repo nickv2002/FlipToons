@@ -33,6 +33,22 @@ export type AiOptions = {
   simulations?: number // playouts per candidate action
   maxStepsPerPlayout?: number // safety cap so a stuck playout can't loop forever
   rng?: Rng // the AI's OWN decision randomness — deliberately separate from any seed carried inside S, since advisory playouts must never perturb the real game's own RNG sequence
+  // Both default to the solo-tuned constants below (HEURISTIC_ROLLOUT_TEMPERATURE/
+  // MAX_SCORED_ROLLOUT_CANDIDATES) when omitted, so solo's behavior is
+  // byte-identical unless a caller opts in — added so a DIFFERENT adapter
+  // could sweep its own rollout-policy tuning without ever touching solo's
+  // validated defaults.
+  //
+  // SWEPT for match play and left UNUSED (matchAdapter.ts passes neither):
+  // temperature=0.3/cap=5 vs. these defaults, bench-rollout-tuning.ts, 40
+  // seeds/season, fixed 150-sim budget — 42.5% season 1 (worse) / 62.5%
+  // season 2 (better), the same per-season-disagreement shape
+  // heuristic.ts's own history comments document repeatedly for other
+  // tuning attempts, at ~2x the wall-clock of the defaults. No net win
+  // found yet; kept here as a real, tested lever for a future narrower
+  // sweep (e.g. temperature alone, or cap alone) rather than this combo.
+  heuristicRolloutTemperature?: number
+  maxScoredRolloutCandidates?: number
 }
 
 // Tuned against a batch of 40 seeds/season at 'normal' difficulty after
@@ -108,7 +124,7 @@ function sampleIndices(n: number, count: number, rng: Rng): number[] {
   return pool.slice(0, count)
 }
 
-function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng): S {
+function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng, temperature: number, candidateCap: number): S {
   const candidates = adapter.legalCandidates(state)
   if (candidates.length === 1) return adapter.apply(state, candidates[0]!)
 
@@ -119,10 +135,10 @@ function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng): S {
     // no adapter.clone() here (an earlier version of this cloned per
     // candidate per rollout step and made soloAdapter's structuredClone the
     // dominant cost).
-    const pool = sampleIndices(candidates.length, MAX_SCORED_ROLLOUT_CANDIDATES, rng)
+    const pool = sampleIndices(candidates.length, candidateCap, rng)
     const scores = pool.map((i) => heuristicScore(adapter.apply(state, candidates[i]!)))
     const max = Math.max(...scores)
-    const weights = scores.map((s) => Math.exp((s - max) / HEURISTIC_ROLLOUT_TEMPERATURE))
+    const weights = scores.map((s) => Math.exp((s - max) / temperature))
     const total = weights.reduce((sum, w) => sum + w, 0)
     let pick = rng() * total
     for (let i = 0; i < weights.length; i++) {
@@ -136,11 +152,11 @@ function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng): S {
   return adapter.apply(state, action)
 }
 
-function playout<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng, maxSteps: number): S {
+function playout<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng, maxSteps: number, temperature: number, candidateCap: number): S {
   let s = state
   let steps = 0
   while (!adapter.isTerminal(s) && steps < maxSteps) {
-    s = rolloutStep(adapter, s, rng)
+    s = rolloutStep(adapter, s, rng, temperature, candidateCap)
     steps++
   }
   return s
@@ -150,11 +166,13 @@ export function evaluateAction<S, A>(adapter: AiAdapter<S, A>, state: S, action:
   const simulations = opts.simulations ?? DEFAULT_SIMULATIONS
   const maxSteps = opts.maxStepsPerPlayout ?? DEFAULT_MAX_STEPS_PER_PLAYOUT
   const rng = opts.rng ?? makeRng(Date.now() >>> 0)
+  const temperature = opts.heuristicRolloutTemperature ?? HEURISTIC_ROLLOUT_TEMPERATURE
+  const candidateCap = opts.maxScoredRolloutCandidates ?? MAX_SCORED_ROLLOUT_CANDIDATES
 
   let total = 0
   for (let i = 0; i < simulations; i++) {
     const afterAction = adapter.apply(adapter.clone(state), action)
-    total += adapter.reward(playout(adapter, afterAction, rng, maxSteps))
+    total += adapter.reward(playout(adapter, afterAction, rng, maxSteps, temperature, candidateCap))
   }
   return total / simulations
 }

@@ -845,9 +845,16 @@ button {
    every non-Market phase in a match — would otherwise stretch the full page
    width around a grid capped at 22rem, which reads as an empty box rather
    than a board. Direct children only: the market-phase pane is nested inside
-   .round-view__phase--market and keeps its own 1fr share of that split. */
+   .round-view__phase--market and keeps its own 1fr share of that split.
+
+   Opponent panes (.opponents__board) get the same cap: they never sit beside
+   a market pane at all, in any phase, so without this they stretched to the
+   full width of .opponents__list while your own pane above sat capped at
+   30rem — same board component, two card sizes again, just outside the
+   Market phase this time. */
 .round-view > .round-view__grid-pane,
-.match__mine > .round-view__grid-pane {
+.match__mine > .round-view__grid-pane,
+.opponents__board > .round-view__grid-pane {
   max-width: 30rem;
 }
 

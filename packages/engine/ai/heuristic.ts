@@ -29,8 +29,12 @@ const cards = cardsById()
 
 // Live "what would I score if Check Fame ran right now" grid value. Solo has
 // no other players, so otherGrids is always empty — same reduction the
-// solo-specific resolvers in phases.ts already make.
-function liveGridFame(state: GameState): number {
+// solo-specific resolvers in phases.ts already make. Exported so a MATCH
+// heuristic can call it per-seat (own view AND opponents' views — a Match
+// carries every seat's PlayerView, so there's no information-hiding issue)
+// to build a relative-standing signal, rather than only this file's own
+// single-view scoreState/matchScoreState.
+export function liveGridFame(state: GameState): number {
   const breakdown = scoreGrid(state.grid, cards, state.deck.length, {
     dogElsewhere: dogElsewhereFromMarket(state),
     dismissed: state.dismissed,

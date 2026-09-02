@@ -487,6 +487,16 @@ button {
   color: var(--color-accent);
 }
 
+.game-links__footer {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.game-links__footer a {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
 .config-panel label {
   display: flex;
   flex-direction: column;

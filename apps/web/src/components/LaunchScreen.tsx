@@ -90,6 +90,12 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
           </a>
         </div>
       </div>
+
+      <div className="game-links__footer">
+        <a href="https://github.com/nickv2002/FlipToons" target="_blank" rel="noreferrer">
+          GitHub project
+        </a>
+      </div>
     </div>
   )
 }

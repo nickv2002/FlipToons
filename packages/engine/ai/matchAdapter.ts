@@ -29,6 +29,7 @@ import { cardsById } from '../setup'
 import type { Match, PlayerId, PlayerView } from '../state'
 import { viewOf } from '../state'
 import type { AiAdapter } from './core'
+import { scoreState } from './heuristic'
 
 const cards = cardsById()
 
@@ -321,11 +322,21 @@ export function buildMatchAdapter(botSeatId: PlayerId): AiAdapter<Match, MatchAc
     clone(match) {
       return structuredClone(match)
     },
-    // No heuristicScore hook yet — solo's scoreState (heuristic.ts) reads a
-    // single GameState's grid/market; a match-shaped equivalent (reading the
-    // bot's own view relative to the table) is a reasonable follow-up but
-    // not required for this chunk, and core.ts's rolloutStep already
-    // degrades cleanly (uniform-random) when a hook is absent.
+    // heuristic.ts's scoreState reads a single GameState/PlayerView — grid,
+    // market, deck, fame — with no notion of opponents, which is exactly
+    // right here: apply() fast-forwards every OTHER seat with a fixed,
+    // non-adversarial policy (firstOptionActionFor above), so a rollout step
+    // choosing among the BOT's own candidates has no adversarial signal to
+    // weigh anyway. Scoring the bot's own projected view biases rollout.ts's
+    // weighted sampling (core.ts's rolloutStep) toward the same
+    // stronger-self-play continuations solo's heuristic already measured a
+    // real win-rate gain from (see core.ts's DEFAULT_SIMULATIONS comment),
+    // at zero added simulation cost — it only changes which candidate a
+    // rollout step is more likely to sample, not how many playouts run.
+    heuristicScore(match) {
+      const index = playerIndex(match, botSeatId)
+      return scoreState(viewOf(match, index))
+    },
   }
 }
 

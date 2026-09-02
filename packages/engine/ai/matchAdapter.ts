@@ -178,8 +178,10 @@ const OPPONENT_POLICY_CANDIDATE_CAP = 4
 
 // Weight for the relative-standing term folded into buildMatchAdapter's own
 // heuristicScore hook below — see that hook's own comment for the full
-// sweep. 0.2 is the smallest of the values tried that produced a real
-// season 1 win with no season 2 regression; NOT re-swept below 0.2 yet.
+// 0.5-vs-0.2 sweep. Bracketed afterward on season 1 alone (24 seeds, quick
+// check against this same shipped 0.2 as the baseline): 0.1 lost 41.7% and
+// 0.3 lost 37.5%, both clearly worse than 0.2 — a real local peak, not an
+// arbitrary pick between the two failed extremes.
 const RELATIVE_LEAD_WEIGHT = 0.2
 
 function bestOptionAmong(match: Match, playerId: PlayerId, candidates: MatchAction[]): MatchAction {

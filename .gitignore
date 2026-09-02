@@ -23,3 +23,6 @@ coverage/
 
 # Transcripts from `make e2e-long` (the long-form browser debugging harness)
 .longform/
+
+# Throwaway scratch scripts/experiments — never committed on purpose
+.claude/scratch/

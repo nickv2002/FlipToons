@@ -489,12 +489,28 @@ button {
 
 .game-links__footer {
   margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, canvastext 20%, transparent);
   text-align: center;
 }
 
-.game-links__footer a {
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, canvastext 20%, transparent);
   font-size: 0.85rem;
-  color: var(--color-accent);
+  font-weight: 500;
+  color: canvastext;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.github-link:hover {
+  background: color-mix(in srgb, canvastext 8%, transparent);
+  border-color: color-mix(in srgb, canvastext 35%, transparent);
 }
 
 .config-panel label {

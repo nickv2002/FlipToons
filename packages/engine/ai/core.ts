@@ -39,14 +39,25 @@ export type AiOptions = {
   // could sweep its own rollout-policy tuning without ever touching solo's
   // validated defaults.
   //
-  // SWEPT for match play and left UNUSED (matchAdapter.ts passes neither):
-  // temperature=0.3/cap=5 vs. these defaults, bench-rollout-tuning.ts, 40
-  // seeds/season, fixed 150-sim budget — 42.5% season 1 (worse) / 62.5%
-  // season 2 (better), the same per-season-disagreement shape
-  // heuristic.ts's own history comments document repeatedly for other
-  // tuning attempts, at ~2x the wall-clock of the defaults. No net win
-  // found yet; kept here as a real, tested lever for a future narrower
-  // sweep (e.g. temperature alone, or cap alone) rather than this combo.
+  // SWEPT for match play and left UNUSED (matchAdapter.ts passes neither).
+  // bench-rollout-tuning.ts, 40 seeds/season, fixed 150-sim budget, vs.
+  // these defaults:
+  //   temperature=0.3 + cap=5 combined: 42.5% season 1 (worse) / 62.5%
+  //     season 2 (better)
+  //   cap=5 alone (temperature unchanged): 55.0% season 1 (marginal, within
+  //     noise at n=40) / 42.5% season 2 (worse) — an EARLIER n=24,
+  //     season-1-only read of this same combo looked like a clean 62.5% win
+  //     and did NOT replicate at full scale, which is itself worth noting:
+  //     a promising small-sample rollout-tuning result here needs the full
+  //     both-season bench before it's trusted, not just a bigger n on one
+  //     season.
+  // Every variant tried shows the same per-season-disagreement shape
+  // heuristic.ts's own history comments document repeatedly for OTHER
+  // tuning attempts (something that helps season 1 hurts season 2, or vice
+  // versa), at ~2x the wall-clock of the defaults. No net win found on this
+  // axis; kept here as a real, tested lever in case a future signal (a
+  // different candidate value, or a match-shaped heuristicScore change) is
+  // worth re-sweeping against.
   heuristicRolloutTemperature?: number
   maxScoredRolloutCandidates?: number
 }

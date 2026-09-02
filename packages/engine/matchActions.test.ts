@@ -75,6 +75,40 @@ function autoplayMatch(match: Match, opts: { hire?: boolean } = {}): { match: Ma
   return { match: m, log, steps }
 }
 
+describe('Skunk resolves even when the owing seat is in fame debt', () => {
+  test('a mandatory, free (cost 0) resolvePostFameChoice never blocks on a negative fame balance', () => {
+    // Skunk's dismissal is mandatory and costs 0 fame — but it targets
+    // whoever has the LEAST fame, and fame can go negative (Pig's -1 base,
+    // a bad Check Fame award), so a negative balance here is the expected
+    // case, not an edge one. `resolvePostFameChoice` used to compare
+    // `state.fame < pending.cost` unconditionally, so `-1 < 0` threw "cannot
+    // afford the 0 fame cost" for a free, mandatory ability — caught by the
+    // vs-AI opponent, which plays enough games fast enough to actually land
+    // a seat in fame debt with a live Skunk prompt.
+    const base = buildNewMatch(1, 2, 1, { fameToTriggerEndgame: 999 })
+    const i = base.activePlayerIndex
+    const grid = emptyGrid()
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'skunk' as any)
+    const players = base.players.slice()
+    players[i] = {
+      ...players[i],
+      grid,
+      fame: -3,
+      pendingPostFameChoice: { ownerCardId: 'skunk' as any, cost: 0, options: [{ pos: { section: 'base', row: 0, col: 0 }, index: 0, cardId: 'skunk' as any }] },
+    }
+    const match: Match = { ...base, players }
+    const playerId = match.turnOrder[i]
+
+    const result = applyMatchAction(match, playerId, {
+      kind: 'resolvePostFameChoice',
+      pos: { section: 'base', row: 0, col: 0 },
+      index: 0,
+    })
+    expect(result.match.players[i].pendingPostFameChoice).toBeNull()
+    expect(result.match.players[i].fame).toBe(-3) // cost 0 — the debt is untouched, not deepened
+  })
+})
+
 describe('a full 2-player match through the action layer', () => {
   test('reaches a Final Flip and ends with a winner', () => {
     // A low threshold so the fame trigger fires in a couple of rounds rather

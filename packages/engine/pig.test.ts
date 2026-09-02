@@ -12,7 +12,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildNewMatch, deckPlacementTargets, matchResolveDeckPlacement, playerIndex, runMatchCleanup } from './match'
 import { applyMatchAction, IllegalActionError } from './matchActions'
-import { occupiedSlots } from './grid'
+import { cloneGrid, occupiedSlots, placeCardFaceUp } from './grid'
 import { cardsById, MULTIPLAYER_TOON_DECK_EXCLUSIONS, SOLO_TOON_DECK_EXCLUSIONS } from './setup'
 import { applyEffects } from './phases'
 import type { Match } from './state'
@@ -128,9 +128,30 @@ describe('detaching the card (phases.ts)', () => {
   test('it throws rather than silently vanishing if the card is nowhere', () => {
     const { match, playerId } = matchWithPigInMarket()
     const i = playerIndex(match, playerId)
-    // Genuinely absent from BOTH zones the effect can detach from.
+    // Genuinely absent from all three zones the effect can detach from.
     const view = { ...match.players[i], ...match.shared, deck: [], dismissed: [] }
-    expect(() => applyEffects(view, cards['pig'], cards['pig'].onHire)).toThrow(/neither in the deck nor the dismissed pile/)
+    expect(() => applyEffects(view, cards['pig'], cards['pig'].onHire)).toThrow(/neither in the deck, the dismissed pile, nor the grid/)
+  })
+
+  test('a Snake-stacked Pig (reached the grid, not deck/dismissed) detaches from the grid', () => {
+    // Snake (flip.ts's dismissOwnDeckTopAndStackFromToonDeck) can draw the
+    // Pig straight off the toon deck and place it face up on Snake's own
+    // slot, deferring its onHire to phases.ts's drainPendingOnHireCards —
+    // neither hire() nor dismiss() ever touched it, so it's genuinely on the
+    // GRID when placeSelfInAnyDeck fires, not in deck or dismissed. Never
+    // reachable in solo (solo excludes the Pig); real bug hit by the vs-AI
+    // opponent, which plays enough games fast enough for this rare Snake+Pig
+    // draw to actually come up.
+    const { match, playerId } = marketPhaseMatch()
+    const i = playerIndex(match, playerId)
+    const grid = cloneGrid(match.players[i].grid)
+    placeCardFaceUp(grid, { section: 'base', row: 0, col: 0 }, 'pig' as CardId)
+    const view = { ...match.players[i], ...match.shared, grid }
+
+    const after = applyEffects(view, cards['pig'], cards['pig'].onHire)
+
+    expect(cardIdsInGrid(after.grid)).not.toContain('pig')
+    expect(after.pendingDeckPlacement).toEqual({ cardId: 'pig', source: 'flip' })
   })
 
   test('hire to placement, end to end: it lands in the opponent\'s deck and nowhere else', () => {
@@ -296,13 +317,17 @@ describe('the pending prompt freezes the rest of the turn', () => {
   })
 })
 
-test('Cleanup refuses to run while any seat still owes a deck', () => {
-  // The class-level guard: matchActions covers every path a player can drive,
-  // but Cleanup collects grids into decks, so a card stranded by some path
-  // nobody has enumerated would vanish silently. Fail loudly instead.
+test('Cleanup auto-resolves a stranded deck placement into the toon deck rather than losing the card', () => {
+  // The one real path that strands a pendingDeckPlacement into Cleanup: a
+  // Snake stacks the Pig during the FINAL FLIP (no Market phase to pause the
+  // owing seat's turn in — see match.ts's runMatchCleanup comment). Losing
+  // the card or crashing the table's last flip over it is worse than the
+  // FAQ's own "any deck" default, so Cleanup places it in the toon deck
+  // (shuffled) instead of throwing.
   const base = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
   const players = base.players.slice()
   players[1] = { ...players[1], pendingDeckPlacement: { cardId: 'pig', source: 'hire' } }
   const match: Match = { ...base, shared: { ...base.shared, phase: 'cleanup' }, players }
-  expect(() => runMatchCleanup(match)).toThrow(/still owes a deck/)
+  const after = runMatchCleanup(match)
+  expect(after.players[1].pendingDeckPlacement).toBeNull()
 })

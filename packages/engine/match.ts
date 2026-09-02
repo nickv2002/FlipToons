@@ -717,15 +717,19 @@ export function runMatchCleanup(match: Match): Match {
 
   // A card detached by placeSelfInAnyDeck (the Pig) and not yet given a
   // destination is in NO zone. Cleanup collects grids back into decks, so
-  // reaching here with one outstanding would lose it silently and forever —
-  // the prompt is turn-gated, and its seat's turn is over. matchActions.ts
-  // guards every path a player can drive; this closes the CLASS, so any path
-  // nobody has enumerated yet fails loudly instead of eating a card.
-  const stranded = match.players.find((p) => p.pendingDeckPlacement !== null)
-  if (stranded) {
-    throw new Error(
-      `match.ts: runMatchCleanup — ${stranded.playerId} still owes a deck for ${stranded.pendingDeckPlacement!.cardId}; the card would be lost`,
-    )
+  // reaching here with one outstanding would lose it silently and forever.
+  // The one path this actually happens on: a Snake stacks the Pig off the
+  // toon deck DURING THE FINAL FLIP (phases.ts's placeSelfInAnyDeck grid
+  // branch) — the Final Flip has no Market phase to pause the owing seat's
+  // turn in (same "no phase left to ask" gap the Big Button's gridReset
+  // needed its own dedicated walk for — see CLAUDE.md), so there is no
+  // legal moment left for that seat to answer. The FAQ says "any deck" with
+  // no stated preference, so — same reasoning as the gridReset walk's
+  // decline-by-default and playForAbsentSeat's fallback — auto-resolve to
+  // the toon deck (shuffled) rather than losing the card or crashing the
+  // table's last flip.
+  for (const p of match.players) {
+    if (p.pendingDeckPlacement) match = matchResolveDeckPlacement(match, p.playerId, { kind: 'toonDeck' })
   }
 
   // (1) Both triggers, OR'd (§3.2.2). Latched, never re-derived, so that both

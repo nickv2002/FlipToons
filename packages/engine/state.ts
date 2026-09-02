@@ -112,7 +112,7 @@ export type PendingChoiceLike =
 // table-level operation (match.ts's matchResolveDeckPlacement).
 export type PendingDeckPlacement = {
   cardId: CardId
-  source: 'hire' | 'dismiss'
+  source: 'hire' | 'dismiss' | 'flip'
 }
 
 // ---------------------------------------------------------------------------

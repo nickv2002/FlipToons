@@ -31,6 +31,7 @@ export type BenchMatchTask = {
 }
 export type BenchMatchResult = {
   taskId: number
+  season: Season
   winner: 'A' | 'B' | 'tie' | 'notEnded'
   turns: number
 }
@@ -65,10 +66,10 @@ function runGame(task: BenchMatchTask): BenchMatchResult {
     turns++
   }
 
-  if (match.shared.phase !== 'ended') return { taskId: task.taskId, winner: 'notEnded', turns }
-  if (match.shared.winnerId === seatA) return { taskId: task.taskId, winner: 'A', turns }
-  if (match.shared.winnerId === seatB) return { taskId: task.taskId, winner: 'B', turns }
-  return { taskId: task.taskId, winner: 'tie', turns }
+  if (match.shared.phase !== 'ended') return { taskId: task.taskId, season: task.season, winner: 'notEnded', turns }
+  if (match.shared.winnerId === seatA) return { taskId: task.taskId, season: task.season, winner: 'A', turns }
+  if (match.shared.winnerId === seatB) return { taskId: task.taskId, season: task.season, winner: 'B', turns }
+  return { taskId: task.taskId, season: task.season, winner: 'tie', turns }
 }
 
 // tsconfig here has no "webworker" lib (the engine package stays lib:

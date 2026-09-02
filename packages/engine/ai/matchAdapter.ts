@@ -32,7 +32,7 @@ import { cardsById } from '../setup'
 import type { Match, PlayerId, PlayerView } from '../state'
 import { viewOf } from '../state'
 import type { AiAdapter } from './core'
-import { matchScoreState } from './heuristic'
+import { matchScoreState, liveGridFame } from './heuristic'
 
 const cards = cardsById()
 
@@ -175,6 +175,12 @@ function legalCandidates(match: Match, botSeatId: PlayerId): MatchAction[] {
 // count) despite costing meaningfully more wall-clock per opponent decision.
 // Kept at 4 — the cheaper value confirmed to lose nothing.
 const OPPONENT_POLICY_CANDIDATE_CAP = 4
+
+// Weight for the relative-standing term folded into buildMatchAdapter's own
+// heuristicScore hook below — see that hook's own comment for the full
+// sweep. 0.2 is the smallest of the values tried that produced a real
+// season 1 win with no season 2 regression; NOT re-swept below 0.2 yet.
+const RELATIVE_LEAD_WEIGHT = 0.2
 
 function bestOptionAmong(match: Match, playerId: PlayerId, candidates: MatchAction[]): MatchAction {
   if (candidates.length === 1) return candidates[0]!
@@ -374,21 +380,50 @@ export function buildMatchAdapter(botSeatId: PlayerId): AiAdapter<Match, MatchAc
     },
     // heuristic.ts's matchScoreState reads a single GameState/PlayerView —
     // grid, market, deck, fame — with no notion of opponents, which is
-    // exactly right here: apply() fast-forwards every OTHER seat with a
-    // fixed policy (opponentActionFor above), so a rollout step choosing
-    // among the BOT's own candidates has no adversarial signal to weigh
-    // anyway. This is the MATCH variant, not solo's scoreState — it drops
-    // scoreState's deck-conservation/depletion-avoidance terms, which are
-    // calibrated around solo's deck-depletion LOSS condition (a match never
-    // ends that way — see matchScoreState's own comment). Wiring plain
-    // scoreState here measured a real regression on season 1 specifically
+    // exactly right for the OWN-CANDIDATE component here: apply()
+    // fast-forwards every OTHER seat with a fixed policy (opponentActionFor
+    // above), so a rollout step choosing among the BOT's own candidates has
+    // no adversarial signal to weigh from that side anyway. This is the
+    // MATCH variant, not solo's scoreState — it drops scoreState's
+    // deck-conservation/depletion-avoidance terms, which are calibrated
+    // around solo's deck-depletion LOSS condition (a match never ends that
+    // way — see matchScoreState's own comment). Wiring plain scoreState
+    // here measured a real regression on season 1 specifically
     // (bench-match.ts: 25%/75% against the pre-heuristic uniform-random
     // baseline, both seats making their own real decisions, fixed 150-sim
     // budget) — "conserving" a shared deck while an opponent keeps
     // converting fame is forfeiting tempo, not caution.
+    //
+    // RELATIVE_LEAD_WEIGHT adds the one comparison the rules actually
+    // decide a match by (CLAUDE.md: "no cumulative score anywhere... what
+    // decides a match is standing relative to the other seats" — the same
+    // reasoning matchReward's own fameLead already uses for the terminal
+    // reward, just not previously folded into the ROLLOUT heuristic that
+    // biases which candidate gets sampled mid-playout). A Match carries
+    // every seat's PlayerView, so reading opponents' live grid fame here is
+    // not an information-hiding violation — every seat already sees every
+    // other board on screen (BoardPane.tsx renders every seat's grid).
+    // SWEPT (bench-relative-heuristic.ts, 40 seeds/season both seasons in
+    // one run, fixed 150-sim budget): weight 0.5 regressed season 1 (40%
+    // vs. the plain-matchScoreState baseline) while winning season 2
+    // (57.5%) — the same per-season-disagreement shape every other tuning
+    // attempt on this codebase has hit. Weight 0.2 is the first one that
+    // DOESN'T trade a season away: 60.0% season 1 (real win) / 50.0% season
+    // 2 (exactly neutral, no regression) — kept at 0.2 for that reason, not
+    // because it's the strongest value found.
     heuristicScore(match) {
       const index = playerIndex(match, botSeatId)
-      return matchScoreState(viewOf(match, index))
+      const view = viewOf(match, index)
+      const own = matchScoreState(view)
+      const threshold = match.shared.fameToTriggerEndgame || 1
+      const ownLive = liveGridFame(view)
+      let bestOpponentLive = 0
+      for (let i = 0; i < match.players.length; i++) {
+        if (i === index) continue
+        bestOpponentLive = Math.max(bestOpponentLive, liveGridFame(viewOf(match, i)))
+      }
+      const leadSignal = (ownLive - bestOpponentLive) / threshold
+      return own + RELATIVE_LEAD_WEIGHT * leadSignal
     },
   }
 }

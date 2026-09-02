@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGame } from './useGame'
 import { useMatch, roomCodeFromUrl, hasStoredSeat } from './useMatch'
+import { useVsAiMatch } from './useVsAiMatch'
+import type { SoloDifficulty } from '../../../packages/engine/setup'
 import { RoundView } from './components/RoundView'
 import { FameRace } from './components/FameRace'
 import { LogDrawer } from './components/LogDrawer'
@@ -38,6 +40,27 @@ export function App() {
   // A shared ?room= link should land on the join panel with the code in it.
   const [launchStep, setLaunchStep] = useState<LaunchStep>(urlRoom ? 'join' : 'pick')
   const [logOpen, setLogOpen] = useState(false)
+  // Only meaningful for a vsAi room, and only remembered for THIS session —
+  // it's picked on VsAiStart and never round-trips through the server, so a
+  // page reload's reconnect falls back to 'normal'. Acceptable: the AI still
+  // plays, just not necessarily at the difficulty originally chosen.
+  const [aiDifficulty, setAiDifficulty] = useState<SoloDifficulty>('normal')
+  const botSeatId = match.lobby?.seats.find((s) => s.isBot)?.playerId ?? null
+  const { aiThinking } = useVsAiMatch(match, botSeatId, aiDifficulty)
+
+  // vsAi has no one else to wait for in the lobby — the bot seat is already
+  // filled at room creation (apps/worker/room.ts) — so the host's own arrival
+  // is the whole waiting room. Skip straight to the game rather than showing
+  // a "waiting for another player" screen with nothing left to wait on.
+  const autoStartedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!match.lobby || match.lobby.started || !botSeatId) return
+    const isHost = match.lobby.seats.find((s) => s.playerId === match.myPlayerId)?.isHost ?? false
+    if (!isHost || match.connection !== 'open') return
+    if (autoStartedRef.current === match.lobby.roomCode) return
+    autoStartedRef.current = match.lobby.roomCode
+    match.startGame()
+  }, [match.lobby, match.myPlayerId, match.connection, botSeatId, match])
   // Lifted out of RoundView: the toggle that sets it lives in the shared
   // TopBar, which renders above and outside RoundView.
   const [touchMode, setTouchMode] = useState(() => loadSettings().touchMode)
@@ -82,7 +105,7 @@ export function App() {
       step={launchStep}
       onPick={(step) => {
         setLaunchStep(step)
-        setMode(step === 'host' || step === 'join' ? 'multiplayer' : 'solo')
+        setMode(step === 'host' || step === 'join' || step === 'vsAi' ? 'multiplayer' : 'solo')
       }}
       onBack={() => {
         match.clearError()
@@ -92,6 +115,17 @@ export function App() {
       onStartSolo={local.startNewGame}
       onHost={match.createRoom}
       onJoin={match.joinRoom}
+      onStartVsAi={(opts) => {
+        setAiDifficulty(opts.difficulty)
+        match.createRoom({
+          name: opts.name,
+          season: opts.season,
+          vsAi: true,
+          aiDifficulty: opts.difficulty,
+          seed: opts.seed,
+          fameToTriggerEndgame: opts.fameToTriggerEndgame,
+        })
+      }}
       connection={match.connection}
       initialRoomCode={urlRoom}
     />
@@ -139,6 +173,8 @@ export function App() {
               onLeave={leaveMatch}
               onRematch={match.rematch}
               touchMode={touchMode}
+              botSeatId={botSeatId}
+              aiThinking={aiThinking}
             />
             {logOpen && (
               <LogDrawer

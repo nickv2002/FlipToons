@@ -161,15 +161,30 @@ const EFFECT_SYNERGY_WEIGHT = 0.02
 // (the best outcome) — rewarding the setup AND the payoff instead of only
 // the setup.
 //
-// MEASURED AND DISABLED: at 0.05 (season-2-only bench, 40 seeds, flat
-// 150/150 budget), this monotone-correct version still measured 55.0% vs the
-// confirmed true baseline of 57.5% (heuristic.ts stashed back to pre-this-
-// signal HEAD, same bench invocation) — it did not clear the +/-2-game noise
-// floor at this seed count, same story cardValue.ts's AUTO_DISMISS_BONUS
-// documents for its own effect kind. Kept at 0 rather than deleted: the
-// discount-awareness this task asked for is real (dismissCostFor's own
-// adjacency logic is exercised, not re-derived) and a future differently-
-// scoped version may want the same machinery.
+// MEASURED AND DISABLED, TWICE. First pass: at 0.05 (season-2-only bench, 40
+// seeds, flat 150/150 budget, before deckConservationSignal existed), this
+// monotone-correct version measured 55.0% vs the confirmed true baseline of
+// 57.5% — didn't clear the +/-2-game noise floor at that seed count, same
+// story cardValue.ts's AUTO_DISMISS_BONUS documents for its own effect kind.
+//
+// Second pass (after deckConservationSignal shipped): re-tried at 0.05 on a
+// narrower paired test — both-mode's combined pool, forced S1-start vs
+// forced S2-start, pool=35, n=40 — and it looked real there: S2-start
+// 67.5% -> 72.5%, S1-start unchanged at 87.5%. 0.1 on the same test
+// regressed BOTH sides (82.5%/62.5%), confirming a real, narrow, non-noise
+// effect on THAT slice. But the full ai/bench.ts suite at n=100 (real
+// season-1-alone and season-2-alone pools, not the artificial combined-pool
+// paired setup) told a different story at 0.05: season 1 alone dropped
+// 82.5% -> 77.0% (a real loss at n=100, not noise) while season 2 alone
+// stayed flat (57.0% vs 57.5%) — i.e. no generalized win, a real loss.
+// The paired test's "improvement" didn't transfer to season 1's own natural
+// pool, which has its own dead-weight card (Caterpillar) this signal also
+// penalizes, apparently to season 1's detriment there. Lesson: a signal that
+// wins on a narrow forced-condition slice must still be validated against
+// the real per-season benches before trusting it — the two are not
+// interchangeable proxies for each other. Kept at 0 rather than deleted: the
+// discount-awareness dismissCostFor exercises is real machinery a future,
+// more carefully-scoped signal may still want.
 const DEAD_WEIGHT_DISCOUNT_WEIGHT = 0
 
 // Weight for deckConservationSignal below. Swept on the 40-seed season-2

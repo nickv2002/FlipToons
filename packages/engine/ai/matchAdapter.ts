@@ -10,12 +10,15 @@
 // after applying the bot's chosen action, it fast-forwards through every
 // phase/decision that isn't the bot's own — shared advances (`advanceFlip`,
 // legal from any seat), simultaneous per-seat prompts belonging to
-// opponents, and opponents' entire Market turns — using the same
-// deterministic "always available first option" policy
-// matchActions.test.ts's autoplayMatch fixture uses. Modeling opponents
-// adversarially is out of scope for this chunk; this makes the search a
-// solitaire problem again ("given the table plays this simple policy, what
-// should I do") without pretending the other seats are inert.
+// opponents, and opponents' entire Market turns — using a deterministic,
+// bounded-greedy policy (opponentActionFor below) scored by the same
+// heuristic.ts the bot's own rollouts trust. Full adversarial search for
+// every OTHER seat (a whole separate search per opponent, per rollout step)
+// is out of scope; this makes the search a solitaire problem again ("given
+// the table plays roughly like a sensible bot, what should I do") without
+// pretending the other seats are inert or, worse, that they always just
+// pass their entire Market turn (the original policy this replaced did
+// exactly that — see git history / opponentActionFor's own comment).
 import { canUseGridResetNow, canUseMarketReset } from '../bigButton'
 import type { Card, CardId, Effect, EffectChoices } from '../cards/types'
 import type { DismissTarget, HireFromDismissedTarget, PendingChoice } from '../hireChoices'
@@ -29,7 +32,7 @@ import { cardsById } from '../setup'
 import type { Match, PlayerId, PlayerView } from '../state'
 import { viewOf } from '../state'
 import type { AiAdapter } from './core'
-import { scoreState } from './heuristic'
+import { matchScoreState } from './heuristic'
 
 const cards = cardsById()
 
@@ -155,40 +158,82 @@ function legalCandidates(match: Match, botSeatId: PlayerId): MatchAction[] {
   return []
 }
 
-// Deterministic single-option policy for a decision that belongs to someone
-// OTHER than the bot — matches matchActions.test.ts's autoplayMatch fixture.
-// Adversarial opponent modeling is out of scope for this chunk (see this
-// file's header); this exists purely so a rollout can reach a terminal
-// state at all.
-function firstOptionActionFor(match: Match, playerId: PlayerId): MatchAction {
+// Bounded-greedy pick among an opponent's own candidates, scored by their
+// OWN heuristic.ts matchScoreState after applying each — i.e. "what would a
+// self-interested bot playing this seat probably do", not an exhaustive
+// search (that's what the OUTER search is for, on the real bot's own turn).
+// Capped at OPPONENT_POLICY_CANDIDATE_CAP for the same reason core.ts's
+// rolloutStep caps its own scored sample: scoring a candidate means fully
+// applying it, so an uncapped scan turns every opponent decision inside
+// every playout step into a dozen-plus full applies instead of one. Order
+// matters here (first K in candidate order, not a random sample — this path
+// has no rng, unlike core.ts's own rolloutStep, since AiAdapter.apply is a
+// pure function of (state, action) with no rng parameter to thread through).
+const OPPONENT_POLICY_CANDIDATE_CAP = 4
+
+function bestOptionAmong(match: Match, playerId: PlayerId, candidates: MatchAction[]): MatchAction {
+  if (candidates.length === 1) return candidates[0]!
+  const index = playerIndex(match, playerId)
+  const pool = candidates.slice(0, OPPONENT_POLICY_CANDIDATE_CAP)
+  let best = pool[0]!
+  let bestScore = -Infinity
+  for (const candidate of pool) {
+    const applied = applyMatchAction(match, playerId, candidate).match
+    const score = matchScoreState(viewOf(applied, index))
+    if (score > bestScore) {
+      bestScore = score
+      best = candidate
+    }
+  }
+  return best
+}
+
+// Opponent-modeling policy for a decision that belongs to someone OTHER than
+// the bot — used both to fast-forward a real match to the bot's own decision
+// point and, more heavily, to stand in for opponents inside every rollout
+// playout (see advanceToBotDecision below and matchReward's own comment).
+// Full adversarial search for every OTHER seat is out of scope (that's a
+// whole separate search per opponent, per rollout step — no longer "cheap");
+// this instead reuses the same self-interested heuristic the bot's own
+// rollouts already trust (heuristic.ts's matchScoreState), bounded-greedy rather
+// than random-sampled, so a rollout's opponents behave like a plausible bot
+// player instead of always passing their entire Market turn — the previous
+// policy's `market` branch returned bare `{kind:'endTurn'}` unconditionally,
+// meaning simulated opponents never hired or dismissed anything at all.
+function opponentActionFor(match: Match, playerId: PlayerId): MatchAction {
   const index = playerIndex(match, playerId)
   const player = match.players[index]!
 
   if (player.pendingPostFameChoice) {
-    const o = player.pendingPostFameChoice.options[0]!
-    return { kind: 'resolvePostFameChoice', pos: o.pos, index: o.index }
+    const options = player.pendingPostFameChoice.options.map((o) => ({ kind: 'resolvePostFameChoice', pos: o.pos, index: o.index }) as const)
+    return bestOptionAmong(match, playerId, options)
   }
   if (player.pendingOnHireChoice) {
     const choice = player.pendingOnHireChoice.choice
-    const first = choice.kind === 'discardMarketAndRefill' ? [choice.options[0]!] : choice.options[0]!
-    return { kind: 'resolvePendingOnHireChoice', selection: first as never }
+    const selections = choice.kind === 'discardMarketAndRefill' ? choice.options.map((slot) => [slot]) : choice.options
+    const built: MatchAction[] = selections.map((selection) => ({ kind: 'resolvePendingOnHireChoice', selection: selection as never }))
+    return bestOptionAmong(match, playerId, choice.mandatory ? built : [...built, { kind: 'resolvePendingOnHireChoice', selection: 'skip' }])
   }
   if (match.shared.phase === 'gridReset') {
     // Decline by default — keeping the button costs nothing, matching
     // matchActions.test.ts's fixture and the strandingSeat fallback's own
     // reasoning (state.ts/match.ts comments: spending a once-per-game
-    // resource on a guess is the worse mistake of the two).
+    // resource on a guess is the worse mistake of the two). Left
+    // deterministic rather than routed through bestOptionAmong: this only
+    // exists for the Final Flip walk (see this file's header), where a
+    // heuristic-greedy accept/decline read against a snapshot BEFORE the
+    // reset can't see the grid it would be trading away.
     return { kind: 'bigButtonDecision', use: false }
   }
   if (match.shared.phase === 'market') {
     if (player.pendingPostMarketChoice) {
-      const o = player.pendingPostMarketChoice.options[0]!
-      return { kind: 'resolvePostMarketChoice', pos: o.pos, index: o.index }
+      const options = player.pendingPostMarketChoice.options.map((o) => ({ kind: 'resolvePostMarketChoice', pos: o.pos, index: o.index }) as const)
+      return bestOptionAmong(match, playerId, options)
     }
     if (player.pendingDeckPlacement) {
       return { kind: 'resolveDeckPlacement', target: { kind: 'toonDeck' } }
     }
-    return { kind: 'endTurn' }
+    return bestOptionAmong(match, playerId, marketDecisionCandidates(match, playerId))
   }
   return { kind: 'advanceFlip' }
 }
@@ -223,20 +268,20 @@ export function advanceToBotDecision(match: Match, botSeatId: PlayerId): Match {
     // below, not folded into the market/gridReset cases.
     const owingOpponent = m.players.find((p) => p.pendingPostFameChoice || p.pendingOnHireChoice)
     if (owingOpponent) {
-      m = applyMatchAction(m, owingOpponent.playerId, firstOptionActionFor(m, owingOpponent.playerId)).match
+      m = applyMatchAction(m, owingOpponent.playerId, opponentActionFor(m, owingOpponent.playerId)).match
       continue
     }
 
     if (m.shared.phase === 'gridReset') {
       const decider = activePlayerId(m)
-      m = applyMatchAction(m, decider, firstOptionActionFor(m, decider)).match
+      m = applyMatchAction(m, decider, opponentActionFor(m, decider)).match
       continue
     }
 
     if (m.shared.phase === 'market') {
       const active = activePlayerId(m)
       if (active === botSeatId) return m // unreachable (legalCandidates already covers this), kept defensive
-      m = applyMatchAction(m, active, firstOptionActionFor(m, active)).match
+      m = applyMatchAction(m, active, opponentActionFor(m, active)).match
       continue
     }
 
@@ -322,20 +367,23 @@ export function buildMatchAdapter(botSeatId: PlayerId): AiAdapter<Match, MatchAc
     clone(match) {
       return structuredClone(match)
     },
-    // heuristic.ts's scoreState reads a single GameState/PlayerView — grid,
-    // market, deck, fame — with no notion of opponents, which is exactly
-    // right here: apply() fast-forwards every OTHER seat with a fixed,
-    // non-adversarial policy (firstOptionActionFor above), so a rollout step
-    // choosing among the BOT's own candidates has no adversarial signal to
-    // weigh anyway. Scoring the bot's own projected view biases rollout.ts's
-    // weighted sampling (core.ts's rolloutStep) toward the same
-    // stronger-self-play continuations solo's heuristic already measured a
-    // real win-rate gain from (see core.ts's DEFAULT_SIMULATIONS comment),
-    // at zero added simulation cost — it only changes which candidate a
-    // rollout step is more likely to sample, not how many playouts run.
+    // heuristic.ts's matchScoreState reads a single GameState/PlayerView —
+    // grid, market, deck, fame — with no notion of opponents, which is
+    // exactly right here: apply() fast-forwards every OTHER seat with a
+    // fixed policy (opponentActionFor above), so a rollout step choosing
+    // among the BOT's own candidates has no adversarial signal to weigh
+    // anyway. This is the MATCH variant, not solo's scoreState — it drops
+    // scoreState's deck-conservation/depletion-avoidance terms, which are
+    // calibrated around solo's deck-depletion LOSS condition (a match never
+    // ends that way — see matchScoreState's own comment). Wiring plain
+    // scoreState here measured a real regression on season 1 specifically
+    // (bench-match.ts: 25%/75% against the pre-heuristic uniform-random
+    // baseline, both seats making their own real decisions, fixed 150-sim
+    // budget) — "conserving" a shared deck while an opponent keeps
+    // converting fame is forfeiting tempo, not caution.
     heuristicScore(match) {
       const index = playerIndex(match, botSeatId)
-      return scoreState(viewOf(match, index))
+      return matchScoreState(viewOf(match, index))
     },
   }
 }

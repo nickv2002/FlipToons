@@ -769,8 +769,10 @@ export function runMatchCleanup(match: Match): Match {
 
   if (endgameTriggered) {
     // §3.2: the trigger round has now played its FULL Market phase and
-    // Cleanup. What follows is the truncated Final Flip, not another round.
-    return { ...next, shared: { ...shared, phase: 'finalFlip' } }
+    // Cleanup. What follows is the truncated Final Flip — it still gets its
+    // own round number (not the trigger round's) so the log records it as an
+    // extra round rather than folding its lines into the round before it.
+    return { ...next, shared: { ...shared, phase: 'finalFlip', round: shared.round + 1 } }
   }
 
   // (4) §3.2: "pass the first player card clockwise."

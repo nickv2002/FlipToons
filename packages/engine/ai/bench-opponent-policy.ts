@@ -9,6 +9,7 @@
 //   bun run packages/engine/ai/bench-opponent-policy.ts [games] [sims] [steps] [season]
 import type { Season } from '../cards/types'
 import type { OpponentPolicyTask, OpponentPolicyResult } from './bench-opponent-policy-worker'
+import { startProgressTicker } from './bench-progress'
 
 const [gamesArg, simsArg, stepsArg, seasonArg] = process.argv.slice(2)
 const games = parseInt(gamesArg ?? '20', 10)
@@ -73,9 +74,11 @@ function runPoolWorker(): Promise<void> {
   })
 }
 
+const stopTicker = startProgressTicker(() => completed, games)
 const workerPromises: Promise<void>[] = []
 for (let i = 0; i < POOL_SIZE; i++) workerPromises.push(runPoolWorker())
 await Promise.all(workerPromises)
+stopTicker()
 
 const winRateA = ((winsA / games) * 100).toFixed(1)
 const winRateB = ((winsB / games) * 100).toFixed(1)

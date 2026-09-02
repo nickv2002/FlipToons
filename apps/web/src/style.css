@@ -441,6 +441,12 @@ button {
   --mode-card-bg: var(--color-warning-bg);
 }
 
+.mode-card--vs-ai {
+  --mode-card-color: var(--color-accent);
+  --mode-card-bg: var(--color-accent-bg);
+  grid-column: 1 / -1;
+}
+
 .mode-card__icon {
   font-size: 1.75rem;
   line-height: 1;

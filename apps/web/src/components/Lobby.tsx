@@ -61,9 +61,10 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
         {lobby.seats.map((seat) => (
           <li key={seat.playerId} className="lobby__seat" data-testid={`seat-${seat.playerId}`}>
             <span className="lobby__seat-name">{seat.name}</span>
+            {seat.isBot && <span className="lobby__badge" data-testid="ai-badge">AI opponent</span>}
             {seat.isHost && <span className="lobby__badge">host</span>}
             {seat.playerId === myPlayerId && <span className="lobby__badge lobby__badge--you">you</span>}
-            {!seat.connected && <span className="lobby__badge lobby__badge--away">away</span>}
+            {!seat.connected && !seat.isBot && <span className="lobby__badge lobby__badge--away">away</span>}
           </li>
         ))}
       </ul>

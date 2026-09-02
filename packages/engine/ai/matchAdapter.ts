@@ -169,6 +169,11 @@ function legalCandidates(match: Match, botSeatId: PlayerId): MatchAction[] {
 // matters here (first K in candidate order, not a random sample — this path
 // has no rng, unlike core.ts's own rolloutStep, since AiAdapter.apply is a
 // pure function of (state, action) with no rng parameter to thread through).
+// SWEPT: 8 measured statistically indistinguishable from 4 against the
+// pre-heuristic baseline (bench-match.ts, season 1, 40 seeds, fixed 150-sim
+// budget: 60.0% at cap=8 vs 62.5% at cap=4, well within noise at this seed
+// count) despite costing meaningfully more wall-clock per opponent decision.
+// Kept at 4 — the cheaper value confirmed to lose nothing.
 const OPPONENT_POLICY_CANDIDATE_CAP = 4
 
 function bestOptionAmong(match: Match, playerId: PlayerId, candidates: MatchAction[]): MatchAction {

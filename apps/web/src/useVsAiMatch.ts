@@ -59,7 +59,14 @@ export function useVsAiMatch(match: MatchClient, botSeatId: string | null, diffi
     setAiError(null)
 
     if (!workerRef.current) {
-      workerRef.current = new Worker(new URL('./ai/matchAiWorker.ts', import.meta.url), { type: 'module' })
+      try {
+        workerRef.current = new Worker(new URL('./ai/matchAiWorker.ts', import.meta.url), { type: 'module' })
+      } catch (e) {
+        inFlightRef.current = false
+        setAiThinking(false)
+        setAiError(e instanceof Error ? e.message : String(e))
+        return
+      }
     }
     const worker = workerRef.current
 

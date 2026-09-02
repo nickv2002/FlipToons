@@ -46,7 +46,7 @@ export function App() {
   // plays, just not necessarily at the difficulty originally chosen.
   const [aiDifficulty, setAiDifficulty] = useState<SoloDifficulty>('normal')
   const botSeatId = match.lobby?.seats.find((s) => s.isBot)?.playerId ?? null
-  const { aiThinking } = useVsAiMatch(match, botSeatId, aiDifficulty)
+  const { aiThinking, aiError } = useVsAiMatch(match, botSeatId, aiDifficulty)
 
   // vsAi has no one else to wait for in the lobby — the bot seat is already
   // filled at room creation (apps/worker/room.ts) — so the host's own arrival
@@ -151,6 +151,15 @@ export function App() {
         {match.error && (
           <p className="app__error" data-testid="match-error" onClick={match.clearError}>
             {match.error}
+          </p>
+        )}
+        {/* The bot's search runs client-side (useVsAiMatch); if it throws —
+            worker construction blocked, a search bug, anything — the seat
+            would otherwise just sit there forever with no signal that
+            anything went wrong at all. */}
+        {aiError && (
+          <p className="app__error" data-testid="ai-error">
+            The AI hit an error and couldn't move: {aiError}
           </p>
         )}
 

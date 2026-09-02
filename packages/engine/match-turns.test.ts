@@ -390,9 +390,9 @@ describe('Cleanup', () => {
 
     const after = runMatchCleanup(match)
     expect(after.shared.phase).toBe('finalFlip')
-    // The round counter does NOT advance — the Final Flip is a truncated
-    // continuation of the endgame, not round N+1.
-    expect(after.shared.round).toBe(match.shared.round)
+    // The round counter DOES advance — the Final Flip logs as its own round,
+    // not an amendment folded into the trigger round's log section.
+    expect(after.shared.round).toBe(match.shared.round + 1)
   })
 
   test('both triggers firing in one round still produces exactly one endgame', () => {

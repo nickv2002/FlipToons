@@ -2,12 +2,24 @@
 // match: seat A uses buildMatchAdapter (heuristicScore-weighted rollouts),
 // seat B uses the same adapter with heuristicScore stripped (uniform-random
 // rollouts) — see bench-match.ts's header for why.
+//
+// IMPORTANT: the outer loop below determines "whose real decision is this"
+// via each seat's OWN adapter.legalCandidates(match) — never via
+// advanceToBotDecision on the real match state. advanceToBotDecision's
+// opponentActionFor stand-in exists ONLY to model a hypothetical opponent
+// INSIDE one seat's own rollouts (adapter.apply, called from deep inside
+// chooseBestAction's search) — using it to advance the REAL match between
+// real turns would silently resolve the other seat's actual decisions with
+// the cheap stand-in instead of that seat's own real search, which is not a
+// bot-vs-bot game at all. This bug was caught before trusting any bench
+// numbers from this file — see its fix commit.
 import type { Season } from '../cards/types'
-import { buildNewMatch, advanceToBotDecision, buildMatchAdapter } from './matchAdapter'
+import { buildNewMatch, buildMatchAdapter } from './matchAdapter'
 import { chooseBestAction } from './core'
 import type { AiAdapter } from './core'
 import { applyMatchAction } from '../matchActions'
-import type { Match, MatchAction, PlayerId } from '../state'
+import type { MatchAction } from '../matchActions'
+import type { Match, PlayerId } from '../state'
 
 export type BenchMatchTask = {
   taskId: number
@@ -40,17 +52,16 @@ function runGame(task: BenchMatchTask): BenchMatchResult {
   let match: Match = buildNewMatch(task.seed, 2, task.season)
   let turns = 0
   while (match.shared.phase !== 'ended' && turns < MAX_TURNS) {
-    const atA = advanceToBotDecision(match, seatA)
-    if (atA.shared.phase === 'ended') {
-      match = atA
-      break
+    if (adapterA.legalCandidates(match).length > 0) {
+      match = applyMatchAction(match, seatA, chooseBestAction(adapterA, match, opts)).match
+    } else if (adapterB.legalCandidates(match).length > 0) {
+      match = applyMatchAction(match, seatB, chooseBestAction(adapterB, match, opts)).match
+    } else if (match.shared.phase === 'flip' || match.shared.phase === 'finalFlip') {
+      // Shared, neutral advance — legal from any seat, decides nothing.
+      match = applyMatchAction(match, seatA, { kind: 'advanceFlip' }).match
+    } else {
+      throw new Error(`bench-match-worker: stuck in phase '${match.shared.phase}' with no decider`)
     }
-    const legalA = adapterA.legalCandidates(atA)
-    const seat = legalA.length > 0 ? seatA : seatB
-    const at = seat === seatA ? atA : advanceToBotDecision(match, seatB)
-    const adapter = seat === seatA ? adapterA : adapterB
-    const action = chooseBestAction(adapter, at, opts)
-    match = applyMatchAction(at, seat, action).match
     turns++
   }
 
@@ -60,7 +71,14 @@ function runGame(task: BenchMatchTask): BenchMatchResult {
   return { taskId: task.taskId, winner: 'tie', turns }
 }
 
-self.onmessage = (event: MessageEvent<BenchMatchTask>) => {
-  const result = runGame(event.data)
-  ;(self as unknown as Worker).postMessage(result)
+// tsconfig here has no "webworker" lib (the engine package stays lib:
+// ESNext-only), so the worker globals are declared locally rather than
+// pulling in DOM/webworker types repo-wide — mirrors bench-worker.ts.
+declare const self: {
+  onmessage: ((event: { data: BenchMatchTask }) => void) | null
+  postMessage: (data: BenchMatchResult) => void
+}
+
+self.onmessage = (event) => {
+  self.postMessage(runGame(event.data))
 }

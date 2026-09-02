@@ -317,3 +317,27 @@ export function scoreState(state: GameState): number {
       deckConservationSignalValue,
   )
 }
+
+// Match-play variant: drops depletionPenalty and deckConservationSignal,
+// the two terms in scoreState that exist specifically to steer AWAY FROM
+// solo's deck-depletion LOSS condition (CLAUDE.md/memory: deck depletion is
+// solo-only — a match never ends that way, it ends by relative fame
+// standing at the Final Flip). In a competitive seat-vs-seat game,
+// "conserving" the shared toon deck while an opponent keeps hiring/dismissing
+// toward more fame is not caution, it's forfeiting tempo — bench-match.ts's
+// A/B (heuristicScore on vs off, both seats real search, fixed 150-sim
+// budget) measured plain scoreState losing 25%/75% to the pre-heuristic
+// uniform-random baseline on season 1 specifically, the season where the
+// smaller card pool between two players burns through the shared deck
+// fastest relative to fameToTriggerEndgame (i.e. triggers
+// deckConservationSignal's nonzero lowDeckFactor most often) — season 2 was
+// only marginally positive (57.5%). See matchAdapter.ts's own comment on
+// where this is wired in.
+export function matchScoreState(state: GameState): number {
+  const threshold = state.fameToTriggerEndgame || 1
+  const fameSignal = liveGridFame(state) / threshold
+  const spendableSignal = state.fame / threshold
+  const effectSynergySignalValue = (effectSynergySignal(state) / threshold) * EFFECT_SYNERGY_WEIGHT
+  const deadWeightDismissCostPenaltyValue = (deadWeightDismissCostPenalty(state) / threshold) * DEAD_WEIGHT_DISCOUNT_WEIGHT
+  return Math.max(0, 0.75 * fameSignal + 0.25 * spendableSignal + effectSynergySignalValue - deadWeightDismissCostPenaltyValue)
+}

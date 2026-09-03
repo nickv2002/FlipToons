@@ -119,6 +119,20 @@ function fameBonusNodes(card: CardData): ReactNode[] {
   })
 }
 
+// Raw banner/body text is otherwise-plain prose, but some cards state a bare
+// fame/cost amount inline (e.g. "gain {{2}} fame") that should show the same
+// coin the rest of the UI uses for fame — a `{{N}}` token marks that number.
+// Plain "fame" used as prose (no digit attached) is left as text on purpose.
+function stripFameTokens(text: string): string {
+  return text.replace(/\{\{(\d+)\}\}/g, '$1')
+}
+
+function fameTokenNodes(text: string, key: string): ReactNode {
+  if (!text.includes('{{')) return text
+  const parts = text.split(/\{\{(\d+)\}\}/)
+  return <span key={key}>{parts.map((part, i) => (i % 2 === 1 ? <FamePill key={i} value={Number(part)} /> : part))}</span>
+}
+
 // Joins a mix of plain strings and JSX nodes with a separator, the JSX
 // equivalent of `.filter(Boolean).join(sep)` — used because bodyNodes mixes
 // pill-bearing bonus text with plain banner/rawBodyText strings.
@@ -177,8 +191,16 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
   // dismiss this card after the Market phase", referring back to its fame
   // bonus condition ("+5 fame if in lower row") — the condition has to read
   // first or "if so" dangles with nothing to refer to.
-  const bodyText = [bannerText, ...structuredText, card.rawBodyText].filter(Boolean).join(' — ')
-  const bodyNodes = joinNodes([bannerText, ...fameBonusNodes(card), ...(card.immune ?? []).map((i) => immunePhrase[i] ?? i), card.rawBodyText].filter(Boolean), ' — ')
+  const bodyText = [bannerText && stripFameTokens(bannerText), ...structuredText, card.rawBodyText && stripFameTokens(card.rawBodyText)].filter(Boolean).join(' — ')
+  const bodyNodes = joinNodes(
+    [
+      bannerText && fameTokenNodes(bannerText, 'banner'),
+      ...fameBonusNodes(card),
+      ...(card.immune ?? []).map((i) => immunePhrase[i] ?? i),
+      card.rawBodyText && fameTokenNodes(card.rawBodyText, 'body'),
+    ].filter(Boolean),
+    ' — ',
+  )
   const warningText = card.unencodable
     ? `⚠ effect not simulated by the engine${card.unencodableReason ? ` (${card.unencodableReason})` : ''} — resolve it manually per the text above.`
     : null

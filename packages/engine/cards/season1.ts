@@ -80,7 +80,7 @@ export const season1Cards: Card[] = [
   {
     id: 'butterfly', name: 'Butterfly', season: 1, rank: 4, copies: 3,
     fame: { base: 2 },
-    rawBannerText: 'WHEN HIRED, YOU MAY DISMISS A CATERPILLAR FOR 0',
+    rawBannerText: 'When hired, you may dismiss a caterpillar for {{0}}',
     onHire: [{ kind: 'dismissByName', targetCardId: 'caterpillar', cost: 0 }],
     // NOTE (deviation from the plan's illustrative sketch): the plan wrote
     // `dismissByName: 'Caterpillar'` (display name). Every existing
@@ -148,7 +148,7 @@ export const season1Cards: Card[] = [
   {
     id: 'horse', name: 'Horse', season: 1, rank: 10, copies: 2,
     fame: { base: 4 },
-    rawBannerText: 'WHEN HIRED, DISCARD ANY NUMBER OF CARDS IN THE MARKET AND REFILL',
+    rawBannerText: 'When hired, discard any number of cards in the market and refill',
     onHire: [{ kind: 'discardMarketAndRefill' }],
     faqNote: 'FAQ: "If a player hires a horse, immediately discard any number of cards in the market, reveal an equal number of new cards from the deck, and arrange them by rank. Place the discarded cards face-up next to the toon deck." Refill count equals the number discarded, not a top-up to full width.',
   },
@@ -207,13 +207,13 @@ export const season1Cards: Card[] = [
     id: 'monkey', name: 'Monkey', season: 1, rank: 17, copies: 2,
     fame: { base: 3 }, // fully encodable — the extra-row relocation is now implemented (flip.ts's 'moveToExtraRowIfUpperRow')
     onPlace: [{ kind: 'moveToExtraRowIfUpperRow' }],
-    rawBodyText: 'IF placed in the upper row, move this card to a row above',
+    rawBodyText: 'If placed in the upper row, move this card to a row above',
     faqNote: "FAQ: \"When a monkey is placed in the upper row of a player's grid, move the card above the upper row, creating an additional row. Place the next revealed card in the space the monkey was originally placed. This additional row is considered part of the player's grid, but does not fill one of the six slots of the player's grid and is not considered the 'upper row'.\" The 'place the next revealed card in the vacated space' half of this falls out automatically from nextEmptyBaseSlot() re-finding that slot once Monkey vacates it — no special-case code needed for that part.",
   },
   {
     id: 'pig', name: 'Pig', season: 1, rank: 18, copies: 1,
     fame: { base: -1 },
-    rawBannerText: 'WHEN HIRED OR DISMISSED, PLACE THIS CARD IN ANY DECK',
+    rawBannerText: 'When hired or dismissed, place this card in any deck',
     // Encodable as of the multiplayer work: 'placeSelfInAnyDeck' detaches the
     // card and match.ts asks which deck it goes into (any seat's, or the toon
     // deck — reshuffled if so, per the FAQ below). Still never comes up in
@@ -225,7 +225,7 @@ export const season1Cards: Card[] = [
   {
     id: 'peacock', name: 'Peacock', season: 1, rank: 19, copies: 2,
     fame: { base: 5 },
-    rawBannerText: 'WHEN HIRED, GAIN 2 AND TAKE A BONUS MARKET ACTION',
+    rawBannerText: 'When hired, gain {{2}} and take a bonus market action',
     onHire: [{ kind: 'gainFame', amount: 2 }, { kind: 'bonusMarketAction', amount: 1 }],
     // The +2 fame here touches spendable `fame` only, never
     // `fameGeneratedThisRound` (the frozen Check-Fame win-trigger snapshot)
@@ -278,7 +278,7 @@ export const season1Cards: Card[] = [
   {
     id: 'axolotl', name: 'Axolotl', season: 1, rank: 26, copies: 2,
     fame: { base: 7 },
-    rawBannerText: 'WHEN HIRED, FLIP YOUR BIG BUTTON CARD FACE UP',
+    rawBannerText: 'When hired, flip your Big Button card face up',
     // The Big Button mini-expansion is now modelled (state.ts's
     // PlayerState.bigButtonFaceUp / SharedState.resetEffect, and
     // bigButton.ts), so this is no longer `unencodable`. Axolotl is the

@@ -17,7 +17,7 @@
 import type { Match } from '../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Season } from '../../packages/engine/cards/types'
-import type { SoloDifficulty } from '../../packages/engine/setup'
+import type { MatchDifficulty } from '../../packages/engine/ai'
 
 // §6's room-code alphabet: unambiguous characters only (no 0/O, 1/I/l).
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -58,11 +58,12 @@ export type SeatInfo = {
   connected: boolean
   isHost: boolean
   isBot: boolean
-  // Present only when isBot. Public (not just remembered by whichever
-  // browser hosted) because any connected human's browser may end up
-  // computing this seat's moves, and a joiner needs to see it before they
-  // ever touch the board — see CreateRoomRequest.bots below.
-  botDifficulty?: SoloDifficulty
+  // Present only when isBot. Public (not just remembered by the host) because
+  // a joiner needs to see it before they ever touch the board — see
+  // CreateRoomRequest.bots below. The HOST's browser is the one that actually
+  // computes this seat's moves (apps/web/src/App.tsx gates useBotSeats on
+  // isHost) — everyone else just watches.
+  botDifficulty?: MatchDifficulty
 }
 
 export type LobbyState = {
@@ -90,17 +91,16 @@ export type LobbyState = {
 // setup.ts decides before the first Flip.
 // `bots` seats one permanent bot per entry, starting at seat 2, at creation
 // (see room.ts) — 0 to MAX_SEATS - 1 of them, each entry naming that seat's
-// difficulty (packages/engine/setup.ts's SoloDifficulty, the same knob solo
-// play already uses). A bot's moves are computed in ANY connected human's
-// browser and relayed as ordinary `action` messages tagged with `asSeat`
-// below, never computed on this server.
+// difficulty (packages/engine/ai's MatchDifficulty). A bot's moves are
+// computed in the HOST's browser and relayed as ordinary `action` messages
+// tagged with `asSeat` below, never computed on this server.
 export type CreateRoomRequest = {
   name: string
   season: Season
   seed?: number
   fameToTriggerEndgame?: number
   bigButton?: 'market' | 'grid'
-  bots?: SoloDifficulty[]
+  bots?: MatchDifficulty[]
 }
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
@@ -128,10 +128,13 @@ export type ClientMessage =
   // Host-only, pre-start only: seats one more bot at the next open turnOrder
   // slot. Lets the host size the table to who actually showed up rather than
   // guessing bot count before anyone has joined.
-  | { type: 'addBot'; difficulty: SoloDifficulty }
+  | { type: 'addBot'; difficulty: MatchDifficulty }
   // Host-only, pre-start only: vacates a bot seat so a human (or a
   // differently-difficultied bot) can take it.
   | { type: 'removeBot'; playerId: string }
+  // Host-only, pre-start only: retargets an existing bot seat's difficulty
+  // without removing/re-adding it (keeps its name/position stable).
+  | { type: 'setBotDifficulty'; playerId: string; difficulty: MatchDifficulty }
 
 export type ServerMessage =
   // Sent once to the attaching/joining connection. `reconnectToken` is

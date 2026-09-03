@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type { LobbyState } from '../../../worker/protocol'
 import type { ConnectionState } from '../useMatch'
-import type { SoloDifficulty } from '../../../../packages/engine/setup'
+import type { MatchDifficulty } from '../../../../packages/engine/ai'
 import { FamePill } from './FamePill'
-import { OptionCards } from './OptionCards'
+import { BotDifficultySelector } from './BotDifficultySelector'
+import { BotPerfInfo } from './BotPerfInfo'
 
 export type LobbyProps = {
   lobby: LobbyState
@@ -11,26 +12,24 @@ export type LobbyProps = {
   connection: ConnectionState
   onStart: () => void
   onLeave: () => void
-  onAddBot: (difficulty: SoloDifficulty) => void
+  onAddBot: (difficulty: MatchDifficulty) => void
   onRemoveBot: (playerId: string) => void
+  onSetBotDifficulty: (playerId: string, difficulty: MatchDifficulty) => void
 }
 
-const DIFFICULTY_OPTIONS = [
-  { value: 'easy' as SoloDifficulty, label: 'Easy', icon: '🙂', testId: 'new-bot-difficulty-easy' },
-  { value: 'normal' as SoloDifficulty, label: 'Medium', icon: '😐', testId: 'new-bot-difficulty-normal' },
-  { value: 'hard' as SoloDifficulty, label: 'Hard', icon: '😤', testId: 'new-bot-difficulty-hard' },
-]
+// New bots start at this difficulty; the host retargets them individually
+// afterward via each seat's BotDifficultySelector.
+const DEFAULT_BOT_DIFFICULTY: MatchDifficulty = 'normal'
 
 // The waiting room. Its whole job is answering "am I actually in, and who else
 // is here" before the game starts — the previous room-code flow dropped you
 // straight into a shared board with no way to tell either.
-export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBot, onRemoveBot }: LobbyProps) {
+export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBot, onRemoveBot, onSetBotDifficulty }: LobbyProps) {
   const me = lobby.seats.find((s) => s.playerId === myPlayerId)
   const isHost = me?.isHost ?? false
   const canStart = isHost && lobby.seats.length >= 2
   const shareUrl = `${window.location.origin}${window.location.pathname}?room=${lobby.roomCode}`
   const [copied, setCopied] = useState(false)
-  const [newBotDifficulty, setNewBotDifficulty] = useState<SoloDifficulty>('normal')
   const canAddBot = isHost && lobby.seats.length < lobby.capacity
 
   const copyLink = async () => {
@@ -79,14 +78,17 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBo
             {seat.playerId === myPlayerId && <span className="lobby__badge lobby__badge--you">you</span>}
             {!seat.connected && !seat.isBot && <span className="lobby__badge lobby__badge--away">away</span>}
             {isHost && seat.isBot && (
-              <button
-                type="button"
-                className="lobby__remove-bot btn-pill"
-                data-testid={`remove-bot-${seat.playerId}`}
-                onClick={() => onRemoveBot(seat.playerId)}
-              >
-                Remove
-              </button>
+              <>
+                <BotDifficultySelector playerId={seat.playerId} value={seat.botDifficulty ?? DEFAULT_BOT_DIFFICULTY} onChange={onSetBotDifficulty} />
+                <button
+                  type="button"
+                  className="lobby__remove-bot btn-pill"
+                  data-testid={`remove-bot-${seat.playerId}`}
+                  onClick={() => onRemoveBot(seat.playerId)}
+                >
+                  Remove
+                </button>
+              </>
             )}
           </li>
         ))}
@@ -97,13 +99,17 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBo
           actually showed up before deciding how many to fill in, and being
           able to add or remove one right up until Start if a friend doesn't
           make it. Joiners can't touch this; the seat list above already
-          tells them what's there. */}
+          tells them what's there. Difficulty is no longer picked before
+          adding — a new bot starts at Medium and is retargeted per-seat via
+          the selector above. */}
       {isHost && (
         <div className="config-panel__field lobby__add-bot">
-          <OptionCards label="New bot difficulty" value={newBotDifficulty} onChange={setNewBotDifficulty} options={DIFFICULTY_OPTIONS} />
-          <button type="button" className="multiplayer-start__add-bot btn-pill" data-testid="add-bot" disabled={!canAddBot} onClick={() => onAddBot(newBotDifficulty)}>
-            + Add bot
-          </button>
+          <span className="lobby__add-bot-row">
+            <button type="button" className="multiplayer-start__add-bot btn-pill" data-testid="add-bot" disabled={!canAddBot} onClick={() => onAddBot(DEFAULT_BOT_DIFFICULTY)}>
+              + Add bot
+            </button>
+            <BotPerfInfo bots={lobby.seats.filter((s) => s.isBot)} />
+          </span>
         </div>
       )}
 

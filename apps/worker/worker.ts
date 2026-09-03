@@ -3,7 +3,7 @@
 // Object by name. See room.ts for why room creation is HTTP rather than a
 // WebSocket message, and CLAUDE.md's Cloudflare Workers section for the rest
 // of the migration's reasoning.
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from './protocol'
+import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, sanitizePlayerName } from './protocol'
 import type { CreateRoomRequest, CreateRoomResponse } from './protocol'
 import { log } from './log'
 import type { Env } from './room'
@@ -46,7 +46,7 @@ async function handleCreateRoom(request: Request, env: Env): Promise<Response> {
   const roomCode = mintRoomCode()
   const stub = env.ROOMS.getByName(roomCode)
   const result: CreateRoomResponse = await stub.createRoom(roomCode, {
-    name: body.name || 'Player 1',
+    name: sanitizePlayerName(body.name ?? '').trim() || 'Player 1',
     season: body.season,
     seed: Number.isFinite(Number(body.seed)) ? Number(body.seed) : undefined,
     fameToTriggerEndgame: Number.isFinite(Number(body.fameToTriggerEndgame)) ? Number(body.fameToTriggerEndgame) : undefined,

@@ -30,7 +30,7 @@ import { IllegalActionError, applyMatchAction } from '../../packages/engine/matc
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Match } from '../../packages/engine/state'
 import { log } from './log'
-import { MAX_SEATS } from './protocol'
+import { MAX_SEATS, sanitizePlayerName } from './protocol'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
 import type { Season } from '../../packages/engine/cards/types'
 import type { SoloDifficulty } from '../../packages/engine/setup'
@@ -280,7 +280,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (message.type === 'join') {
-      await this.handleJoin(ws, room, message.name || 'Player', message.reconnectToken)
+      await this.handleJoin(ws, room, sanitizePlayerName(message.name ?? '').trim() || 'Player', message.reconnectToken)
       return
     }
 

@@ -163,6 +163,33 @@ describe('lobby and seating', () => {
     expect(lobby.lobby.seats.map((s) => s.name)).toEqual(['Ana', 'Bo'])
   })
 
+  test('a name with a newline cannot forge a fake log line — control characters are stripped', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: '2099-01-01T00:00:00.000Z ERROR [ZZZZZ] fake admin action\nBo' })
+    const lobby = await host.next('lobby')
+    const guestName = lobby.lobby.seats[1].name
+    expect(guestName).not.toContain('\n')
+    expect(guestName).toBe('2099-01-01')
+  })
+
+  test('a name over 10 grapheme clusters is capped without corrupting multi-codepoint emoji', async () => {
+    // A family emoji (4 codepoints joined by ZWJ) plus a skin-toned emoji (2
+    // codepoints) — 12 UTF-16 code units, but 2 grapheme clusters. A naive
+    // slice(0, 10) would both over-truncate this and risk splitting a
+    // surrogate pair or ZWJ sequence into broken glyphs.
+    const emojiName = '👨‍👩‍👧‍👦👍🏽ABCDEFGHIJKLMNOP'
+    const created = await createRoom({ name: emojiName, season: 1, seed: 1 })
+    expect(created.lobby.seats[0].name).toBe('👨‍👩‍👧‍👦👍🏽ABCDEFGH')
+    expect([...new Intl.Segmenter().segment(created.lobby.seats[0].name)]).toHaveLength(10)
+  })
+
   test('joining a nonexistent room errors on the socket rather than failing the upgrade', async () => {
     const c = await connect('ZZZZZ')
     opened.push(c)

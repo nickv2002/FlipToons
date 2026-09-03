@@ -3,6 +3,7 @@ import type { Season } from '../../../../packages/engine/cards/types'
 import type { SoloDifficulty } from '../../../../packages/engine/setup'
 import type { ConnectionState } from '../useMatch'
 import { loadSettings, saveSettings } from '../settings'
+import { sanitizePlayerName } from '../../../worker/protocol'
 import { OptionCards } from './OptionCards'
 
 export type VsAiStartProps = {
@@ -34,7 +35,7 @@ export function VsAiStart({ onStart, onBack, connection }: VsAiStartProps) {
 
       <label className="config-panel__field">
         Your name
-        <input data-testid="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input data-testid="name-input" value={name} onChange={(e) => setName(sanitizePlayerName(e.target.value))} placeholder="Name" />
       </label>
 
       <OptionCards

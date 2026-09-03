@@ -117,10 +117,14 @@ function generateToken(): string {
 // an engine-wide rename.
 const DIFFICULTY_LABEL: Record<MatchDifficulty, string> = { easy: 'Easy', normal: 'Medium', hard: 'Hard', extreme: 'Extreme' }
 
-// One name per bot, in seating order. Always carries the difficulty in
-// parentheses — even a lone bot — so a player can tell what they set it to.
-// Bots sharing a difficulty are numbered in the order they were added.
-export function botSeatNames(difficulties: MatchDifficulty[]): string[] {
+// One name per bot, in seating order. Carries the difficulty in parentheses
+// — even a lone bot — so a player can tell what it was set to. Used ONLY
+// from here on (handleStart) — while still in the lobby the difficulty is
+// already visible on each seat's own selector, so re-printing it in the name
+// too was redundant, and the label wouldn't have tracked a later change in
+// the pill row without yet another rename call on every retarget. Bots
+// sharing a difficulty are numbered in the order they were added.
+function difficultyTaggedBotSeatNames(difficulties: MatchDifficulty[]): string[] {
   const seenSoFar: Partial<Record<MatchDifficulty, number>> = {}
   const totalOf: Partial<Record<MatchDifficulty, number>> = {}
   for (const d of difficulties) totalOf[d] = (totalOf[d] ?? 0) + 1
@@ -131,6 +135,15 @@ export function botSeatNames(difficulties: MatchDifficulty[]): string[] {
     seenSoFar[d] = n
     return `${label} ${n}`
   })
+}
+
+// Lobby-facing bot names, before any difficulty has been locked in by
+// Start — just "Bot", numbered only if there's more than one, since the
+// per-seat difficulty selector sitting right next to the name already shows
+// the difficulty; naming and numbering it too was the redundant/overflowing
+// part of the seat row.
+function plainBotSeatNames(count: number): string[] {
+  return count <= 1 ? ['Bot'] : Array.from({ length: count }, (_, i) => `Bot ${i + 1}`)
 }
 
 function lobbyOf(room: Room): LobbyState {
@@ -230,7 +243,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // "connected" from the moment the room exists — see strandingSeat for
     // what actually happens when every human who could compute its moves
     // disappears.
-    const names = botSeatNames(bots)
+    const names = plainBotSeatNames(bots.length)
     bots.forEach((difficulty, i) => {
       seats.push({ playerId: match.turnOrder[i + 1], name: names[i]!, reconnectToken: generateToken(), connected: true, isBot: true, botDifficulty: difficulty })
     })
@@ -508,6 +521,10 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
     if (room.started) return
 
+    // Lock each bot's difficulty into its name now — the per-seat selector
+    // that showed it live is about to disappear along with the lobby.
+    this.tagBotSeatsWithDifficulty(room)
+
     let dealt: Match
     try {
       dealt =
@@ -587,13 +604,24 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.armTurnTimeout(room)
   }
 
-  // Renames every bot seat in seating order so difficulty numbering (e.g.
-  // "Bot (Easy) 1", "Bot (Easy) 2") stays correct after an add or remove —
-  // botSeatNames has to see the whole current list, not just the one seat
-  // that changed.
+  // Keeps lobby bot names in plain "Bot"/"Bot N" form, renumbered after an
+  // add or remove — plainBotSeatNames has to see the whole current list, not
+  // just the one seat that changed. Called on every pre-start bot mutation;
+  // NOT on a difficulty retarget, since the difficulty no longer lives in
+  // the name until Start.
   private renameBotSeats(room: Room): void {
     const botSeats = room.seats.filter((s) => s.isBot)
-    const names = botSeatNames(botSeats.map((s) => s.botDifficulty!))
+    const names = plainBotSeatNames(botSeats.length)
+    botSeats.forEach((s, i) => {
+      s.name = names[i]!
+    })
+  }
+
+  // Locks each bot seat's difficulty into its name — "Bot (Hard)" and so on
+  // — once Start closes the lobby and the per-seat selector disappears.
+  private tagBotSeatsWithDifficulty(room: Room): void {
+    const botSeats = room.seats.filter((s) => s.isBot)
+    const names = difficultyTaggedBotSeatNames(botSeats.map((s) => s.botDifficulty!))
     botSeats.forEach((s, i) => {
       s.name = names[i]!
     })
@@ -659,7 +687,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     const seat = room.seats.find((s) => s.playerId === playerId && s.isBot)
     if (!seat) return
     seat.botDifficulty = difficulty
-    this.renameBotSeats(room)
+    // No renameBotSeats call — the name stays plain in the lobby regardless
+    // of difficulty; see plainBotSeatNames.
     this.touch()
     await this.persist()
     log('info', room.code, `bot ${playerId} difficulty set to ${difficulty}`)

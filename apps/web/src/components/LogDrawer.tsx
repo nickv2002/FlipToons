@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { LogEntry } from '../useGame'
+import type { FameSummaryEntry } from '../logSummary'
 import { ResolveLog } from './ResolveLog'
 
 // The log, on demand. It used to be a permanent sidebar taking a third of the
@@ -13,7 +14,7 @@ import { ResolveLog } from './ResolveLog'
 export type LogDrawerProps = {
   log: LogEntry[]
   debugLog: LogEntry[]
-  currentRoundSummary?: string
+  currentRoundSummary?: FameSummaryEntry[]
   onClose: () => void
 }
 

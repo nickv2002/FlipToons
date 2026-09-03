@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { LogEntry } from '../useGame'
+import type { FameSummaryEntry } from '../logSummary'
+import { FamePill } from './FamePill'
 
 export type ResolveLogProps = {
   log: LogEntry[]
@@ -8,7 +10,7 @@ export type ResolveLogProps = {
   // written once Cleanup fires (see useGame.ts / matchActions.ts). This is
   // the live equivalent, computed from current state, shown only for the
   // latest round and only until that round's own captured summary lands.
-  currentRoundSummary?: string
+  currentRoundSummary?: FameSummaryEntry[]
 }
 
 // Presentation-only classification of actions.ts's log strings, used purely
@@ -135,7 +137,15 @@ export function ResolveLog({ log, debugLog, currentRoundSummary }: ResolveLogPro
                     ▶
                   </span>
                   <span>Round {group.round}</span>
-                  {summary && <span className="resolve-log__count">{summary}</span>}
+                  {summary && summary.length > 0 && (
+                    <span className="resolve-log__count">
+                      {summary.map((s, i) => (
+                        <span key={i} className="resolve-log__count-entry">
+                          {s.initial}:<FamePill value={s.fame} />
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </button>
                 {roundDebugLines && roundDebugLines.length > 0 && (
                   <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />

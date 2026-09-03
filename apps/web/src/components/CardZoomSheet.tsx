@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { Card as CardData } from '../../../../packages/engine/cards/types'
 import { Card } from './Card'
 
@@ -7,7 +8,7 @@ import { Card } from './Card'
 // backdrop-click-to-close + stopPropagation() panel pattern.
 export type ZoomRequest = {
   card: CardData
-  actionLabel?: string
+  actionLabel?: ReactNode
   onAction?: () => void
 }
 

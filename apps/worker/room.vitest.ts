@@ -750,6 +750,15 @@ describe('Big Button', () => {
     }
     if (match.shared.phase !== 'market') return // nothing to assert about; not this test's subject
 
+    // The postFameChoice loop above broadcasts each 'state' to BOTH clients,
+    // but only drains it from whichever one sent the action — so the other
+    // client's inbox can be left holding a stale 'state'. Harmless while the
+    // acting seat below always happened to be the same client that drained
+    // its own inbox in the loop, but the acting seat is now randomized
+    // (round 1's first player), so drain both before relying on `.next`.
+    pair.host.drain('state')
+    pair.guest.drain('state')
+
     const actingId = match.turnOrder[match.activePlayerIndex]
     const actor = actingId === pair.hostSeat.playerId ? pair.host : pair.guest
     const fameBefore = match.players.find((p: any) => p.playerId === actingId)!.fame

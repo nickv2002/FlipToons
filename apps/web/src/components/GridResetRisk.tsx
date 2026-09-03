@@ -1,5 +1,6 @@
 import type { FameBreakdown as FameBreakdownData } from '../../../../packages/engine/score'
 import { FameBreakdown } from './FameBreakdown'
+import { FamePill } from './FamePill'
 
 export type GridResetRiskOther = { name: string; total: number }
 
@@ -26,7 +27,7 @@ export function GridResetRisk({ breakdown, total, others }: GridResetRiskProps) 
   return (
     <div className="grid-reset-risk" data-testid="grid-reset-risk">
       <p className="grid-reset-risk__headline">
-        Your grid generated <strong>{total}</strong> fame this round — resetting gives that up.
+        Your grid generated <strong><FamePill value={total} /></strong> this round — resetting gives that up.
       </p>
       <details className="grid-reset-risk__details">
         <summary>Show the breakdown</summary>
@@ -36,7 +37,7 @@ export function GridResetRisk({ breakdown, total, others }: GridResetRiskProps) 
         <ul className="grid-reset-risk__others">
           {others.map((o) => (
             <li key={o.name}>
-              {o.name}: <strong>{o.total}</strong> fame
+              {o.name}: <strong><FamePill value={o.total} /></strong>
             </li>
           ))}
         </ul>

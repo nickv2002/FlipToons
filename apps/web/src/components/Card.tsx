@@ -1,6 +1,7 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Card as CardData } from '../../../../packages/engine/cards/types'
 import { cardEmoji, hasVendoredIcon, vendoredIconUrl } from '../cardIcons'
+import { FamePill } from './FamePill'
 
 // One component reused across the grid, the market, and the dismissed-pile
 // list (plan §8's "Key files" / §5's "one Card component reused across
@@ -27,7 +28,7 @@ export type CardProps = {
   // engine's try/catch surfaces the real error), so this only changes the
   // badge's color to flag "can't afford this one" at a glance.
   dismissUnaffordable?: boolean
-  emptyLabel?: string // e.g. "(empty)" for a vacant market/grid slot
+  emptyLabel?: ReactNode // e.g. "(empty)" for a vacant market/grid slot
   // Tighter font-size/padding/line-clamping for narrow contexts (the
   // market's single-row layout) — same markup, no separate component.
   compact?: boolean
@@ -162,12 +163,7 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
     <>
       <div className="card__header-row">
         <div className="card__name">{card.name}</div>
-        {roundFame !== undefined && (
-          <span className="card__round-fame" title="Fame this card generated this round">
-            {roundFame}
-            <span className="card__fame-coin" aria-hidden="true">F</span>
-          </span>
-        )}
+        {roundFame !== undefined && <FamePill value={roundFame} title="Fame this card generated this round" />}
       </div>
       <div className="card__icon-row">
         <CardIcon id={card.id} />
@@ -180,12 +176,12 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
           <div
             className={`card__dismiss-cost${clickable ? ' card__dismiss-cost--active' : ''}${dismissUnaffordable ? ' card__dismiss-cost--unaffordable' : ''}`}
           >
-            dismiss: {dismissCost} fame
+            dismiss: <FamePill value={dismissCost} />
           </div>
         )
       )}
       <div className="card__fame">
-        base fame: {card.fame.base === '=' ? 'varies' : card.fame.base}
+        base fame: {card.fame.base === '=' ? 'varies' : <FamePill value={card.fame.base} />}
         {card.fameUnencodable ? ' (needs ruling)' : ''}
         {!hideText && bodyText ? ` | ${bodyText}` : ''}
       </div>

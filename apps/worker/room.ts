@@ -463,6 +463,14 @@ export class RoomDurableObject extends DurableObject<Env> {
         room.seats.length !== room.match.turnOrder.length
           ? buildNewMatch(room.seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame, bigButton: room.bigButton })
           : room.match
+      // The very first log line the table ever sees. firstPlayerIndex was
+      // randomized in buildMultiplayerSetup (setup.ts); turnOrder itself is
+      // always seat/join order, so rotate it to the actual play order —
+      // same rotation apps/web/src/App.tsx already does for the live fame
+      // summary.
+      const order = [...dealt.turnOrder.slice(dealt.firstPlayerIndex), ...dealt.turnOrder.slice(0, dealt.firstPlayerIndex)]
+      const orderNames = order.map((pid) => room.seats.find((s) => s.playerId === pid)?.name ?? pid)
+      room.log.push({ playerId: null, round: dealt.shared.round, text: `Randomized starting player — turn order: ${orderNames.join(', then ')}.` })
       // Nothing is committed to `room` until the advance has finished — same
       // discipline as handleAction — so an engine bug thrown mid-cascade
       // leaves memory and storage agreeing the room never started, rather

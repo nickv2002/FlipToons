@@ -12,7 +12,7 @@ import { MatchView, MatchStatus } from './components/MatchView'
 import { LaunchScreen } from './components/LaunchScreen'
 import type { LaunchStep } from './components/LaunchScreen'
 import { loadSettings, saveSettings } from './settings'
-import { buildFameLabels, formatRoundFame } from './logSummary'
+import { buildFameLabels, fameSummaryEntries } from './logSummary'
 
 // Two genuinely different games live here:
 //
@@ -207,10 +207,10 @@ export function App() {
                       round: l.round,
                       // Now that the protocol carries an actor, say who did it.
                       text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
-                      roundSummary: l.roundFame ? formatRoundFame(l.roundFame, fameLabels) : undefined,
+                      roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, fameLabels) : undefined,
                     }))}
                     debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
-                    currentRoundSummary={formatRoundFame(currentRoundFame, fameLabels)}
+                    currentRoundSummary={fameSummaryEntries(currentRoundFame, fameLabels)}
                     onClose={() => setLogOpen(false)}
                   />
                 )
@@ -275,10 +275,10 @@ export function App() {
             <LogDrawer
               log={local.log.map((l) => ({
                 ...l,
-                roundSummary: l.roundFame ? formatRoundFame(l.roundFame, new Map([[local.state!.playerId, 'You']])) : undefined,
+                roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, new Map([[local.state!.playerId, 'You']])) : undefined,
               }))}
               debugLog={local.debugLog}
-              currentRoundSummary={formatRoundFame(
+              currentRoundSummary={fameSummaryEntries(
                 [{ playerId: local.state.playerId, fame: local.state.fameGeneratedThisRound }],
                 new Map([[local.state.playerId, 'You']]),
               )}

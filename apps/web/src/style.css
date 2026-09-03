@@ -1057,11 +1057,12 @@ button {
   opacity: 0.7;
 }
 
-/* Per-card "fame generated this round" badge — distinct from the static
-   card__fame line (which always shows the card's base fame value) both in
-   position (top-right corner, next to price) and color, so the two numbers
-   never look interchangeable. */
-.card__round-fame {
+/* A fame amount as a gold coin pill (FamePill component) — used wherever a
+   fame number is shown in place of the word "fame". Started as Card's
+   card-specific round-fame badge (distinct from the static card__fame line,
+   which always shows the card's base fame value) and was generalized once
+   other components started reusing it. */
+.fame-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.1rem;
@@ -1071,7 +1072,7 @@ button {
   flex: none;
 }
 
-.card__fame-coin {
+.fame-coin {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1083,6 +1084,12 @@ button {
   font-size: 0.5rem;
   font-weight: 800;
   line-height: 1;
+}
+
+.resolve-log__count-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 .card--empty {

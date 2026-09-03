@@ -30,9 +30,10 @@ import { IllegalActionError, applyMatchAction } from '../../packages/engine/matc
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Match } from '../../packages/engine/state'
 import { log } from './log'
-import { MAX_SEATS } from './protocol'
+import { MAX_SEATS, sanitizePlayerName } from './protocol'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
 import type { Season } from '../../packages/engine/cards/types'
+import type { SoloDifficulty } from '../../packages/engine/setup'
 
 export type Seat = {
   playerId: string
@@ -43,6 +44,12 @@ export type Seat = {
   // seat its own POST /api/rooms call just reserved (see protocol.ts).
   reconnectToken: string
   connected: boolean
+  // True only for a bot seat synthesized at creation (see createRoom) —
+  // never assigned via handleJoin. Its playerId is whatever buildNewMatch's
+  // turnOrder gives its index — the engine has no separate id scheme for
+  // bots, so it has to be a real seat id.
+  isBot: boolean
+  botDifficulty?: SoloDifficulty
 }
 
 // Everything about one room, as it's persisted to `ctx.storage`. No sockets
@@ -61,6 +68,13 @@ export type Room = {
   // and handleRematch builds another one again. All three buildNewMatch call
   // sites have to pass it or the expansion silently switches itself off.
   bigButton: 'market' | 'grid' | null
+  // Mirrors the bigButton pattern above: fixed at creation, stored on the
+  // Room (not only the dealt match) so all three buildNewMatch call sites —
+  // start, rebuild-at-real-seat-count, rematch — agree on it. The engine
+  // itself has no concept of a bot seat; this is Room/protocol-level
+  // bookkeeping only. One entry per bot seat, in seating order; empty is the
+  // default "no bots" no-op.
+  bots: SoloDifficulty[]
   seed: number
   fameToTriggerEndgame: number
   log: LogLine[]
@@ -97,12 +111,35 @@ function generateToken(): string {
   return crypto.randomUUID()
 }
 
+// "Medium" is the UI-facing label for SoloDifficulty's 'normal' everywhere a
+// bot's difficulty is shown — the engine's own value stays 'normal' to avoid
+// an engine-wide rename.
+const DIFFICULTY_LABEL: Record<SoloDifficulty, string> = { easy: 'Easy', normal: 'Medium', hard: 'Hard' }
+
+// One name per bot, in seating order. Always carries the difficulty in
+// parentheses — even a lone bot — so a player can tell what they set it to.
+// Bots sharing a difficulty are numbered in the order they were added.
+export function botSeatNames(difficulties: SoloDifficulty[]): string[] {
+  const seenSoFar: Partial<Record<SoloDifficulty, number>> = {}
+  const totalOf: Partial<Record<SoloDifficulty, number>> = {}
+  for (const d of difficulties) totalOf[d] = (totalOf[d] ?? 0) + 1
+  return difficulties.map((d) => {
+    const label = `Bot (${DIFFICULTY_LABEL[d]})`
+    if ((totalOf[d] ?? 0) <= 1) return label
+    const n = (seenSoFar[d] ?? 0) + 1
+    seenSoFar[d] = n
+    return `${label} ${n}`
+  })
+}
+
 function lobbyOf(room: Room): LobbyState {
   const seats: SeatInfo[] = room.seats.map((s) => ({
     playerId: s.playerId,
     name: s.name,
     connected: s.connected,
     isHost: s.playerId === room.hostPlayerId,
+    isBot: s.isBot,
+    botDifficulty: s.botDifficulty,
   }))
   return {
     roomCode: room.code,
@@ -184,16 +221,27 @@ export class RoomDurableObject extends DurableObject<Env> {
     // solo game never goes through a room at all — the browser runs it
     // locally (apps/web/src/useGame.ts).
     const bigButton = params.bigButton ?? null
+    const bots = params.bots ?? []
     const match = buildNewMatch(seed, MAX_SEATS, params.season, { fameToTriggerEndgame: params.fameToTriggerEndgame, bigButton })
-    const seat: Seat = { playerId: match.turnOrder[0], name: params.name, reconnectToken: generateToken(), connected: false }
+    const seat: Seat = { playerId: match.turnOrder[0], name: params.name, reconnectToken: generateToken(), connected: false, isBot: false }
+    const seats: Seat[] = [seat]
+    // Synthesized, not joined: a bot never has a socket of its own, so it is
+    // "connected" from the moment the room exists — see strandingSeat for
+    // what actually happens when every human who could compute its moves
+    // disappears.
+    const names = botSeatNames(bots)
+    bots.forEach((difficulty, i) => {
+      seats.push({ playerId: match.turnOrder[i + 1], name: names[i]!, reconnectToken: generateToken(), connected: true, isBot: true, botDifficulty: difficulty })
+    })
     const room: Room = {
       code: roomCode,
       match,
-      seats: [seat],
+      seats,
       hostPlayerId: seat.playerId,
       started: false,
       season: params.season,
       bigButton,
+      bots,
       seed,
       fameToTriggerEndgame: match.shared.fameToTriggerEndgame,
       log: [],
@@ -203,7 +251,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.room = room
     await this.persist()
     await this.scheduleAlarm()
-    log('info', roomCode, `created by "${params.name}" — season ${params.season}, seed ${seed}, threshold ${room.fameToTriggerEndgame}`)
+    log(
+      'info',
+      roomCode,
+      `created by "${params.name}" — season ${params.season}, seed ${seed}, threshold ${room.fameToTriggerEndgame}${bots.length > 0 ? `, bots: ${names.join(', ')}` : ''}`,
+    )
     return { roomCode, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room) }
   }
 
@@ -255,7 +307,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (message.type === 'join') {
-      await this.handleJoin(ws, room, message.name || 'Player', message.reconnectToken)
+      await this.handleJoin(ws, room, sanitizePlayerName(message.name ?? '').trim() || 'Player', message.reconnectToken)
       return
     }
 
@@ -272,7 +324,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (message.type === 'action') {
-      await this.handleAction(ws, room, attachment.seat, message.action)
+      // asSeat is honored only when it names a bot seat in this room —
+      // otherwise the sender acts as their own attached seat, same as
+      // always. No check on which socket sent it: this is a low-stakes
+      // hobby app, and the only invariant that matters is that asSeat can
+      // never move a human seat's pieces.
+      const botSeat = message.asSeat ? room.seats.find((s) => s.playerId === message.asSeat && s.isBot) : undefined
+      await this.handleAction(ws, room, botSeat ? botSeat.playerId : attachment.seat, message.action)
       return
     }
 
@@ -377,7 +435,11 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.send(ws, { type: 'error', code: 'roomFull', message: 'That room is full.' })
         return
       }
-      seat = { playerId: room.match.turnOrder[room.seats.length], name, reconnectToken: generateToken(), connected: true }
+      // The bot seat, if any, already occupies a turnOrder slot — a joining
+      // human must not be handed it, so the next open index skips past it.
+      let nextIndex = 0
+      while (room.seats.some((s) => s.playerId === room.match.turnOrder[nextIndex])) nextIndex++
+      seat = { playerId: room.match.turnOrder[nextIndex], name, reconnectToken: generateToken(), connected: true, isBot: false }
       room.seats.push(seat)
       log('info', room.code, `${seat.playerId} ("${name}") joined — ${room.seats.length}/${MAX_SEATS} seated`)
     } else {
@@ -428,6 +490,14 @@ export class RoomDurableObject extends DurableObject<Env> {
         room.seats.length !== room.match.turnOrder.length
           ? buildNewMatch(room.seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame, bigButton: room.bigButton })
           : room.match
+      // The very first log line the table ever sees. firstPlayerIndex was
+      // randomized in buildMultiplayerSetup (setup.ts); turnOrder itself is
+      // always seat/join order, so rotate it to the actual play order —
+      // same rotation apps/web/src/App.tsx already does for the live fame
+      // summary.
+      const order = [...dealt.turnOrder.slice(dealt.firstPlayerIndex), ...dealt.turnOrder.slice(0, dealt.firstPlayerIndex)]
+      const orderNames = order.map((pid) => room.seats.find((s) => s.playerId === pid)?.name ?? pid)
+      room.log.push({ playerId: null, round: dealt.shared.round, text: `Randomized starting player — turn order: ${orderNames.join(', then ')}.` })
       // Nothing is committed to `room` until the advance has finished — same
       // discipline as handleAction — so an engine bug thrown mid-cascade
       // leaves memory and storage agreeing the room never started, rather
@@ -523,6 +593,16 @@ export class RoomDurableObject extends DurableObject<Env> {
   // Waiting on someone who isn't there
   // ---------------------------------------------------------------------
 
+  // A bot seat's own `connected` is always true (it has no socket) — but its
+  // moves are computed in the HOST's browser, so if no human is connected to
+  // relay them, the bot has no compute source and would stall the game
+  // forever without this. `!s.connected` alone would never catch that.
+  private seatIsStranded(room: Room, seat: Seat): boolean {
+    if (!seat.connected) return true
+    if (seat.isBot) return !room.seats.some((s) => !s.isBot && s.connected)
+    return false
+  }
+
   private strandingSeat(room: Room): Seat | undefined {
     if (!room.started) return undefined
 
@@ -534,7 +614,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (owing.length > 0) {
       for (const p of owing) {
         const seat = room.seats.find((s) => s.playerId === p.playerId)
-        if (seat && !seat.connected) return seat
+        if (seat && this.seatIsStranded(room, seat)) return seat
       }
       return undefined
     }
@@ -547,12 +627,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     // below returns undefined for every non-'market' phase.
     if (room.match.shared.phase === 'gridReset') {
       const decider = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
-      return decider && !decider.connected ? decider : undefined
+      return decider && this.seatIsStranded(room, decider) ? decider : undefined
     }
 
     if (room.match.shared.phase !== 'market') return undefined
     const seat = room.seats.find((s) => s.playerId === room.match.turnOrder[room.match.activePlayerIndex])
-    return seat && !seat.connected ? seat : undefined
+    return seat && this.seatIsStranded(room, seat) ? seat : undefined
   }
 
   // Re-evaluates whether the table is stranded and (re)schedules the alarm

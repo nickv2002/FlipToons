@@ -363,7 +363,15 @@ export function resolvePostFameChoice(state: GameState, choice: { pos: GridPos; 
   if (!target) {
     throw new Error(`phases.ts: resolvePostFameChoice — ${JSON.stringify(choice)} is not one of the ${pending.options.length} legal option(s)`)
   }
-  if (state.fame < pending.cost) {
+  // pending.cost is always 0 today (Skunk, the only card that reaches this —
+  // see this function's header comment) but the check still has to hold up
+  // against a NEGATIVE fame balance: fame can go below 0 (Pig's -1 base fame,
+  // a bad grid's Check Fame award), and Skunk targets exactly the
+  // lowest-fame player, so a negative balance here is the expected case, not
+  // an edge one. `cost > 0 &&` keeps a mandatory, free ability free
+  // regardless of balance, while still gating a hypothetical future
+  // nonzero-cost postFameChoice normally.
+  if (pending.cost > 0 && state.fame < pending.cost) {
     throw new Error(`phases.ts: resolvePostFameChoice — cannot afford the ${pending.cost} fame cost`)
   }
 
@@ -711,8 +719,8 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
         // has already appended it to the player's DECK (`deck: [...state.deck,
         // cardId]` above — a hire never touches the grid; cards reach the grid
         // only by being flipped), and dismiss() has already pushed it onto the
-        // dismissed pile. Both writes happen BEFORE applyEffects runs, so
-        // exactly one of the two branches below fires.
+        // dismissed pile. Both writes happen BEFORE applyEffects runs, so one
+        // of the first two branches below normally fires.
         //
         // The Pig has copies: 1, so `lastIndexOf` is unambiguously "the one
         // that just triggered" — and for the hire case it is the append that
@@ -735,7 +743,25 @@ export function applyEffects(state: GameState, card: Card, effects: Effect[] | u
           }
           break
         }
-        throw new Error(`phases.ts: placeSelfInAnyDeck — ${card.name} is neither in the deck nor the dismissed pile`)
+        // Third path, not anticipated by the FAQ text: Snake can stack the
+        // Pig itself off the toon deck (flip.ts's
+        // dismissOwnDeckTopAndStackFromToonDeck), which places it face up
+        // straight onto the grid and defers its onHire to here
+        // (pendingOnHireCardIds) rather than routing it through hire() —
+        // so neither of the writes the two branches above depend on
+        // happened. Solo never surfaces this (solo's setup excludes the Pig
+        // entirely), so it went unseen until multiplayer games — the AI
+        // opponent's many-games-per-minute pace is what first hit it.
+        for (const { pos, slot } of occupiedSlots(next.grid)) {
+          const index = slot.cards.indexOf(card.id)
+          if (index === -1) continue
+          const grid = cloneGrid(next.grid)
+          removeCardRaw(grid, pos, index)
+          next = { ...next, grid, pendingDeckPlacement: { cardId: card.id, source: 'flip' } }
+          break
+        }
+        if (next.pendingDeckPlacement?.cardId === card.id) break
+        throw new Error(`phases.ts: placeSelfInAnyDeck — ${card.name} is neither in the deck, the dismissed pile, nor the grid`)
       }
       case 'other':
         throw new Error(`phases.ts: applyEffects — effect 'other' (${JSON.stringify((effect as { text?: string }).text)}) on ${card.name} has no structured implementation`)

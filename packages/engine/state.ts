@@ -112,7 +112,7 @@ export type PendingChoiceLike =
 // table-level operation (match.ts's matchResolveDeckPlacement).
 export type PendingDeckPlacement = {
   cardId: CardId
-  source: 'hire' | 'dismiss'
+  source: 'hire' | 'dismiss' | 'flip'
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,12 @@ export type PlayerId = string
 // produced it — null only for genuinely table-wide events (market decay,
 // the endgame trigger) that have no single owner, never as a default for
 // "didn't bother to attribute it."
-export type EngineLogLine = { playerId: PlayerId | null; text: string }
+//
+// `roundFame` is set only on a round's own completion line — each player's
+// `fameGeneratedThisRound` captured just before Cleanup zeroes it, in that
+// round's turn order. It's the only point this data is ever available: once
+// Cleanup runs there is no live field left to read it back from.
+export type EngineLogLine = { playerId: PlayerId | null; text: string; roundFame?: { playerId: PlayerId; fame: number }[] }
 
 export type PlayerState = {
   playerId: PlayerId
@@ -519,7 +524,11 @@ export function createSoloGameState(params: {
 // a single player's game impossible to reproduce in isolation and leaks turn
 // position into the shuffle. Each seat derives its own stream from the match
 // seed and its index instead.
-export function makeMatch(first: GameState, others: { playerId: PlayerId; startingDeck: CardId[]; seed: number }[] = []): Match {
+export function makeMatch(
+  first: GameState,
+  others: { playerId: PlayerId; startingDeck: CardId[]; seed: number }[] = [],
+  firstPlayerIndex = 0,
+): Match {
   const { viewEpoch: _ignored, ...view } = first
   const shared: SharedState = {
     phase: view.phase,
@@ -579,5 +588,5 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
   ]
 
   const turnOrder = players.map((p) => p.playerId)
-  return { shared, players, turnOrder, firstPlayerIndex: 0, activePlayerIndex: 0 }
+  return { shared, players, turnOrder, firstPlayerIndex, activePlayerIndex: firstPlayerIndex }
 }

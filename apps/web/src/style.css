@@ -487,6 +487,32 @@ button {
   color: var(--color-accent);
 }
 
+.game-links__footer {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, canvastext 20%, transparent);
+  text-align: center;
+}
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, canvastext 20%, transparent);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: canvastext;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.github-link:hover {
+  background: color-mix(in srgb, canvastext 8%, transparent);
+  border-color: color-mix(in srgb, canvastext 35%, transparent);
+}
+
 .config-panel label {
   display: flex;
   flex-direction: column;
@@ -604,6 +630,21 @@ button {
 
 .config-panel__room-code {
   align-items: center;
+}
+
+.multiplayer-start__bot-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.multiplayer-start__bot-row .option-field {
+  flex: 1;
+}
+
+.multiplayer-start__add-bot {
+  margin-top: 0.5rem;
 }
 
 .config-panel__room-code input {
@@ -813,9 +854,16 @@ button {
    every non-Market phase in a match — would otherwise stretch the full page
    width around a grid capped at 22rem, which reads as an empty box rather
    than a board. Direct children only: the market-phase pane is nested inside
-   .round-view__phase--market and keeps its own 1fr share of that split. */
+   .round-view__phase--market and keeps its own 1fr share of that split.
+
+   Opponent panes (.opponents__board) get the same cap: they never sit beside
+   a market pane at all, in any phase, so without this they stretched to the
+   full width of .opponents__list while your own pane above sat capped at
+   30rem — same board component, two card sizes again, just outside the
+   Market phase this time. */
 .round-view > .round-view__grid-pane,
-.match__mine > .round-view__grid-pane {
+.match__mine > .round-view__grid-pane,
+.opponents__board > .round-view__grid-pane {
   max-width: 30rem;
 }
 
@@ -1018,15 +1066,39 @@ button {
   opacity: 0.7;
 }
 
-/* Per-card "fame generated this round" badge — distinct from the static
-   card__fame line (which always shows the card's base fame value) both in
-   position (top-right corner, next to price) and color, so the two numbers
-   never look interchangeable. */
-.card__round-fame {
+/* A fame amount as a gold coin pill (FamePill component) — used wherever a
+   fame number is shown in place of the word "fame". Started as Card's
+   card-specific round-fame badge (distinct from the static card__fame line,
+   which always shows the card's base fame value) and was generalized once
+   other components started reusing it. */
+.fame-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--color-warning);
   flex: none;
+}
+
+.fame-coin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--color-warning);
+  color: canvas;
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.resolve-log__count-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 .card--empty {
@@ -1907,11 +1979,17 @@ img.card__icon {
    spanning the page — same component, two card sizes, which is most of what
    made the two boards read as different kinds of thing.
 
-   Scoped to `.match` on purpose: solo has only ever had one board, so there
-   is nothing there for it to match, and capping it globally would shrink the
-   solo grid (398px -> 352px at 1024px wide) to fix a problem solo doesn't
-   have. Inside a match it applies to YOUR board and everyone else's alike. */
-.match .grid {
+   Scoped to `.match[data-phase="market"]`, not `.match` unconditionally:
+   solo has only ever had one board, so there is nothing there for it to
+   match, and capping it globally would shrink the solo grid (398px ->
+   352px at 1024px wide) to fix a problem solo doesn't have. Within a match,
+   the narrow-vs-wide mismatch this fixes only exists during the Market
+   phase's two-column grid+market split (`.round-view__phase--market`
+   above) — every other phase (including `ended`, where "Your board" falls
+   back to a full-width read-only BoardPane with no market pane beside it)
+   has no narrow pane to match against, so capping there just wastes width.
+   Applies to YOUR board and everyone else's alike while it's in force. */
+.match[data-phase='market'] .grid {
   max-width: 22rem;
 }
 

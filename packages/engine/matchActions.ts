@@ -507,7 +507,16 @@ function afterTurnBoundary(match: Match, logLines: LogLine[], debugLines: string
 
   if (match.shared.phase !== 'cleanup') return { match, logLines, debugLines }
   const round = match.shared.round
+  // Turn order for the round that's ending — firstPlayerIndex only rotates
+  // to the NEXT round's first player inside runMatchCleanup itself
+  // (match.ts), so it still names this round's first player here.
+  const order = [...match.turnOrder.slice(match.firstPlayerIndex), ...match.turnOrder.slice(0, match.firstPlayerIndex)]
+  const roundFame = order.map((playerId) => ({
+    playerId,
+    fame: match.players.find((p) => p.playerId === playerId)!.fameGeneratedThisRound,
+  }))
   const next = runMatchCleanup(match)
+  logLines.push({ playerId: null, round, text: `Round ${round} complete.`, roundFame })
   if (next.shared.criticsChoiceHolder && !match.shared.criticsChoiceHolder) {
     logLines.push({ playerId: next.shared.criticsChoiceHolder, round, text: "takes the Critic's Choice card." })
   }

@@ -17,7 +17,14 @@ type Client = {
   close: () => void
 }
 
-async function createRoom(opts: { name: string; season: 1 | 2; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }): Promise<CreateRoomResponse> {
+async function createRoom(opts: {
+  name: string
+  season: 1 | 2
+  seed?: number
+  fameToTriggerEndgame?: number
+  bigButton?: 'market' | 'grid'
+  bots?: ('easy' | 'normal' | 'hard')[]
+}): Promise<CreateRoomResponse> {
   const res = await SELF.fetch('https://fliptoons.example/api/rooms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -153,6 +160,33 @@ describe('lobby and seating', () => {
     guest.send({ type: 'join', name: 'Bo' })
     const lobby = await host.next('lobby')
     expect(lobby.lobby.seats.map((s) => s.name)).toEqual(['Ana', 'Bo'])
+  })
+
+  test('a name with a newline cannot forge a fake log line — control characters are stripped', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: '2099-01-01T00:00:00.000Z ERROR [ZZZZZ] fake admin action\nBo' })
+    const lobby = await host.next('lobby')
+    const guestName = lobby.lobby.seats[1].name
+    expect(guestName).not.toContain('\n')
+    expect(guestName).toBe('2099-01-01')
+  })
+
+  test('a name over 10 grapheme clusters is capped without corrupting multi-codepoint emoji', async () => {
+    // A family emoji (4 codepoints joined by ZWJ) plus a skin-toned emoji (2
+    // codepoints) — 12 UTF-16 code units, but 2 grapheme clusters. A naive
+    // slice(0, 10) would both over-truncate this and risk splitting a
+    // surrogate pair or ZWJ sequence into broken glyphs.
+    const emojiName = '👨‍👩‍👧‍👦👍🏽ABCDEFGHIJKLMNOP'
+    const created = await createRoom({ name: emojiName, season: 1, seed: 1 })
+    expect(created.lobby.seats[0].name).toBe('👨‍👩‍👧‍👦👍🏽ABCDEFGH')
+    expect([...new Intl.Segmenter().segment(created.lobby.seats[0].name)]).toHaveLength(10)
   })
 
   test('joining a nonexistent room errors on the socket rather than failing the upgrade', async () => {
@@ -463,6 +497,137 @@ describe('surviving eviction', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Bot rooms — one or more permanent bot seats, their moves relayed from any
+// connected human's browser via `asSeat` rather than computed on this server.
+// ---------------------------------------------------------------------------
+describe('bot rooms', () => {
+  test('creating a room with one bot synthesizes a bot seat named after its difficulty', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
+    expect(created.lobby.seats).toHaveLength(2)
+    const bot = created.lobby.seats.find((s) => s.isBot)
+    expect(bot).toBeTruthy()
+    expect(bot!.playerId).toBe('p1')
+    expect(bot!.connected).toBe(true)
+    expect(bot!.botDifficulty).toBe('hard')
+    expect(bot!.name).toBe('Bot (Hard)')
+    expect(created.lobby.seats.find((s) => s.playerId === created.playerId)?.isBot).toBe(false)
+  })
+
+  test('multiple bots sharing a difficulty are numbered; distinct difficulties are not', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
+    expect(created.lobby.seats).toHaveLength(4)
+    const bots = created.lobby.seats.filter((s) => s.isBot)
+    expect(bots.map((b) => b.name)).toEqual(['Bot (Hard) 1', 'Bot (Easy)', 'Bot (Hard) 2'])
+  })
+
+  test('a human joining a room with a bot cannot be assigned the bot seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: 'Bo' })
+    const seated = await guest.next('seated')
+    expect(seated.playerId).not.toBe('p1')
+    expect(seated.lobby.seats.filter((s) => s.isBot)).toHaveLength(1)
+  })
+
+  test('an action tagged asSeat for the bot seat is applied to the bot regardless of who sends it', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    host.drain('lobby')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.send({ type: 'action', action: { kind: 'endTurn' }, asSeat: 'p1' })
+    const state = await host.next('state')
+    // Applied as p1 (the bot), not as p0 (the host's own attached seat) —
+    // the log line names whoever's turn actually ended.
+    expect(state.logLines.some((l) => l.playerId === 'p1' && l.text.includes('ended their turn'))).toBe(true)
+  })
+
+  test('an action tagged asSeat for a human seat is ignored, falling back to the sender own attached seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    host.drain('lobby')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      // It is the bot's (p1) turn — asSeat cannot redirect the host's own
+      // socket onto p0 (a human seat) and have that magically succeed as p1.
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.send({ type: 'action', action: { kind: 'endTurn' }, asSeat: 'p0' })
+    const err = await host.next('error')
+    expect(err.code).toBe('illegalAction')
+  })
+
+  test('the bot seat is eligible for playForAbsentSeat when the host disconnects', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+
+    const stub = ROOMS.getByName(created.roomCode)
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.match.shared.phase = 'market'
+      room.match.activePlayerIndex = room.match.turnOrder.indexOf('p1')
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+
+    host.close()
+    await new Promise((r) => setTimeout(r, 50))
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      room.turnTimeoutDeadline = Date.now() - 1
+      await instance.ctx.storage.put('room', room)
+      instance.room = room
+    })
+    const ran = await runAlarm(stub)
+    expect(ran).toBe(true)
+
+    await runInDO(stub, async (instance: any) => {
+      const room = await instance.ctx.storage.get('room')
+      expect(room.log.some((l: any) => l.text.includes('was skipped'))).toBe(true)
+    })
+  })
+})
+
 afterEach(() => {
   for (const c of opened.splice(0)) {
     try {
@@ -592,6 +757,15 @@ describe('Big Button', () => {
       match = (await client.next('state')).match
     }
     if (match.shared.phase !== 'market') return // nothing to assert about; not this test's subject
+
+    // The postFameChoice loop above broadcasts each 'state' to BOTH clients,
+    // but only drains it from whichever one sent the action — so the other
+    // client's inbox can be left holding a stale 'state'. Harmless while the
+    // acting seat below always happened to be the same client that drained
+    // its own inbox in the loop, but the acting seat is now randomized
+    // (round 1's first player), so drain both before relying on `.next`.
+    pair.host.drain('state')
+    pair.guest.drain('state')
 
     const actingId = match.turnOrder[match.activePlayerIndex]
     const actor = actingId === pair.hostSeat.playerId ? pair.host : pair.guest

@@ -72,13 +72,15 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBo
       <ul className="lobby__seats" data-testid="seat-list">
         {lobby.seats.map((seat) => (
           <li key={seat.playerId} className="lobby__seat" data-testid={`seat-${seat.playerId}`}>
+            {/* No separate "bot" badge — the name itself already says "Bot"
+                pre-start, and the difficulty selector right next to it makes
+                what kind of seat this is obvious without another label. */}
             <span className="lobby__seat-name">{seat.name}</span>
-            {seat.isBot && <span className="lobby__badge" data-testid="bot-badge">bot</span>}
             {seat.isHost && <span className="lobby__badge">host</span>}
             {seat.playerId === myPlayerId && <span className="lobby__badge lobby__badge--you">you</span>}
             {!seat.connected && !seat.isBot && <span className="lobby__badge lobby__badge--away">away</span>}
             {isHost && seat.isBot && (
-              <>
+              <span className="lobby__bot-controls">
                 <BotDifficultySelector playerId={seat.playerId} value={seat.botDifficulty ?? DEFAULT_BOT_DIFFICULTY} onChange={onSetBotDifficulty} />
                 <button
                   type="button"
@@ -88,7 +90,7 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave, onAddBo
                 >
                   Remove
                 </button>
-              </>
+              </span>
             )}
           </li>
         ))}

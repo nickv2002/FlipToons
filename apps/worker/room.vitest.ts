@@ -502,7 +502,7 @@ describe('surviving eviction', () => {
 // connected human's browser via `asSeat` rather than computed on this server.
 // ---------------------------------------------------------------------------
 describe('bot rooms', () => {
-  test('creating a room with one bot synthesizes a bot seat named after its difficulty', async () => {
+  test('creating a room with one bot synthesizes a bot seat named plainly, difficulty tracked separately', async () => {
     const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
     expect(created.lobby.seats).toHaveLength(2)
     const bot = created.lobby.seats.find((s) => s.isBot)
@@ -510,14 +510,30 @@ describe('bot rooms', () => {
     expect(bot!.playerId).toBe('p1')
     expect(bot!.connected).toBe(true)
     expect(bot!.botDifficulty).toBe('hard')
-    expect(bot!.name).toBe('Bot (Hard)')
+    // Not "Bot (Hard)" — the difficulty isn't folded into the name until
+    // Start; the lobby shows it live via the per-seat selector instead.
+    expect(bot!.name).toBe('Bot')
     expect(created.lobby.seats.find((s) => s.playerId === created.playerId)?.isBot).toBe(false)
   })
 
-  test('multiple bots sharing a difficulty are numbered; distinct difficulties are not', async () => {
+  test('multiple bots are numbered plainly in the lobby regardless of difficulty', async () => {
     const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
     expect(created.lobby.seats).toHaveLength(4)
     const bots = created.lobby.seats.filter((s) => s.isBot)
+    expect(bots.map((b) => b.name)).toEqual(['Bot 1', 'Bot 2', 'Bot 3'])
+  })
+
+  test('starting the game tags each bot seat with its difficulty', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    const lobby = await host.next('lobby')
+    const bots = lobby.lobby.seats.filter((s) => s.isBot)
     expect(bots.map((b) => b.name)).toEqual(['Bot (Hard) 1', 'Bot (Easy)', 'Bot (Hard) 2'])
   })
 
@@ -639,7 +655,8 @@ describe('bot rooms', () => {
     const lobby = await host.next('lobby')
     const bot = lobby.lobby.seats.find((s) => s.isBot)!
     expect(bot.botDifficulty).toBe('extreme')
-    expect(bot.name).toBe('Bot (Extreme)')
+    // Name stays plain in the lobby — only Start folds difficulty into it.
+    expect(bot.name).toBe('Bot')
   })
 
   test('a non-host cannot retarget a bot seat difficulty', async () => {

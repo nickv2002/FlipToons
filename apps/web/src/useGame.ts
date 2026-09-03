@@ -13,7 +13,7 @@ const MAX_LOG_LINES = 2000
 
 // playerId carries through from EngineLogLine for type parity with
 // multiplayer's LogLine — solo has one seat, so ResolveLog never prefixes it.
-export type LogEntry = { round: number; text: string; playerId?: PlayerId | null }
+export type LogEntry = { round: number; text: string; playerId?: PlayerId | null; roundFame?: { playerId: PlayerId; fame: number }[]; roundSummary?: string }
 
 type SavedGame = { state: GameState; log: LogEntry[]; debugLog: LogEntry[] }
 
@@ -94,6 +94,7 @@ export function useGame() {
               round: boundary !== -1 && i >= boundary ? next.round : state.round,
               text: line.text,
               playerId: line.playerId,
+              roundFame: line.roundFame,
             })),
           ]),
         )
@@ -138,7 +139,7 @@ export function useGame() {
           round: 1,
           text: `New game — seed ${seed}, ${difficulty}, season ${season}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`,
         },
-        ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId })),
+        ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId, roundFame: line.roundFame })),
       ]),
     )
     setDebugLog(capLog(debugLines.map((text) => ({ round: next.round, text }))))

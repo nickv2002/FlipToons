@@ -116,6 +116,7 @@ export function ResolveLog({ log, debugLog }: ResolveLogProps) {
         {groups.map((group, groupIndex) => {
           const expanded = expandOverrides[group.round] ?? group.round === latestRound
           const roundDebugLines = debugByRound.get(group.round)
+          const summary = group.entries.find((e) => e.roundSummary)?.roundSummary
           return (
             <div className="resolve-log__group" key={groupIndex}>
               <div className="resolve-log__round-header-row">
@@ -129,7 +130,7 @@ export function ResolveLog({ log, debugLog }: ResolveLogProps) {
                     ▶
                   </span>
                   <span>Round {group.round}</span>
-                  <span className="resolve-log__count">{group.entries.length}</span>
+                  {summary && <span className="resolve-log__count">{summary}</span>}
                 </button>
                 {roundDebugLines && roundDebugLines.length > 0 && (
                   <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />

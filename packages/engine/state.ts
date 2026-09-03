@@ -150,7 +150,12 @@ export type PlayerId = string
 // produced it — null only for genuinely table-wide events (market decay,
 // the endgame trigger) that have no single owner, never as a default for
 // "didn't bother to attribute it."
-export type EngineLogLine = { playerId: PlayerId | null; text: string }
+//
+// `roundFame` is set only on a round's own completion line — each player's
+// `fameGeneratedThisRound` captured just before Cleanup zeroes it, in that
+// round's turn order. It's the only point this data is ever available: once
+// Cleanup runs there is no live field left to read it back from.
+export type EngineLogLine = { playerId: PlayerId | null; text: string; roundFame?: { playerId: PlayerId; fame: number }[] }
 
 export type PlayerState = {
   playerId: PlayerId

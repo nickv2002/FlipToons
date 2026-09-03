@@ -108,7 +108,10 @@ test.describe('touch mode', () => {
   test('an unaffordable market card is still tappable to view details, with no action offered', async ({ page }) => {
     await startSolo(page)
 
-    const unaffordable = page.locator('.market .card__price--unaffordable').locator('xpath=ancestor::button[1]').first()
+    // The price badge is a sibling of the card button under .market-slot, not
+    // an ancestor of it (Market.tsx renders them side by side) — go via the
+    // shared .market-slot rather than an xpath ancestor lookup.
+    const unaffordable = page.locator('.market-slot:has(.card__price--unaffordable) button').first()
     await expect(unaffordable).toBeVisible()
     await unaffordable.click()
 

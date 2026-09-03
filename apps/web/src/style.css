@@ -634,13 +634,26 @@ button {
 
 .multiplayer-start__bot-row {
   display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
   margin-top: 0.5rem;
 }
 
 .multiplayer-start__bot-row .option-field {
   flex: 1;
+}
+
+/* Fixed 3-up, not auto-fit: with the Remove button gone from beside it there
+   is room most of the time, but auto-fit would still wrap once the Remove
+   button's own row and the panel's padding eat into a narrow phone's width.
+   Cards shrink to fit rather than wrapping to a second row. */
+.multiplayer-start__bot-row .option-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.multiplayer-start__bot-row .multiplayer-start__remove-bot {
+  align-self: flex-end;
 }
 
 .multiplayer-start__add-bot {
@@ -894,7 +907,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
-  width: fit-content;
+  width: 100%;
 }
 
 .grid__row {
@@ -1757,6 +1770,20 @@ img.card__icon {
   color: var(--color-warning);
 }
 
+.lobby__remove-bot {
+  font-size: 0.8rem;
+}
+
+.lobby__add-bot {
+  margin-top: -0.25rem;
+}
+
+/* Same reasoning as the multiplayer-start bot row: fixed 3-up so the three
+   difficulty cards never wrap to a second row on a narrow phone. */
+.lobby__add-bot .option-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .lobby__start {
   font-size: 1.1rem;
   font-weight: 700;
@@ -1972,25 +1999,6 @@ img.card__icon {
 
 .lobby__setup {
   color: color-mix(in srgb, canvastext 70%, transparent);
-}
-
-/* A grid sizes itself to its container, so the SAME three columns came out at
-   ~108px in the narrow pane beside the market and ~205px in an opponent pane
-   spanning the page — same component, two card sizes, which is most of what
-   made the two boards read as different kinds of thing.
-
-   Scoped to `.match[data-phase="market"]`, not `.match` unconditionally:
-   solo has only ever had one board, so there is nothing there for it to
-   match, and capping it globally would shrink the solo grid (398px ->
-   352px at 1024px wide) to fix a problem solo doesn't have. Within a match,
-   the narrow-vs-wide mismatch this fixes only exists during the Market
-   phase's two-column grid+market split (`.round-view__phase--market`
-   above) — every other phase (including `ended`, where "Your board" falls
-   back to a full-width read-only BoardPane with no market pane beside it)
-   has no narrow pane to match against, so capping there just wastes width.
-   Applies to YOUR board and everyone else's alike while it's in force. */
-.match[data-phase='market'] .grid {
-  max-width: 22rem;
 }
 
 /* `.card:disabled` carries two unrelated meanings, and only one of them is

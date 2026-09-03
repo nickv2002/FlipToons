@@ -4,23 +4,23 @@ import { openPlayer, playToEnd, settleToMarket, SHORT_FAME_THRESHOLD } from './h
 // Single-browser: these games have exactly one human seat, so there is no
 // second page to drive — a bot's moves come from the client-side worker
 // (useBotSeats), relayed to the server as ordinary `action` messages tagged
-// `asSeat`. Proves the whole bot path: hosting a table with bot seats added
-// from the host panel, the ordinary lobby (no more auto-start — the host
-// presses Start themselves, same as any multiplayer room), the bot(s)
-// actually taking their turns unattended, and the match reaching a real
-// winner.
+// `asSeat`. Proves the whole bot path: hosting a table, adding bot seats from
+// the waiting room (not the host panel — bots are sized to who actually
+// showed up), the ordinary lobby (no more auto-start — the host presses
+// Start themselves, same as any multiplayer room), the bot(s) actually
+// taking their turns unattended, and the match reaching a real winner.
 test.describe('bots', () => {
   test('a human plays a full game against one bot without a second browser', async ({ browser }) => {
     const human = await openPlayer(browser, 'Ana')
 
     await human.page.getByTestId('mode-host').click()
     await human.page.getByTestId('name-input').fill(human.name)
-    await human.page.getByTestId('add-bot').click()
-    await human.page.getByTestId('bot-0-difficulty-easy').click()
     await human.page.getByTestId('fame-threshold').fill(SHORT_FAME_THRESHOLD)
     await human.page.getByTestId('host-game').click()
 
     await expect(human.page.getByTestId('lobby')).toBeVisible()
+    await human.page.getByTestId('new-bot-difficulty-easy').click()
+    await human.page.getByTestId('add-bot').click()
     await expect(human.page.getByTestId('bot-badge')).toBeVisible()
     await human.page.getByTestId('start-game').click()
 
@@ -44,14 +44,15 @@ test.describe('bots', () => {
 
     await human.page.getByTestId('mode-host').click()
     await human.page.getByTestId('name-input').fill(human.name)
-    await human.page.getByTestId('add-bot').click()
-    await human.page.getByTestId('bot-0-difficulty-easy').click()
-    await human.page.getByTestId('add-bot').click()
-    await human.page.getByTestId('bot-1-difficulty-hard').click()
     await human.page.getByTestId('fame-threshold').fill(SHORT_FAME_THRESHOLD)
     await human.page.getByTestId('host-game').click()
 
     await expect(human.page.getByTestId('lobby')).toBeVisible()
+    await human.page.getByTestId('new-bot-difficulty-easy').click()
+    await human.page.getByTestId('add-bot').click()
+    await expect(human.page.getByTestId('bot-badge')).toHaveCount(1)
+    await human.page.getByTestId('new-bot-difficulty-hard').click()
+    await human.page.getByTestId('add-bot').click()
     await expect(human.page.getByTestId('bot-badge')).toHaveCount(2)
     await human.page.getByTestId('start-game').click()
 

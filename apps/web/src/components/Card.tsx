@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { Card as CardData } from '../../../../packages/engine/cards/types'
 import { cardEmoji, hasVendoredIcon, vendoredIconUrl } from '../cardIcons'
-import { FamePill } from './FamePill'
+import { FameCoin, FamePill } from './FamePill'
 
 // One component reused across the grid, the market, and the dismissed-pile
 // list (plan §8's "Key files" / §5's "one Card component reused across
@@ -97,6 +97,35 @@ function fameBonusText(card: CardData): string[] {
   })
 }
 
+// Same bonuses as fameBonusText, but as JSX with the amount in a FamePill —
+// for the visible card face, where the coin stands in for "fame" the same
+// way it does everywhere else. fameBonusText stays string-only because the
+// `title` tooltip (plain HTML attribute) can't hold JSX.
+function fameBonusNodes(card: CardData): ReactNode[] {
+  return (card.fame.bonuses ?? []).map((b, i) => {
+    if (b.kind === 'ifCondition') {
+      const words = humanize(b.condition)
+      return (
+        <span key={i}>
+          +<FamePill value={b.amount} /> {words.startsWith('per ') ? words : `if ${words}`}
+        </span>
+      )
+    }
+    return (
+      <span key={i}>
+        +<FamePill value={b.amount} /> per {humanize(b.query)}
+      </span>
+    )
+  })
+}
+
+// Joins a mix of plain strings and JSX nodes with a separator, the JSX
+// equivalent of `.filter(Boolean).join(sep)` — used because bodyNodes mixes
+// pill-bearing bonus text with plain banner/rawBodyText strings.
+function joinNodes(nodes: ReactNode[], separator: string): ReactNode {
+  return nodes.flatMap((n, i) => (i === 0 ? [n] : [separator, n]))
+}
+
 function CardIcon({ id }: { id: string }) {
   if (hasVendoredIcon(id)) {
     return <img className="card__icon" src={vendoredIconUrl(id)} alt="" aria-hidden="true" />
@@ -149,6 +178,7 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
   // bonus condition ("+5 fame if in lower row") — the condition has to read
   // first or "if so" dangles with nothing to refer to.
   const bodyText = [bannerText, ...structuredText, card.rawBodyText].filter(Boolean).join(' — ')
+  const bodyNodes = joinNodes([bannerText, ...fameBonusNodes(card), ...(card.immune ?? []).map((i) => immunePhrase[i] ?? i), card.rawBodyText].filter(Boolean), ' — ')
   const warningText = card.unencodable
     ? `⚠ effect not simulated by the engine${card.unencodableReason ? ` (${card.unencodableReason})` : ''} — resolve it manually per the text above.`
     : null
@@ -181,9 +211,9 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
         )
       )}
       <div className="card__fame">
-        base fame: {card.fame.base === '=' ? 'varies' : <FamePill value={card.fame.base} />}
+        Base <FameCoin />: {card.fame.base === '=' ? 'varies' : card.fame.base}
         {card.fameUnencodable ? ' (needs ruling)' : ''}
-        {!hideText && bodyText ? ` | ${bodyText}` : ''}
+        {!hideText && bodyText ? <> | {bodyNodes}</> : ''}
       </div>
       {!hideText && warningText && <div className="card__warning">{warningText}</div>}
     </>

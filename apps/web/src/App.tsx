@@ -12,6 +12,7 @@ import { MatchView, MatchStatus } from './components/MatchView'
 import { LaunchScreen } from './components/LaunchScreen'
 import type { LaunchStep } from './components/LaunchScreen'
 import { loadSettings, saveSettings } from './settings'
+import { buildFameLabels, formatRoundFame } from './logSummary'
 
 // Two genuinely different games live here:
 //
@@ -185,17 +186,22 @@ export function App() {
               botSeatId={botSeatId}
               aiThinking={aiThinking}
             />
-            {logOpen && (
-              <LogDrawer
-                log={match.log.map((l) => ({
-                  round: l.round,
-                  // Now that the protocol carries an actor, say who did it.
-                  text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
-                }))}
-                debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
-                onClose={() => setLogOpen(false)}
-              />
-            )}
+            {logOpen &&
+              (() => {
+                const fameLabels = buildFameLabels(match.lobby!.seats.map((s) => ({ playerId: s.playerId, name: s.name })))
+                return (
+                  <LogDrawer
+                    log={match.log.map((l) => ({
+                      round: l.round,
+                      // Now that the protocol carries an actor, say who did it.
+                      text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
+                      roundSummary: l.roundFame ? formatRoundFame(l.roundFame, fameLabels) : undefined,
+                    }))}
+                    debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
+                    onClose={() => setLogOpen(false)}
+                  />
+                )
+              })()}
           </div>
         ) : match.lobby ? (
           <Lobby
@@ -252,7 +258,16 @@ export function App() {
             />
           )}
           <RoundView state={local.state} dispatch={local.dispatch} onAbandon={abandonSolo} touchMode={touchMode} />
-          {logOpen && <LogDrawer log={local.log} debugLog={local.debugLog} onClose={() => setLogOpen(false)} />}
+          {logOpen && (
+            <LogDrawer
+              log={local.log.map((l) => ({
+                ...l,
+                roundSummary: l.roundFame ? formatRoundFame(l.roundFame, new Map([[local.state!.playerId, 'You']])) : undefined,
+              }))}
+              debugLog={local.debugLog}
+              onClose={() => setLogOpen(false)}
+            />
+          )}
         </div>
       )}
     </div>

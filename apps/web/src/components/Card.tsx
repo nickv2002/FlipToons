@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { Card as CardData } from '../../../../packages/engine/cards/types'
 import { cardEmoji, hasVendoredIcon, vendoredIconUrl } from '../cardIcons'
-import { FameCoin, FamePill } from './FamePill'
+import { FamePill } from './FamePill'
 
 // One component reused across the grid, the market, and the dismissed-pile
 // list (plan §8's "Key files" / §5's "one Card component reused across
@@ -211,7 +211,7 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
         )
       )}
       <div className="card__fame">
-        Base <FameCoin />: {card.fame.base === '=' ? 'varies' : card.fame.base}
+        Base: {card.fame.base === '=' ? 'varies' : <FamePill value={card.fame.base} />}
         {card.fameUnencodable ? ' (needs ruling)' : ''}
         {!hideText && bodyText ? <> | {bodyNodes}</> : ''}
       </div>

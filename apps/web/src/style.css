@@ -1062,10 +1062,27 @@ button {
    position (top-right corner, next to price) and color, so the two numbers
    never look interchangeable. */
 .card__round-fame {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--color-warning);
   flex: none;
+}
+
+.card__fame-coin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--color-warning);
+  color: canvas;
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .card--empty {

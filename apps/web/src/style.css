@@ -907,7 +907,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
-  width: fit-content;
+  width: 100%;
 }
 
 .grid__row {

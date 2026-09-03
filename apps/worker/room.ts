@@ -339,6 +339,16 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'addBot') {
+      await this.handleAddBot(ws, room, attachment.seat, message.difficulty)
+      return
+    }
+
+    if (message.type === 'removeBot') {
+      await this.handleRemoveBot(ws, room, attachment.seat, message.playerId)
+      return
+    }
+
     this.send(ws, { type: 'error', message: 'Unknown message type.' })
   }
 
@@ -560,6 +570,63 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
     this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
     await this.armTurnTimeout(room)
+  }
+
+  // Renames every bot seat in seating order so difficulty numbering (e.g.
+  // "Bot (Easy) 1", "Bot (Easy) 2") stays correct after an add or remove —
+  // botSeatNames has to see the whole current list, not just the one seat
+  // that changed.
+  private renameBotSeats(room: Room): void {
+    const botSeats = room.seats.filter((s) => s.isBot)
+    const names = botSeatNames(botSeats.map((s) => s.botDifficulty!))
+    botSeats.forEach((s, i) => {
+      s.name = names[i]!
+    })
+  }
+
+  private async handleAddBot(ws: WebSocket, room: Room, seatId: string, difficulty: SoloDifficulty): Promise<void> {
+    if (seatId !== room.hostPlayerId) {
+      this.send(ws, { type: 'error', code: 'notHost', message: 'Only the host can add bots.' })
+      return
+    }
+    if (room.started) {
+      this.send(ws, { type: 'error', code: 'alreadyStarted', message: 'That game has already started.' })
+      return
+    }
+    if (room.seats.length >= MAX_SEATS) {
+      this.send(ws, { type: 'error', code: 'roomFull', message: 'That room is full.' })
+      return
+    }
+    // Same slot-picking rule handleJoin uses: skip whichever turnOrder ids
+    // are already seated (human or bot).
+    let nextIndex = 0
+    while (room.seats.some((s) => s.playerId === room.match.turnOrder[nextIndex])) nextIndex++
+    const playerId = room.match.turnOrder[nextIndex]
+    room.seats.push({ playerId, name: '', reconnectToken: generateToken(), connected: true, isBot: true, botDifficulty: difficulty })
+    this.renameBotSeats(room)
+    this.touch()
+    await this.persist()
+    log('info', room.code, `bot added (${difficulty}) — ${room.seats.length}/${MAX_SEATS} seated`)
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+  }
+
+  private async handleRemoveBot(ws: WebSocket, room: Room, seatId: string, playerId: string): Promise<void> {
+    if (seatId !== room.hostPlayerId) {
+      this.send(ws, { type: 'error', code: 'notHost', message: 'Only the host can remove bots.' })
+      return
+    }
+    if (room.started) {
+      this.send(ws, { type: 'error', code: 'alreadyStarted', message: 'That game has already started.' })
+      return
+    }
+    const index = room.seats.findIndex((s) => s.playerId === playerId && s.isBot)
+    if (index === -1) return
+    room.seats.splice(index, 1)
+    this.renameBotSeats(room)
+    this.touch()
+    await this.persist()
+    log('info', room.code, `bot removed — ${room.seats.length}/${MAX_SEATS} seated`)
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
   }
 
   private async handleAction(ws: WebSocket, room: Room, seatId: string, action: MatchAction): Promise<void> {

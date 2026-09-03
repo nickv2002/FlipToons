@@ -899,17 +899,6 @@ button {
        fighting for the same row), so give the market pane a larger share. */
     grid-template-columns: 1fr 1.3fr;
   }
-
-  /* The 1fr track above hands this pane whatever share is left over after
-     the market pane's 1.3fr, which is routinely wider than the 22rem the
-     grid inside is capped to (see .match[data-phase='market'] .grid below)
-     — without this, the pane stays that wide and the capped grid leaves a
-     dead strip on its right. 23.5rem = the grid's 22rem cap plus the pane's
-     own 0.75rem horizontal padding on each side, so the pane hugs the grid
-     it actually contains. */
-  .round-view__phase--market > .round-view__grid-pane {
-    max-width: 23.5rem;
-  }
 }
 
 /* ---------- Grid ---------- */
@@ -2010,25 +1999,6 @@ img.card__icon {
 
 .lobby__setup {
   color: color-mix(in srgb, canvastext 70%, transparent);
-}
-
-/* A grid sizes itself to its container, so the SAME three columns came out at
-   ~108px in the narrow pane beside the market and ~205px in an opponent pane
-   spanning the page — same component, two card sizes, which is most of what
-   made the two boards read as different kinds of thing.
-
-   Scoped to `.match[data-phase="market"]`, not `.match` unconditionally:
-   solo has only ever had one board, so there is nothing there for it to
-   match, and capping it globally would shrink the solo grid (398px ->
-   352px at 1024px wide) to fix a problem solo doesn't have. Within a match,
-   the narrow-vs-wide mismatch this fixes only exists during the Market
-   phase's two-column grid+market split (`.round-view__phase--market`
-   above) — every other phase (including `ended`, where "Your board" falls
-   back to a full-width read-only BoardPane with no market pane beside it)
-   has no narrow pane to match against, so capping there just wastes width.
-   Applies to YOUR board and everyone else's alike while it's in force. */
-.match[data-phase='market'] .grid {
-  max-width: 22rem;
 }
 
 /* `.card:disabled` carries two unrelated meanings, and only one of them is

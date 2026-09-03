@@ -66,10 +66,18 @@ export type FlipResult = {
   // after Flip that can safely add to `fame`/`actionsRemaining` without
   // Check Fame's snapshot immediately overwriting it.
   pendingOnHireCardIds: CardId[]
+  // Every card actually drawn from the deck this Flip, in chronological
+  // order — pushed at the point of the real `remainingDeck.shift()` below,
+  // so a card consumed by 'returnIfRankAtMost' without ever being placed
+  // still appears once, and a card returned to the deck (Coyote/Zebra/Crab)
+  // and later redrawn appears a second time. This is the actual reveal
+  // order, not a re-derived pre-flip shuffle preview — the latter would be
+  // wrong for any season with a Return effect. Consumed by phases.ts's
+  // runFlip to build the player-facing "flip order" line.
+  revealOrder: CardId[]
   // Player-facing log lines for events the post-Flip grid can't explain by
   // itself — see applyOnPlaceEffects's `notes` param comment. Consumed by
-  // actions.ts's advanceThroughPassthroughPhases right after the "flip
-  // order" preview line.
+  // phases.ts's runFlip right after the "flip order" line.
   flipNotes: string[]
   // Verbose per-card trace of target-determination and redirect decisions —
   // the same information flipNotes summarizes for the player, but complete
@@ -618,6 +626,8 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
   // stack-redirect push below (why a card lands on an already-occupied
   // slot instead of the next empty one).
   const flipNotes: string[] = []
+  // See FlipResult's revealOrder comment.
+  const revealOrder: CardId[] = []
   // Verbose per-card trace for debugging card-interaction surprises (e.g.
   // "why did this card end up stacked where it did") — every card's
   // initial target position, plus every pending/redirect branch taken to
@@ -655,6 +665,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
     }
 
     const cardId = remainingDeck.shift()!
+    revealOrder.push(cardId)
     const card = cardsById[cardId]
     if (!card) throw new Error(`flip.ts: unknown card id ${cardId}`)
 
@@ -797,7 +808,7 @@ export function flipDeck(deck: Deck, cardsById: Record<CardId, Card>, flipContex
     }
   }
 
-  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds, flipNotes, debugNotes }
+  return { grid, remainingDeck, toonDeck, dismissed, toonDeckEmptiedDuringFlip, pendingOnHireCardIds, revealOrder, flipNotes, debugNotes }
 }
 
 // Target-determination for a card's OWN placement — i.e. deciding which

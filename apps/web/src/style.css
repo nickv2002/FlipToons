@@ -1738,6 +1738,7 @@ img.card__icon {
 
 .lobby__seat {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
@@ -1748,6 +1749,17 @@ img.card__icon {
 .lobby__seat-name {
   font-weight: 600;
   margin-right: auto;
+}
+
+/* The difficulty selector + Remove button, as one unit — wraps onto its own
+   line under the name/badges rather than squeezing (and overflowing the
+   seat's rounded box) on a narrow lobby. */
+.lobby__bot-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
 }
 
 .lobby__badge {
@@ -1778,10 +1790,83 @@ img.card__icon {
   margin-top: -0.25rem;
 }
 
-/* Same reasoning as the multiplayer-start bot row: fixed 3-up so the three
-   difficulty cards never wrap to a second row on a narrow phone. */
-.lobby__add-bot .option-grid {
-  grid-template-columns: repeat(3, 1fr);
+.lobby__add-bot-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Per-seat difficulty pill row — compact by design, since it repeats once
+   per bot seat inline next to the name (unlike OptionCards' big icon cards,
+   used only once on the host's room-creation panel). */
+.bot-difficulty-selector {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.bot-difficulty-selector__btn {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
+  background: none;
+  color: canvastext;
+  cursor: pointer;
+}
+
+.bot-difficulty-selector__btn--active {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Same info-button pattern as .touch-mode-toggle__hint/__popover, plus a red
+   --alert modifier when the perf warning it contains is actually likely. */
+.bot-perf-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bot-perf-info__hint {
+  cursor: pointer;
+  background: none;
+  color: color-mix(in srgb, canvastext 65%, transparent);
+  border: 1px solid color-mix(in srgb, canvastext 40%, transparent);
+  border-radius: 50%;
+  width: 1.3em;
+  height: 1.3em;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.bot-perf-info__hint--alert {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.bot-perf-info__popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.4rem;
+  z-index: 50;
+  width: max(220px, 60vw);
+  max-width: 320px;
+  background: canvas;
+  color: canvastext;
+  border: 1px solid color-mix(in srgb, canvastext 25%, transparent);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
 .lobby__start {

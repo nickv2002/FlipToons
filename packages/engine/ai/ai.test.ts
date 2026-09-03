@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test'
 import { applyAction } from '../actions'
 import { makeRng } from '../rng'
-import { buildNewGameState, chooseBestSoloMarketAction, evaluateSoloAction, evaluateSoloMarketCandidates, playSoloAutomatically } from './index'
+import { buildNewGameState, chooseBestSoloMarketAction, evaluateSoloAction, evaluateSoloMarketCandidates, INTERACTIVE_MAX_WALL_CLOCK_MS, playSoloAutomatically } from './index'
 
 const FAST_OPTS = { simulations: 6, maxStepsPerPlayout: 20, rng: makeRng(1) }
 
@@ -110,4 +110,8 @@ describe('playSoloAutomatically', () => {
     // timeout on a loaded machine.
     15000,
   )
+
+  test('extreme difficulty is tuned above hard, not equal to it', () => {
+    expect(INTERACTIVE_MAX_WALL_CLOCK_MS.extreme).toBeGreaterThan(INTERACTIVE_MAX_WALL_CLOCK_MS.hard)
+  })
 })

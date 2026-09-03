@@ -23,7 +23,7 @@ async function createRoom(opts: {
   seed?: number
   fameToTriggerEndgame?: number
   bigButton?: 'market' | 'grid'
-  bots?: ('easy' | 'normal' | 'hard')[]
+  bots?: ('easy' | 'normal' | 'hard' | 'extreme')[]
 }): Promise<CreateRoomResponse> {
   const res = await SELF.fetch('https://fliptoons.example/api/rooms', {
     method: 'POST',
@@ -502,7 +502,7 @@ describe('surviving eviction', () => {
 // connected human's browser via `asSeat` rather than computed on this server.
 // ---------------------------------------------------------------------------
 describe('bot rooms', () => {
-  test('creating a room with one bot synthesizes a bot seat named after its difficulty', async () => {
+  test('creating a room with one bot synthesizes a bot seat named plainly, difficulty tracked separately', async () => {
     const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
     expect(created.lobby.seats).toHaveLength(2)
     const bot = created.lobby.seats.find((s) => s.isBot)
@@ -510,14 +510,30 @@ describe('bot rooms', () => {
     expect(bot!.playerId).toBe('p1')
     expect(bot!.connected).toBe(true)
     expect(bot!.botDifficulty).toBe('hard')
-    expect(bot!.name).toBe('Bot (Hard)')
+    // Not "Bot (Hard)" — the difficulty isn't folded into the name until
+    // Start; the lobby shows it live via the per-seat selector instead.
+    expect(bot!.name).toBe('Bot')
     expect(created.lobby.seats.find((s) => s.playerId === created.playerId)?.isBot).toBe(false)
   })
 
-  test('multiple bots sharing a difficulty are numbered; distinct difficulties are not', async () => {
+  test('multiple bots are numbered plainly in the lobby regardless of difficulty', async () => {
     const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
     expect(created.lobby.seats).toHaveLength(4)
     const bots = created.lobby.seats.filter((s) => s.isBot)
+    expect(bots.map((b) => b.name)).toEqual(['Bot 1', 'Bot 2', 'Bot 3'])
+  })
+
+  test('starting the game tags each bot seat with its difficulty', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    const lobby = await host.next('lobby')
+    const bots = lobby.lobby.seats.filter((s) => s.isBot)
     expect(bots.map((b) => b.name)).toEqual(['Bot (Hard) 1', 'Bot (Easy)', 'Bot (Hard) 2'])
   })
 
@@ -625,6 +641,84 @@ describe('bot rooms', () => {
       const room = await instance.ctx.storage.get('room')
       expect(room.log.some((l: any) => l.text.includes('was skipped'))).toBe(true)
     })
+  })
+
+  test('the host can retarget an existing bot seat to Extreme without re-adding it', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+
+    host.send({ type: 'setBotDifficulty', playerId: 'p1', difficulty: 'extreme' })
+    const lobby = await host.next('lobby')
+    const bot = lobby.lobby.seats.find((s) => s.isBot)!
+    expect(bot.botDifficulty).toBe('extreme')
+    // Name stays plain in the lobby — only Start folds difficulty into it.
+    expect(bot.name).toBe('Bot')
+  })
+
+  test('a non-host cannot retarget a bot seat difficulty', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: 'Bo' })
+    await guest.next('seated')
+    guest.drain('lobby')
+
+    guest.send({ type: 'setBotDifficulty', playerId: 'p1', difficulty: 'extreme' })
+    const err = await guest.next('error')
+    expect(err.code).toBe('notHost')
+  })
+
+  test('a bot seat cannot be retargeted once the game has started', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+    host.send({ type: 'start' })
+    await host.next('state')
+    host.drain('lobby')
+
+    host.send({ type: 'setBotDifficulty', playerId: 'p1', difficulty: 'extreme' })
+    const err = await host.next('error')
+    expect(err.code).toBe('alreadyStarted')
+  })
+
+  test('the host role migrates mid-match when the host disconnects, so a bot seat is not permanently frozen', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
+    const host = await connect(created.roomCode)
+    opened.push(host)
+    host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
+    await host.next('seated')
+    host.drain('lobby')
+
+    const guest = await connect(created.roomCode)
+    opened.push(guest)
+    guest.send({ type: 'join', name: 'Bo' })
+    await guest.next('seated')
+    guest.drain('lobby')
+    host.drain('lobby')
+
+    host.send({ type: 'start' })
+    await host.next('state')
+    await guest.next('state')
+    host.drain('lobby')
+    guest.drain('lobby')
+
+    host.close()
+    const lobby = await guest.next('lobby')
+    const guestSeat = lobby.lobby.seats.find((s) => !s.isBot && s.connected)
+    expect(guestSeat!.isHost).toBe(true)
   })
 })
 

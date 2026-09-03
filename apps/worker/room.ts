@@ -33,7 +33,7 @@ import { log } from './log'
 import { MAX_SEATS, sanitizePlayerName } from './protocol'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
 import type { Season } from '../../packages/engine/cards/types'
-import type { SoloDifficulty } from '../../packages/engine/setup'
+import type { MatchDifficulty } from '../../packages/engine/ai'
 import { formatNewGameLogLine } from '../../packages/engine/setup'
 
 export type Seat = {
@@ -50,7 +50,7 @@ export type Seat = {
   // turnOrder gives its index — the engine has no separate id scheme for
   // bots, so it has to be a real seat id.
   isBot: boolean
-  botDifficulty?: SoloDifficulty
+  botDifficulty?: MatchDifficulty
 }
 
 // Everything about one room, as it's persisted to `ctx.storage`. No sockets
@@ -75,7 +75,7 @@ export type Room = {
   // itself has no concept of a bot seat; this is Room/protocol-level
   // bookkeeping only. One entry per bot seat, in seating order; empty is the
   // default "no bots" no-op.
-  bots: SoloDifficulty[]
+  bots: MatchDifficulty[]
   seed: number
   fameToTriggerEndgame: number
   log: LogLine[]
@@ -112,17 +112,21 @@ function generateToken(): string {
   return crypto.randomUUID()
 }
 
-// "Medium" is the UI-facing label for SoloDifficulty's 'normal' everywhere a
+// "Medium" is the UI-facing label for MatchDifficulty's 'normal' everywhere a
 // bot's difficulty is shown — the engine's own value stays 'normal' to avoid
 // an engine-wide rename.
-const DIFFICULTY_LABEL: Record<SoloDifficulty, string> = { easy: 'Easy', normal: 'Medium', hard: 'Hard' }
+const DIFFICULTY_LABEL: Record<MatchDifficulty, string> = { easy: 'Easy', normal: 'Medium', hard: 'Hard', extreme: 'Extreme' }
 
-// One name per bot, in seating order. Always carries the difficulty in
-// parentheses — even a lone bot — so a player can tell what they set it to.
-// Bots sharing a difficulty are numbered in the order they were added.
-export function botSeatNames(difficulties: SoloDifficulty[]): string[] {
-  const seenSoFar: Partial<Record<SoloDifficulty, number>> = {}
-  const totalOf: Partial<Record<SoloDifficulty, number>> = {}
+// One name per bot, in seating order. Carries the difficulty in parentheses
+// — even a lone bot — so a player can tell what it was set to. Used ONLY
+// from here on (handleStart) — while still in the lobby the difficulty is
+// already visible on each seat's own selector, so re-printing it in the name
+// too was redundant, and the label wouldn't have tracked a later change in
+// the pill row without yet another rename call on every retarget. Bots
+// sharing a difficulty are numbered in the order they were added.
+function difficultyTaggedBotSeatNames(difficulties: MatchDifficulty[]): string[] {
+  const seenSoFar: Partial<Record<MatchDifficulty, number>> = {}
+  const totalOf: Partial<Record<MatchDifficulty, number>> = {}
   for (const d of difficulties) totalOf[d] = (totalOf[d] ?? 0) + 1
   return difficulties.map((d) => {
     const label = `Bot (${DIFFICULTY_LABEL[d]})`
@@ -131,6 +135,15 @@ export function botSeatNames(difficulties: SoloDifficulty[]): string[] {
     seenSoFar[d] = n
     return `${label} ${n}`
   })
+}
+
+// Lobby-facing bot names, before any difficulty has been locked in by
+// Start — just "Bot", numbered only if there's more than one, since the
+// per-seat difficulty selector sitting right next to the name already shows
+// the difficulty; naming and numbering it too was the redundant/overflowing
+// part of the seat row.
+function plainBotSeatNames(count: number): string[] {
+  return count <= 1 ? ['Bot'] : Array.from({ length: count }, (_, i) => `Bot ${i + 1}`)
 }
 
 function lobbyOf(room: Room): LobbyState {
@@ -230,7 +243,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // "connected" from the moment the room exists — see strandingSeat for
     // what actually happens when every human who could compute its moves
     // disappears.
-    const names = botSeatNames(bots)
+    const names = plainBotSeatNames(bots.length)
     bots.forEach((difficulty, i) => {
       seats.push({ playerId: match.turnOrder[i + 1], name: names[i]!, reconnectToken: generateToken(), connected: true, isBot: true, botDifficulty: difficulty })
     })
@@ -350,6 +363,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'setBotDifficulty') {
+      await this.handleSetBotDifficulty(ws, room, attachment.seat, message.playerId, message.difficulty)
+      return
+    }
+
     this.send(ws, { type: 'error', message: 'Unknown message type.' })
   }
 
@@ -374,11 +392,19 @@ export class RoomDurableObject extends DurableObject<Env> {
     seat.connected = false
     // Only the host can start a game, and nothing used to reassign that. A
     // host who dropped before starting and could not get their token back
-    // left everyone else sitting in a lobby no one was allowed to start. It
-    // stays put once the game is underway — the role does nothing then, and
-    // moving it would only confuse the seat list.
-    if (!room.started && room.hostPlayerId === seat.playerId) {
-      const heir = room.seats.find((s) => s.connected)
+    // left everyone else sitting in a lobby no one was allowed to start.
+    // The role used to stay put once the game was underway, on the theory
+    // that it did nothing there — that stopped being true once bot moves
+    // were gated to the host's browser (apps/web/src/App.tsx's isHost gate
+    // on useBotSeats): a host who drops mid-match with an unfinished bot
+    // seat would otherwise freeze that seat forever. So reassignment now
+    // also runs mid-match, to whichever seat is still connected.
+    if (room.hostPlayerId === seat.playerId) {
+      // A bot seat's `connected` is always true (it has no socket) and it
+      // can never actually act as host — excluded here so a table with one
+      // human and one bot doesn't hand the role to something that can never
+      // use it, stranding the table exactly like having no heir at all.
+      const heir = room.seats.find((s) => !s.isBot && s.connected)
       if (heir) room.hostPlayerId = heir.playerId
     }
     this.touch()
@@ -495,6 +521,10 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
     if (room.started) return
 
+    // Lock each bot's difficulty into its name now — the per-seat selector
+    // that showed it live is about to disappear along with the lobby.
+    this.tagBotSeatsWithDifficulty(room)
+
     let dealt: Match
     try {
       dealt =
@@ -574,19 +604,30 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.armTurnTimeout(room)
   }
 
-  // Renames every bot seat in seating order so difficulty numbering (e.g.
-  // "Bot (Easy) 1", "Bot (Easy) 2") stays correct after an add or remove —
-  // botSeatNames has to see the whole current list, not just the one seat
-  // that changed.
+  // Keeps lobby bot names in plain "Bot"/"Bot N" form, renumbered after an
+  // add or remove — plainBotSeatNames has to see the whole current list, not
+  // just the one seat that changed. Called on every pre-start bot mutation;
+  // NOT on a difficulty retarget, since the difficulty no longer lives in
+  // the name until Start.
   private renameBotSeats(room: Room): void {
     const botSeats = room.seats.filter((s) => s.isBot)
-    const names = botSeatNames(botSeats.map((s) => s.botDifficulty!))
+    const names = plainBotSeatNames(botSeats.length)
     botSeats.forEach((s, i) => {
       s.name = names[i]!
     })
   }
 
-  private async handleAddBot(ws: WebSocket, room: Room, seatId: string, difficulty: SoloDifficulty): Promise<void> {
+  // Locks each bot seat's difficulty into its name — "Bot (Hard)" and so on
+  // — once Start closes the lobby and the per-seat selector disappears.
+  private tagBotSeatsWithDifficulty(room: Room): void {
+    const botSeats = room.seats.filter((s) => s.isBot)
+    const names = difficultyTaggedBotSeatNames(botSeats.map((s) => s.botDifficulty!))
+    botSeats.forEach((s, i) => {
+      s.name = names[i]!
+    })
+  }
+
+  private async handleAddBot(ws: WebSocket, room: Room, seatId: string, difficulty: MatchDifficulty): Promise<void> {
     if (seatId !== room.hostPlayerId) {
       this.send(ws, { type: 'error', code: 'notHost', message: 'Only the host can add bots.' })
       return
@@ -631,6 +672,29 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
   }
 
+  // Host-only, pre-start only (same as addBot/removeBot): retargets an
+  // existing bot seat's difficulty in place, so its name/position stay
+  // stable rather than requiring a remove+re-add.
+  private async handleSetBotDifficulty(ws: WebSocket, room: Room, seatId: string, playerId: string, difficulty: MatchDifficulty): Promise<void> {
+    if (seatId !== room.hostPlayerId) {
+      this.send(ws, { type: 'error', code: 'notHost', message: "Only the host can change a bot's difficulty." })
+      return
+    }
+    if (room.started) {
+      this.send(ws, { type: 'error', code: 'alreadyStarted', message: 'That game has already started.' })
+      return
+    }
+    const seat = room.seats.find((s) => s.playerId === playerId && s.isBot)
+    if (!seat) return
+    seat.botDifficulty = difficulty
+    // No renameBotSeats call — the name stays plain in the lobby regardless
+    // of difficulty; see plainBotSeatNames.
+    this.touch()
+    await this.persist()
+    log('info', room.code, `bot ${playerId} difficulty set to ${difficulty}`)
+    this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
+  }
+
   private async handleAction(ws: WebSocket, room: Room, seatId: string, action: MatchAction): Promise<void> {
     if (!room.started) {
       this.send(ws, { type: 'error', message: 'The game has not started yet.' })
@@ -663,12 +727,17 @@ export class RoomDurableObject extends DurableObject<Env> {
   // ---------------------------------------------------------------------
 
   // A bot seat's own `connected` is always true (it has no socket) — but its
-  // moves are computed in the HOST's browser, so if no human is connected to
+  // moves are computed ONLY in the HOST's browser (apps/web/src/App.tsx gates
+  // useBotSeats on isHost), so if the host isn't connected to compute and
   // relay them, the bot has no compute source and would stall the game
   // forever without this. `!s.connected` alone would never catch that.
+  // webSocketClose reassigns hostPlayerId to a connected heir immediately on
+  // drop (mid-match too, as of the host-only compute change), so this check
+  // and that reassignment are what keep a bot seat from freezing for good —
+  // this alarm covers the gap until a heir exists at all (every seat gone).
   private seatIsStranded(room: Room, seat: Seat): boolean {
     if (!seat.connected) return true
-    if (seat.isBot) return !room.seats.some((s) => !s.isBot && s.connected)
+    if (seat.isBot) return !room.seats.some((s) => s.playerId === room.hostPlayerId && s.connected)
     return false
   }
 

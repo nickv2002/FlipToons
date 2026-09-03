@@ -1,5 +1,16 @@
 import type { ReactNode } from 'react'
 
+// The bare gold coin mark, no number attached — for spots where the coin
+// stands in for the word "fame" next to a label rather than a value (e.g.
+// "Base 🪙: 1"), as opposed to FamePill's "value, then coin" badge.
+export function FameCoin() {
+  return (
+    <span className="fame-coin" aria-hidden="true">
+      F
+    </span>
+  )
+}
+
 // A fame amount rendered as a gold coin pill, in place of the word "fame" —
 // shorter and easier to pick out at a glance than "N fame" repeated across
 // prices, badges, and totals. `.fame-pill`/`.fame-coin` (style.css) started
@@ -9,9 +20,7 @@ export function FamePill({ value, title }: { value: ReactNode; title?: string })
   return (
     <span className="fame-pill" title={title}>
       {value}
-      <span className="fame-coin" aria-hidden="true">
-        F
-      </span>
+      <FameCoin />
     </span>
   )
 }

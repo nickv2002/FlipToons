@@ -26,7 +26,7 @@ export const season2Cards: Card[] = [
   {
     id: 'ladybug', name: 'Ladybug', season: 2, rank: 0, copies: 1,
     fame: { base: 1 },
-    rawBannerText: 'ADJACENT CARDS COST 3 INSTEAD OF 5 TO DISMISS',
+    rawBannerText: 'Adjacent cards cost {{3}} instead of {{5}} to dismiss',
     // Fully encodable now — dismiss()'s cost computation reads grid
     // adjacency directly via phases.ts's dismissCostFor, rather than a
     // per-card dismissCost field (which is self-only and can't express "my
@@ -39,7 +39,7 @@ export const season2Cards: Card[] = [
   {
     id: 'firefly', name: 'Firefly', season: 2, rank: 0, copies: 1,
     fame: { base: 1 },
-    rawBodyText: 'If you have the least fame after the Check Fame phase, gain 2 fame',
+    rawBodyText: 'If you have the least fame after the Check Fame phase, gain {{2}} fame',
     postFameHook: {
       condition: 'strictlyLowestFame',
       mandatory: true,
@@ -52,7 +52,7 @@ export const season2Cards: Card[] = [
   {
     id: 'salamander', name: 'Salamander', season: 2, rank: 1, copies: 3,
     fame: { base: 3 },
-    rawBodyText: 'IF the next revealed card is rank 1 or lower, return it',
+    rawBodyText: 'If the next revealed card is rank 1 or lower, return it',
     onPlace: [{ kind: 'returnNextRevealedIfRankAtMost', maxRank: 1 }],
     // Encoded this pass via the deferred "next revealed card" primitive
     // (same shape as Ostrich/Eagle) plus a new RETURN verb — see
@@ -71,7 +71,7 @@ export const season2Cards: Card[] = [
   {
     id: 'rat', name: 'Rat', season: 2, rank: 3, copies: 4,
     fame: { base: 1 },
-    rawBannerText: "CARDS IN RAT'S STACK COST 1 FEWER TO DISMISS",
+    rawBannerText: "Cards in Rat's stack cost {{1}} fewer to dismiss",
     rawBodyText: 'Stack this card on the last card placed',
     onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     // Fully encodable now — see phases.ts's dismissCostFor. FAQ: ignored if
@@ -88,7 +88,7 @@ export const season2Cards: Card[] = [
   {
     id: 'mole', name: 'Mole', season: 2, rank: 5, copies: 2,
     fame: { base: 3 },
-    rawBodyText: 'IF placed in the lower row, stack this card on the card above',
+    rawBodyText: 'If placed in the lower row, stack this card on the card above',
     onPlace: [{ kind: 'stackOnAboveIfLowerRow' }],
     // Encoded this pass — new POSITIONAL (not identity-tracked) target
     // primitive; see flip.ts's 'stackOnAboveIfLowerRow' case.
@@ -115,13 +115,13 @@ export const season2Cards: Card[] = [
   {
     id: 'raccoon', name: 'Raccoon', season: 2, rank: 8, copies: 2,
     fame: { base: 3 },
-    rawBannerText: 'WHEN HIRED, YOU MAY HIRE ANY DISMISSED CARD FOR 0',
+    rawBannerText: 'When hired, you may hire any dismissed card for {{0}}',
     onHire: [{ kind: 'hireFromDismissed', cost: 0 }],
   },
   {
     id: 'panther', name: 'Panther', season: 2, rank: 9, copies: 2,
     fame: { base: 2 },
-    rawBannerText: 'WHEN HIRED, DISMISS A FACE-UP CARD IN YOUR GRID FOR 0',
+    rawBannerText: 'When hired, dismiss a face-up card in your grid for {{0}}',
     rawBodyText: 'Stack this card on the last card placed',
     onPlace: [{ kind: 'stackOnPreviousPlaced' }],
     onHire: [{ kind: 'dismissChosenGridCard', cost: 0 }],
@@ -159,7 +159,7 @@ export const season2Cards: Card[] = [
   {
     id: 'crow', name: 'Crow', season: 2, rank: 13, copies: 2,
     fame: { base: 2 },
-    rawBannerText: 'WHEN DISMISSED, YOU MAY HIRE A CARD IN THE MARKET FOR 0 AND REFILL',
+    rawBannerText: 'When dismissed, you may hire a card in the market for {{0}} and refill',
     onDismiss: [{ kind: 'hireFromMarketAndRefill', cost: 0 }],
     // FAQ's "Market phase vs Flip phase" timing split: only the
     // Market-phase-dismissal case is reachable in this engine — there is no
@@ -206,7 +206,7 @@ export const season2Cards: Card[] = [
   {
     id: 'crab', name: 'Crab', season: 2, rank: 17, copies: 2,
     fame: { base: 5 },
-    rawBodyText: 'IF placed in the middle column, return this card',
+    rawBodyText: 'If placed in the middle column, return this card',
     onPlace: [{ kind: 'returnSelfIfMiddleColumn' }],
     // Encoded this pass — self-return conditional on landing in the middle
     // column (col 1, either row). The FAQ's "all-crab-deck stall
@@ -238,7 +238,7 @@ export const season2Cards: Card[] = [
   {
     id: 'gorilla', name: 'Gorilla', season: 2, rank: 19, copies: 2,
     fame: { base: 5 },
-    rawBodyText: 'IF placed in the upper row, place the next revealed card in a row above',
+    rawBodyText: 'If placed in the upper row, place the next revealed card in a row above',
     onPlace: [{ kind: 'moveNextRevealedToExtraRowIfUpperRow' }],
     faqNote:
       'FAQ: a second geometry-changing card alongside the Monkey; the extra row is not itself the "upper row" (so a card diverted there doesn\'t retrigger a Monkey/Gorilla check, and a Gorilla itself diverted into an extra row by an earlier Gorilla does not refire), and if a card is already above the gorilla/monkey, the new row forms above THAT CARD instead — extra rows stack. ' +
@@ -289,7 +289,7 @@ export const season2Cards: Card[] = [
   {
     id: 'platypus', name: 'Platypus', season: 2, rank: 26, copies: 2,
     fame: { base: 5, bonuses: [{ kind: 'ifCondition', condition: 'bigButtonCardFaceDown', amount: 3 }] },
-    rawBannerText: 'WHEN HIRED, FLIP ALL BIG BUTTON CARDS FACE UP',
+    rawBannerText: 'When hired, flip all Big Button cards face up',
     // The Big Button mini-expansion is now modelled — see Axolotl
     // (season1.ts) for the Season 1 half of the pair and bigButton.ts for the
     // reset effects themselves. BOTH former flags are gone, and both had to

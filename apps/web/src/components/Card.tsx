@@ -164,7 +164,8 @@ export function Card({ card, faceUp = true, dismissCost, dismissImmune, onClick,
         <div className="card__name">{card.name}</div>
         {roundFame !== undefined && (
           <span className="card__round-fame" title="Fame this card generated this round">
-            +{roundFame}
+            {roundFame}
+            <span className="card__fame-coin" aria-hidden="true">F</span>
           </span>
         )}
       </div>

@@ -23,6 +23,31 @@ import type { SoloDifficulty } from '../../packages/engine/setup'
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const ROOM_CODE_LENGTH = 5
 
+export const PLAYER_NAME_MAX_LENGTH = 10
+
+// The one place player names get cleaned up, used by both the client (as you
+// type) and the worker (join/create never pass through the same HTTP
+// validation, so the Durable Object has to enforce this itself too). Strips
+// control characters and line/paragraph separators (\p{Cc}, \p{Zl}, \p{Zp} —
+// covers \n, \r, and friends) so a name can't forge a fake line in
+// apps/worker/log.ts's single-line, unescaped log format. Deliberately does
+// NOT strip \p{Cf} (format characters): that category is where the
+// zero-width joiner lives, and a multi-person emoji (👨‍👩‍👧‍👦) is four base
+// emoji stitched together BY zero-width joiners — stripping them breaks the
+// emoji apart into separate glyphs instead of leaving it intact.
+// Caps at PLAYER_NAME_MAX_LENGTH grapheme clusters (not UTF-16 code units)
+// via Intl.Segmenter — a naive .slice() would miscount or mid-truncate
+// multi-codepoint emoji (ZWJ sequences, skin-tone modifiers) into broken
+// glyphs. Deliberately does NOT trim: this runs on every keystroke in the
+// name input, and trimming there would eat a trailing space the moment it's
+// typed, making a two-word name impossible to enter. Callers trim once, at
+// submit/storage time, same as before this function existed.
+export function sanitizePlayerName(raw: string): string {
+  const cleaned = raw.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, '')
+  const graphemes = Array.from(new Intl.Segmenter().segment(cleaned), (s) => s.segment)
+  return graphemes.slice(0, PLAYER_NAME_MAX_LENGTH).join('')
+}
+
 export const MAX_SEATS = 4
 
 // What a client is told about each seat. Deliberately NOT the reconnect token

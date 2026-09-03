@@ -3,6 +3,7 @@ import type { ConnectionState } from '../useMatch'
 import type { Season } from '../../../../packages/engine/cards/types'
 import type { ResetEffect } from '../../../../packages/engine/state'
 import { loadSettings, saveSettings } from '../settings'
+import { sanitizePlayerName } from '../../../worker/protocol'
 import { BigButtonOption } from './BigButtonOption'
 import { OptionCards } from './OptionCards'
 
@@ -39,7 +40,7 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
 
       <label className="config-panel__field">
         Your name
-        <input data-testid="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input data-testid="name-input" value={name} onChange={(e) => setName(sanitizePlayerName(e.target.value))} placeholder="Name" />
       </label>
 
       {variant === 'host' ? (

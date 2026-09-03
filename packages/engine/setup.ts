@@ -407,3 +407,10 @@ export function buildSoloSetup(
     seed,
   }
 }
+
+// Shared "New game" log line — solo passes `difficulty` (multiplayer has no
+// engine-level difficulty concept; bot config is a room/lobby concept in
+// apps/worker, not the engine), everything else is common to both.
+export function formatNewGameLogLine(seed: number, season: Season, bigButton: ResetEffect | null, difficulty?: SoloDifficulty): string {
+  return `New game — seed ${seed}, season ${season}${difficulty ? `, ${difficulty}` : ''}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`
+}

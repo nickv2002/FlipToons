@@ -36,7 +36,6 @@ import { buildSoloSetup } from './setup'
 import type { SoloDifficulty } from './setup'
 import type { GridPos } from './types'
 import { formatBreakdown } from './score'
-import { shuffleWithState } from './rng'
 
 export type Action =
   | { kind: 'flip' }
@@ -131,12 +130,9 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: Engi
   }
 
   if (next.phase === 'flip') {
-    // Season 1 has no Return-to-deck effect, so the pre-flip shuffle order
-    // IS the actual reveal order — a pure re-derivation of runFlip's own
-    // internal shuffle (same deck, same rng state), not a second live
-    // shuffle.
-    const preview = shuffleWithState(next.deck, next.rng).result
-    say(`Round ${next.round}: flip order — ${preview.map((id) => cards[id]?.name ?? id).join(', ') || '(empty deck)'}`)
+    // runFlip (phases.ts) now pushes the "flip order" line itself, built
+    // from the actual reveal order rather than a re-derived shuffle preview
+    // — see flip.ts's revealOrder comment for why that distinction matters.
     next = runFlip(next, logLines, debugLines)
     say(`${next.deck.length} card(s) left in your deck.`)
   }

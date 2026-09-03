@@ -441,12 +441,6 @@ button {
   --mode-card-bg: var(--color-warning-bg);
 }
 
-.mode-card--vs-ai {
-  --mode-card-color: var(--color-accent);
-  --mode-card-bg: var(--color-accent-bg);
-  grid-column: 1 / -1;
-}
-
 .mode-card__icon {
   font-size: 1.75rem;
   line-height: 1;
@@ -636,6 +630,21 @@ button {
 
 .config-panel__room-code {
   align-items: center;
+}
+
+.multiplayer-start__bot-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.multiplayer-start__bot-row .option-field {
+  flex: 1;
+}
+
+.multiplayer-start__add-bot {
+  margin-top: 0.5rem;
 }
 
 .config-panel__room-code input {

@@ -30,11 +30,10 @@ export type MatchViewProps = {
   onRematch: () => void
   // Owned by App (the TopBar's toggle sets it) and threaded down to the cards.
   touchMode: boolean
-  // vsAi only. null for every ordinary multiplayer room — OpponentBoards'
-  // label falls back to the seat's plain name whenever this is null, which is
-  // what keeps plain multiplayer rendering unaffected.
-  botSeatId?: string | null
-  aiThinking?: boolean
+  // Empty for every room with no bot seats — OpponentBoards renders nothing
+  // extra in that case, which is what keeps plain multiplayer unaffected.
+  botSeatIds?: Set<string>
+  thinkingSeatId?: string | null
 }
 
 // Translates the solo RoundView's Action vocabulary into MatchActions.
@@ -73,7 +72,7 @@ function toMatchAction(action: Action): MatchAction | null {
   }
 }
 
-export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch, touchMode, botSeatId = null, aiThinking = false }: MatchViewProps) {
+export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch, touchMode, botSeatIds = new Set(), thinkingSeatId = null }: MatchViewProps) {
   const myIndex = match.players.findIndex((p) => p.playerId === myPlayerId)
   const me = match.players[myIndex]
   const isHost = lobby.seats.find((s) => s.playerId === myPlayerId)?.isHost ?? false
@@ -284,8 +283,8 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
         fames={fames}
         onShowDismissed={setDismissedOverlayFor}
         showBigButton={match.shared.resetEffect !== null}
-        botSeatId={botSeatId}
-        aiThinking={aiThinking}
+        botSeatIds={botSeatIds}
+        thinkingSeatId={thinkingSeatId}
       />
 
       {dismissedOverlayPlayer && (
@@ -441,8 +440,8 @@ function OpponentBoards({
   fames,
   onShowDismissed,
   showBigButton,
-  botSeatId,
-  aiThinking,
+  botSeatIds,
+  thinkingSeatId,
 }: {
   match: Match
   myPlayerId: string
@@ -456,8 +455,8 @@ function OpponentBoards({
   // state is public and load-bearing (Platypus flips them all; the gridReset
   // walk is asking who still holds one), so opponents get the chip too.
   showBigButton: boolean
-  botSeatId: string | null
-  aiThinking: boolean
+  botSeatIds: Set<string>
+  thinkingSeatId: string | null
 }) {
   const others = match.players.filter((p) => p.playerId !== myPlayerId)
   if (others.length === 0) return null
@@ -471,8 +470,11 @@ function OpponentBoards({
               title={
                 <>
                   {nameOf(p.playerId)}
-                  {p.playerId === botSeatId && <span className="opponents__bot-badge" data-testid="ai-badge"> (AI)</span>}
-                  {p.playerId === botSeatId && aiThinking ? (
+                  {/* The seat's own name already carries the difficulty tag
+                      ("Bot (Hard)"), so no separate badge is needed here —
+                      just the live "thinking" indicator for whichever bot is
+                      actually computing right now. */}
+                  {botSeatIds.has(p.playerId) && p.playerId === thinkingSeatId ? (
                     <span className="opponents__turn" data-testid="ai-thinking"> — thinking…</span>
                   ) : (
                     phase === 'market' && p.playerId === activeId && <span className="opponents__turn"> — their turn</span>

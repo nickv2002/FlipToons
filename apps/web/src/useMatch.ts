@@ -258,7 +258,7 @@ export function useMatch() {
     wsRef.current.send(JSON.stringify({ type: 'rematch' } satisfies ClientMessage))
   }, [])
 
-  // `asSeat` relays an action for the vsAi bot seat (see protocol.ts's
+  // `asSeat` relays an action for a bot seat (see protocol.ts's
   // ClientMessage) — undefined for every ordinary human click, which is why
   // this is an optional trailing param rather than a required one.
   const act = useCallback((action: MatchAction, asSeat?: string) => {

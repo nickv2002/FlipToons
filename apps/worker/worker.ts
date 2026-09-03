@@ -3,10 +3,22 @@
 // Object by name. See room.ts for why room creation is HTTP rather than a
 // WebSocket message, and CLAUDE.md's Cloudflare Workers section for the rest
 // of the migration's reasoning.
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, sanitizePlayerName } from './protocol'
+import { MAX_SEATS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, sanitizePlayerName } from './protocol'
 import type { CreateRoomRequest, CreateRoomResponse } from './protocol'
 import { log } from './log'
 import type { Env } from './room'
+import type { SoloDifficulty } from '../../packages/engine/setup'
+
+function validBots(raw: unknown): SoloDifficulty[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  // Reject rather than clamp: a client sending too many bots or a bogus
+  // difficulty string is either a bug or an attempt to bypass the picker's
+  // own MAX_SEATS - 1 cap, and silently truncating would seat a different
+  // table than what was asked for.
+  if (raw.length > MAX_SEATS - 1) return undefined
+  if (!raw.every((d) => d === 'easy' || d === 'normal' || d === 'hard')) return undefined
+  return raw as SoloDifficulty[]
+}
 
 export { RoomDurableObject } from './room'
 
@@ -54,8 +66,7 @@ async function handleCreateRoom(request: Request, env: Env): Promise<Response> {
     // the toon deck's composition, so an arbitrary string arriving from a
     // client must land as "not in play", not as a truthy unknown effect.
     bigButton: body.bigButton === 'market' || body.bigButton === 'grid' ? body.bigButton : undefined,
-    vsAi: body.vsAi === true,
-    aiDifficulty: body.aiDifficulty === 'easy' || body.aiDifficulty === 'normal' || body.aiDifficulty === 'hard' ? body.aiDifficulty : undefined,
+    bots: validBots(body.bots),
   })
   return Response.json(result, { headers: CORS_HEADERS })
 }

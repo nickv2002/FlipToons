@@ -23,8 +23,7 @@ async function createRoom(opts: {
   seed?: number
   fameToTriggerEndgame?: number
   bigButton?: 'market' | 'grid'
-  vsAi?: boolean
-  aiDifficulty?: 'easy' | 'normal' | 'hard'
+  bots?: ('easy' | 'normal' | 'hard')[]
 }): Promise<CreateRoomResponse> {
   const res = await SELF.fetch('https://fliptoons.example/api/rooms', {
     method: 'POST',
@@ -499,22 +498,31 @@ describe('surviving eviction', () => {
 })
 
 // ---------------------------------------------------------------------------
-// vsAi rooms — a permanent bot seat, its moves relayed from the host's
-// browser via `asSeat` rather than computed on this server.
+// Bot rooms — one or more permanent bot seats, their moves relayed from any
+// connected human's browser via `asSeat` rather than computed on this server.
 // ---------------------------------------------------------------------------
-describe('vsAi rooms', () => {
-  test('creating a vsAi room synthesizes a bot seat', async () => {
-    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true })
+describe('bot rooms', () => {
+  test('creating a room with one bot synthesizes a bot seat named after its difficulty', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard'] })
     expect(created.lobby.seats).toHaveLength(2)
     const bot = created.lobby.seats.find((s) => s.isBot)
     expect(bot).toBeTruthy()
     expect(bot!.playerId).toBe('p1')
     expect(bot!.connected).toBe(true)
+    expect(bot!.botDifficulty).toBe('hard')
+    expect(bot!.name).toBe('Bot (Hard)')
     expect(created.lobby.seats.find((s) => s.playerId === created.playerId)?.isBot).toBe(false)
   })
 
-  test('a human joining a vsAi room cannot be assigned the bot seat', async () => {
-    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true })
+  test('multiple bots sharing a difficulty are numbered; distinct difficulties are not', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['hard', 'easy', 'hard'] })
+    expect(created.lobby.seats).toHaveLength(4)
+    const bots = created.lobby.seats.filter((s) => s.isBot)
+    expect(bots.map((b) => b.name)).toEqual(['Bot (Hard) 1', 'Bot (Easy)', 'Bot (Hard) 2'])
+  })
+
+  test('a human joining a room with a bot cannot be assigned the bot seat', async () => {
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'] })
     const host = await connect(created.roomCode)
     opened.push(host)
     host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
@@ -530,7 +538,7 @@ describe('vsAi rooms', () => {
   })
 
   test('an action tagged asSeat for the bot seat is applied to the bot regardless of who sends it', async () => {
-    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
     const host = await connect(created.roomCode)
     opened.push(host)
     host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
@@ -557,7 +565,7 @@ describe('vsAi rooms', () => {
   })
 
   test('an action tagged asSeat for a human seat is ignored, falling back to the sender own attached seat', async () => {
-    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
     const host = await connect(created.roomCode)
     opened.push(host)
     host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })
@@ -584,7 +592,7 @@ describe('vsAi rooms', () => {
   })
 
   test('the bot seat is eligible for playForAbsentSeat when the host disconnects', async () => {
-    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, vsAi: true, fameToTriggerEndgame: 999 })
+    const created = await createRoom({ name: 'Ana', season: 1, seed: 1, bots: ['normal'], fameToTriggerEndgame: 999 })
     const host = await connect(created.roomCode)
     opened.push(host)
     host.send({ type: 'join', name: 'Ana', reconnectToken: created.reconnectToken })

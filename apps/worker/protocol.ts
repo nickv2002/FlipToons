@@ -58,6 +58,11 @@ export type SeatInfo = {
   connected: boolean
   isHost: boolean
   isBot: boolean
+  // Present only when isBot. Public (not just remembered by whichever
+  // browser hosted) because any connected human's browser may end up
+  // computing this seat's moves, and a joiner needs to see it before they
+  // ever touch the board — see CreateRoomRequest.bots below.
+  botDifficulty?: SoloDifficulty
 }
 
 export type LobbyState = {
@@ -83,19 +88,19 @@ export type LobbyState = {
 // at room creation because it changes the toon deck's composition (the
 // season's Big Button card is only dealt when a reset effect is chosen), which
 // setup.ts decides before the first Flip.
-// `vsAi` seats a permanent bot in seat 2 at creation (see room.ts) — the
-// bot's moves are computed in the HOST's browser and relayed as ordinary
-// `action` messages tagged with `asSeat` below, never computed on this
-// server. `aiDifficulty` mirrors packages/engine/setup.ts's SoloDifficulty,
-// the same knob solo play already uses.
+// `bots` seats one permanent bot per entry, starting at seat 2, at creation
+// (see room.ts) — 0 to MAX_SEATS - 1 of them, each entry naming that seat's
+// difficulty (packages/engine/setup.ts's SoloDifficulty, the same knob solo
+// play already uses). A bot's moves are computed in ANY connected human's
+// browser and relayed as ordinary `action` messages tagged with `asSeat`
+// below, never computed on this server.
 export type CreateRoomRequest = {
   name: string
   season: Season
   seed?: number
   fameToTriggerEndgame?: number
   bigButton?: 'market' | 'grid'
-  vsAi?: boolean
-  aiDifficulty?: SoloDifficulty
+  bots?: SoloDifficulty[]
 }
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
@@ -113,7 +118,7 @@ export type ClientMessage =
   // NOTE: carries no playerId. The server derives the actor from the
   // connection's assigned seat — a client-asserted id would let anyone act as
   // anyone. `asSeat`, if present, is honored ONLY when it names a bot seat in
-  // a vsAi room (see room.ts's handleAction) — this is a low-stakes hobby app,
+  // this room (see room.ts's handleAction) — this is a low-stakes hobby app,
   // so there is deliberately no check on WHICH socket sends a bot's move, only
   // on WHOSE seat it is allowed to move.
   | { type: 'action'; action: MatchAction; asSeat?: string }

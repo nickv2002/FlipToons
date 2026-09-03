@@ -634,13 +634,26 @@ button {
 
 .multiplayer-start__bot-row {
   display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
   margin-top: 0.5rem;
 }
 
 .multiplayer-start__bot-row .option-field {
   flex: 1;
+}
+
+/* Fixed 3-up, not auto-fit: with the Remove button gone from beside it there
+   is room most of the time, but auto-fit would still wrap once the Remove
+   button's own row and the panel's padding eat into a narrow phone's width.
+   Cards shrink to fit rather than wrapping to a second row. */
+.multiplayer-start__bot-row .option-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.multiplayer-start__bot-row .multiplayer-start__remove-bot {
+  align-self: flex-end;
 }
 
 .multiplayer-start__add-bot {
@@ -1755,6 +1768,20 @@ img.card__icon {
 .lobby__badge--away {
   background: var(--color-warning-bg);
   color: var(--color-warning);
+}
+
+.lobby__remove-bot {
+  font-size: 0.8rem;
+}
+
+.lobby__add-bot {
+  margin-top: -0.25rem;
+}
+
+/* Same reasoning as the multiplayer-start bot row: fixed 3-up so the three
+   difficulty cards never wrap to a second row on a narrow phone. */
+.lobby__add-bot .option-grid {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .lobby__start {

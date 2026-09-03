@@ -196,6 +196,8 @@ export function App() {
             connection={match.connection}
             onStart={match.startGame}
             onLeave={leaveMatch}
+            onAddBot={match.addBot}
+            onRemoveBot={match.removeBot}
           />
         ) : (
           launchScreen

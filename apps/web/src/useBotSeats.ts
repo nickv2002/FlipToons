@@ -5,6 +5,8 @@ import type { MatchDifficulty } from '../../../packages/engine/ai'
 import type { MatchClient } from './useMatch'
 import type { MatchAiWorkerRequest, MatchAiWorkerResponse } from './ai/matchAiWorker'
 
+export type BotSeat = { playerId: string; difficulty: MatchDifficulty }
+
 // Mirrors packages/engine/ai/matchAdapter.ts's legalCandidates just enough to
 // answer "is it worth spawning a search right now" — the actual decision
 // (including the exact same ordering: a seat's own simultaneous prompt
@@ -21,50 +23,61 @@ function isBotDecisionPending(match: Match, botSeatId: string): boolean {
   return false
 }
 
-export type UseVsAiMatchResult = {
-  aiThinking: boolean
-  aiError: string | null
+export type UseBotSeatsResult = {
+  thinkingSeatId: string | null
+  error: string | null
 }
 
-// Wraps a useMatch() client with a client-side bot seat. Does nothing at all
-// — no worker, no extra renders of consequence — when `botSeatId` is null,
-// which is how plain multiplayer rooms (vsAi: false, no isBot seat in the
-// lobby) stay completely unaffected by this hook existing.
-export function useVsAiMatch(match: MatchClient, botSeatId: string | null, difficulty: MatchDifficulty): UseVsAiMatchResult {
-  const [aiThinking, setAiThinking] = useState(false)
-  const [aiError, setAiError] = useState<string | null>(null)
+// Wraps a useMatch() client with client-side compute for every bot seat in
+// the room. Does nothing at all — no worker, no extra renders of consequence
+// — when `bots` is empty, which is how plain multiplayer rooms (no bot
+// seats) stay completely unaffected by this hook existing.
+//
+// Only one bot decision is ever driven at a time (same discipline the
+// single-bot version had): each render picks the FIRST bot seat (in `bots`
+// order) that currently has a pending decision, and re-scans after that
+// move lands. Several bots never need to move simultaneously — the engine
+// itself is turn-based/one-simultaneous-prompt-at-a-time — so this never
+// starves a later bot, it only ever defers it by one render.
+export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsResult {
+  const [thinkingSeatId, setThinkingSeatId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const workerRef = useRef<Worker | null>(null)
   const inFlightRef = useRef(false)
 
-  // One persistent worker per room, torn down on unmount or when the seat
-  // changes (leaving a room, joining another) — never per-decision, so a
-  // multi-turn game doesn't pay a worker spin-up cost on every bot move.
+  const botsKey = bots.map((b) => `${b.playerId}:${b.difficulty}`).join(',')
+
+  // One persistent worker per room, torn down on unmount or when the set of
+  // bot seats changes (leaving a room, joining another) — never per-decision,
+  // so a multi-turn game doesn't pay a worker spin-up cost on every bot move.
   useEffect(() => {
-    if (!botSeatId) return
+    if (bots.length === 0) return
     return () => {
       workerRef.current?.terminate()
       workerRef.current = null
       inFlightRef.current = false
     }
-  }, [botSeatId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botsKey])
 
   useEffect(() => {
-    if (!botSeatId || !match.match) return
+    if (bots.length === 0 || !match.match) return
     if (inFlightRef.current) return
-    if (!isBotDecisionPending(match.match, botSeatId)) return
+    const pending = bots.find((b) => isBotDecisionPending(match.match!, b.playerId))
+    if (!pending) return
 
     const requestMatch = match.match
     inFlightRef.current = true
-    setAiThinking(true)
-    setAiError(null)
+    setThinkingSeatId(pending.playerId)
+    setError(null)
 
     if (!workerRef.current) {
       try {
         workerRef.current = new Worker(new URL('./ai/matchAiWorker.ts', import.meta.url), { type: 'module' })
       } catch (e) {
         inFlightRef.current = false
-        setAiThinking(false)
-        setAiError(e instanceof Error ? e.message : String(e))
+        setThinkingSeatId(null)
+        setError(e instanceof Error ? e.message : String(e))
         return
       }
     }
@@ -73,27 +86,27 @@ export function useVsAiMatch(match: MatchClient, botSeatId: string | null, diffi
     const onMessage = (event: MessageEvent<MatchAiWorkerResponse>) => {
       worker.removeEventListener('message', onMessage)
       inFlightRef.current = false
-      setAiThinking(false)
+      setThinkingSeatId(null)
       if ('error' in event.data) {
         // Simplest acceptable fallback (see the plan this hook was built
         // from): surface it and stop. A stalled bot seat still has a live
         // socket, so the server's own disconnect-based turn timeout does NOT
         // apply here — this is a known gap, not an oversight, and inventing
         // a second recovery path client-side would be speculative.
-        setAiError(event.data.error)
+        setError(event.data.error)
         return
       }
-      match.act(event.data.action, botSeatId)
+      match.act(event.data.action, pending.playerId)
     }
     worker.addEventListener('message', onMessage)
-    const request: MatchAiWorkerRequest = { match: requestMatch, botSeatId, difficulty }
+    const request: MatchAiWorkerRequest = { match: requestMatch, botSeatId: pending.playerId, difficulty: pending.difficulty }
     worker.postMessage(request)
 
     return () => {
       worker.removeEventListener('message', onMessage)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [botSeatId, difficulty, match.match])
+  }, [botsKey, match.match])
 
-  return { aiThinking, aiError }
+  return { thinkingSeatId, error }
 }

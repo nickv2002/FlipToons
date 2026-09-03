@@ -4,9 +4,8 @@ import type { Season } from '../../../../packages/engine/cards/types'
 import type { ConnectionState } from '../useMatch'
 import { NewGameForm } from './NewGameForm'
 import { MultiplayerStart } from './MultiplayerStart'
-import { VsAiStart } from './VsAiStart'
 
-export type LaunchStep = 'pick' | 'solo' | 'host' | 'join' | 'vsAi'
+export type LaunchStep = 'pick' | 'solo' | 'host' | 'join'
 
 export type LaunchScreenProps = {
   // Step lives in App, not here: this component is rendered from ONE place
@@ -17,20 +16,15 @@ export type LaunchScreenProps = {
   onPick: (step: LaunchStep) => void
   onBack: () => void
   onStartSolo: (seed: number, difficulty: SoloDifficulty, season: Season, bigButton: ResetEffect | null) => void
-  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect }) => void
+  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: SoloDifficulty[] }) => void
   onJoin: (roomCode: string, name: string) => void
-  onStartVsAi: (opts: { name: string; season: Season; difficulty: SoloDifficulty; seed?: number; fameToTriggerEndgame?: number }) => void
   connection: ConnectionState
   initialRoomCode?: string | null
 }
 
-export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin, onStartVsAi, connection, initialRoomCode }: LaunchScreenProps) {
+export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin, connection, initialRoomCode }: LaunchScreenProps) {
   if (step === 'solo') {
     return <NewGameForm onStart={onStartSolo} onBack={onBack} />
-  }
-
-  if (step === 'vsAi') {
-    return <VsAiStart onStart={onStartVsAi} onBack={onBack} connection={connection} />
   }
 
   if (step === 'host' || step === 'join') {
@@ -59,19 +53,13 @@ export function LaunchScreen({ step, onPick, onBack, onStartSolo, onHost, onJoin
         <button type="button" className="mode-card mode-card--host" data-testid="mode-host" onClick={() => onPick('host')}>
           <span className="mode-card__icon">🌐</span>
           <span className="mode-card__label">Host a table</span>
-          <span className="mode-card__subtitle">Invite others to a room</span>
+          <span className="mode-card__subtitle">Invite others, or add bots</span>
         </button>
 
         <button type="button" className="mode-card mode-card--join" data-testid="mode-join" onClick={() => onPick('join')}>
           <span className="mode-card__icon">🔑</span>
           <span className="mode-card__label">Join a Game</span>
           <span className="mode-card__subtitle">Enter a room code</span>
-        </button>
-
-        <button type="button" className="mode-card mode-card--vs-ai" data-testid="mode-vs-ai" onClick={() => onPick('vsAi')}>
-          <span className="mode-card__icon">🤖</span>
-          <span className="mode-card__label">vs AI</span>
-          <span className="mode-card__subtitle">Play against a bot</span>
         </button>
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { LogEntry } from '../useGame'
+import type { FameSummaryEntry } from '../logSummary'
 import { ResolveLog } from './ResolveLog'
 
 // The log, on demand. It used to be a permanent sidebar taking a third of the
@@ -13,10 +14,11 @@ import { ResolveLog } from './ResolveLog'
 export type LogDrawerProps = {
   log: LogEntry[]
   debugLog: LogEntry[]
+  currentRoundSummary?: FameSummaryEntry[]
   onClose: () => void
 }
 
-export function LogDrawer({ log, debugLog, onClose }: LogDrawerProps) {
+export function LogDrawer({ log, debugLog, currentRoundSummary, onClose }: LogDrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -35,7 +37,7 @@ export function LogDrawer({ log, debugLog, onClose }: LogDrawerProps) {
           </button>
         </div>
         <div className="log-drawer__body">
-          <ResolveLog log={log} debugLog={debugLog} />
+          <ResolveLog log={log} debugLog={debugLog} currentRoundSummary={currentRoundSummary} />
         </div>
       </div>
     </div>

@@ -258,14 +258,17 @@ export function useMatch() {
     wsRef.current.send(JSON.stringify({ type: 'rematch' } satisfies ClientMessage))
   }, [])
 
-  const act = useCallback((action: MatchAction) => {
+  // `asSeat` relays an action for a bot seat (see protocol.ts's
+  // ClientMessage) — undefined for every ordinary human click, which is why
+  // this is an optional trailing param rather than a required one.
+  const act = useCallback((action: MatchAction, asSeat?: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       // The old dispatch returned silently here, which turned every click
       // into a permanent no-op with zero feedback.
       setError('Not connected — trying to reconnect.')
       return
     }
-    wsRef.current.send(JSON.stringify({ type: 'action', action } satisfies ClientMessage))
+    wsRef.current.send(JSON.stringify({ type: 'action', action, asSeat } satisfies ClientMessage))
   }, [])
 
   const leave = useCallback(() => {

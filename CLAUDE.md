@@ -116,6 +116,12 @@ Referance/*.HEIC        Photos of the physical rulebook/cards (transcription sou
 
 Toolchain is **bun** — runtime, package manager, test runner — for `packages/engine` and `apps/web`. No node/npm/tsx. `apps/worker` additionally uses **wrangler** (Cloudflare's CLI: `wrangler dev`, `wrangler deploy`) and **vitest** (via `@cloudflare/vitest-plugin`) for its own DO test suite, since Workers run on `workerd`, not Bun — `cd apps/worker && bunx vitest run`.
 
+## Deploy workflow — beta is the auto-ship branch
+
+`beta` is the default branch and the isolated staging deploy target (`fliptoons-beta` Worker, own Durable Object namespace, served at beta.fliptoons.win). `main` is production (fliptoons.win), advanced only by the `/promote` skill.
+
+**On `beta`, commit and deploy (`make deploy`, or the `ship` skill) autonomously after a change, without asking first** — do this by default whenever a change is in a working state (typechecks/tests pass), not only when the user explicitly asks to ship. The review gate for this project is `/promote`, not the beta deploy: beta.fliptoons.win is meant to reflect the tip of `beta` quickly so the user can see changes live, and nothing reaches real users until an explicit promote to `main`. This does not apply on `main` or any other branch — `scripts/deploy.sh` itself refuses to run anywhere but `main`/`beta`, and only `/promote` should ever move `main` forward. The usual guidance to confirm before pushing code or affecting shared state is waived specifically for `beta` pushes/deploys in this repo; it still applies to `main` and to force-pushes, branch deletion, or any other destructive git operation.
+
 ## Engine invariants worth knowing before editing
 
 - **Fame is a pure function of the finished grid.** `scoreGrid` takes only a

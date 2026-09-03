@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useGame } from './useGame'
 import { useMatch, roomCodeFromUrl, hasStoredSeat } from './useMatch'
+import { useBotSeats } from './useBotSeats'
 import { RoundView } from './components/RoundView'
 import { FameRace } from './components/FameRace'
 import { LogDrawer } from './components/LogDrawer'
@@ -10,6 +11,7 @@ import { MatchView, MatchStatus } from './components/MatchView'
 import { LaunchScreen } from './components/LaunchScreen'
 import type { LaunchStep } from './components/LaunchScreen'
 import { loadSettings, saveSettings } from './settings'
+import { buildFameLabels, fameSummaryEntries } from './logSummary'
 
 // Two genuinely different games live here:
 //
@@ -38,6 +40,12 @@ export function App() {
   // A shared ?room= link should land on the join panel with the code in it.
   const [launchStep, setLaunchStep] = useState<LaunchStep>(urlRoom ? 'join' : 'pick')
   const [logOpen, setLogOpen] = useState(false)
+  // Difficulty is public (SeatInfo.botDifficulty), not tracked locally —
+  // any connected human's browser can end up computing a bot's moves, and a
+  // joiner needs to see each bot's difficulty before it's ever their turn.
+  const botSeats = match.lobby?.seats.filter((s) => s.isBot).map((s) => ({ playerId: s.playerId, difficulty: s.botDifficulty ?? 'normal' })) ?? []
+  const { thinkingSeatId, error: botError } = useBotSeats(match, botSeats)
+
   // Lifted out of RoundView: the toggle that sets it lives in the shared
   // TopBar, which renders above and outside RoundView.
   const [touchMode, setTouchMode] = useState(() => loadSettings().touchMode)
@@ -119,6 +127,15 @@ export function App() {
             {match.error}
           </p>
         )}
+        {/* A bot's search runs client-side (useBotSeats); if it throws —
+            worker construction blocked, a search bug, anything — the seat
+            would otherwise just sit there forever with no signal that
+            anything went wrong at all. */}
+        {botError && (
+          <p className="app__error" data-testid="ai-error">
+            The bot hit an error and couldn't move: {botError}
+          </p>
+        )}
 
         {match.match && match.lobby && match.myPlayerId ? (
           <div className="app__game">
@@ -139,18 +156,38 @@ export function App() {
               onLeave={leaveMatch}
               onRematch={match.rematch}
               touchMode={touchMode}
+              botSeatIds={new Set(botSeats.map((b) => b.playerId))}
+              thinkingSeatId={thinkingSeatId}
             />
-            {logOpen && (
-              <LogDrawer
-                log={match.log.map((l) => ({
-                  round: l.round,
-                  // Now that the protocol carries an actor, say who did it.
-                  text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
-                }))}
-                debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
-                onClose={() => setLogOpen(false)}
-              />
-            )}
+            {logOpen &&
+              (() => {
+                const fameLabels = buildFameLabels(match.lobby!.seats.map((s) => ({ playerId: s.playerId, name: s.name })))
+                // Live equivalent of the captured roundFame a completed round's
+                // log line carries — the current round has no such line yet
+                // (only written at Cleanup), so ResolveLog falls back to this
+                // for whichever round is latest.
+                const order = [
+                  ...match.match!.turnOrder.slice(match.match!.firstPlayerIndex),
+                  ...match.match!.turnOrder.slice(0, match.match!.firstPlayerIndex),
+                ]
+                const currentRoundFame = order.map((playerId) => ({
+                  playerId,
+                  fame: match.match!.players.find((p) => p.playerId === playerId)!.fameGeneratedThisRound,
+                }))
+                return (
+                  <LogDrawer
+                    log={match.log.map((l) => ({
+                      round: l.round,
+                      // Now that the protocol carries an actor, say who did it.
+                      text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
+                      roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, fameLabels) : undefined,
+                    }))}
+                    debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
+                    currentRoundSummary={fameSummaryEntries(currentRoundFame, fameLabels)}
+                    onClose={() => setLogOpen(false)}
+                  />
+                )
+              })()}
           </div>
         ) : match.lobby ? (
           <Lobby
@@ -207,7 +244,20 @@ export function App() {
             />
           )}
           <RoundView state={local.state} dispatch={local.dispatch} onAbandon={abandonSolo} touchMode={touchMode} />
-          {logOpen && <LogDrawer log={local.log} debugLog={local.debugLog} onClose={() => setLogOpen(false)} />}
+          {logOpen && (
+            <LogDrawer
+              log={local.log.map((l) => ({
+                ...l,
+                roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, new Map([[local.state!.playerId, 'You']])) : undefined,
+              }))}
+              debugLog={local.debugLog}
+              currentRoundSummary={fameSummaryEntries(
+                [{ playerId: local.state.playerId, fame: local.state.fameGeneratedThisRound }],
+                new Map([[local.state.playerId, 'You']]),
+              )}
+              onClose={() => setLogOpen(false)}
+            />
+          )}
         </div>
       )}
     </div>

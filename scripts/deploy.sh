@@ -15,13 +15,34 @@
 # because "deployed" and "edge is serving it" are different claims.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SITE_URL="https://fliptoons.win/"
+
+# `beta` is the default working branch (fliptoons-beta / beta.fliptoons.win);
+# `main` is the production-release branch, advanced only via the `promote`
+# skill. Deploying from anywhere else would silently ship the wrong branch's
+# code to one of these two live domains, so refuse instead of guessing.
+BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
+case "$BRANCH" in
+  main)
+    # Explicit --env "" (rather than omitting the flag): wrangler warns about
+    # ambiguity whenever env.* blocks exist and no --env is given at all.
+    WRANGLER_ENV_ARGS=(--env "")
+    SITE_URL="https://fliptoons.win/"
+    ;;
+  beta)
+    WRANGLER_ENV_ARGS=(--env beta)
+    SITE_URL="https://beta.fliptoons.win/"
+    ;;
+  *)
+    echo "! deploy.sh must be run from 'main' (production) or 'beta' (staging), not '$BRANCH'." >&2
+    exit 1
+    ;;
+esac
 
 echo "Building apps/web..."
 (cd "$ROOT/apps/web" && bun run build)
 
-echo "Deploying apps/worker..."
-(cd "$ROOT/apps/worker" && bunx wrangler deploy)
+echo "Deploying apps/worker (branch: $BRANCH)..."
+(cd "$ROOT/apps/worker" && bunx wrangler deploy "${WRANGLER_ENV_ARGS[@]}")
 
 # Vite/Rollup's content hash uses the base64url alphabet (letters, digits,
 # `_`, `-`), not just alphanumerics — a hash like index-G4Q_oCpy.js needs the

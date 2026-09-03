@@ -60,7 +60,7 @@ export function buildNewMatch(
   seed: number,
   playerCount: number,
   season: Season = 1,
-  options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null } = {},
+  options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null; firstPlayerIndex?: number } = {},
 ): Match {
   const setup = buildMultiplayerSetup(seed, playerCount, season, { bigButton: options.bigButton })
   const first = createSoloGameState({
@@ -82,6 +82,7 @@ export function buildNewMatch(
       startingDeck: deck,
       seed: setup.playerSeeds[i + 1],
     })),
+    options.firstPlayerIndex ?? setup.firstPlayerIndex,
   )
 }
 
@@ -717,15 +718,19 @@ export function runMatchCleanup(match: Match): Match {
 
   // A card detached by placeSelfInAnyDeck (the Pig) and not yet given a
   // destination is in NO zone. Cleanup collects grids back into decks, so
-  // reaching here with one outstanding would lose it silently and forever —
-  // the prompt is turn-gated, and its seat's turn is over. matchActions.ts
-  // guards every path a player can drive; this closes the CLASS, so any path
-  // nobody has enumerated yet fails loudly instead of eating a card.
-  const stranded = match.players.find((p) => p.pendingDeckPlacement !== null)
-  if (stranded) {
-    throw new Error(
-      `match.ts: runMatchCleanup — ${stranded.playerId} still owes a deck for ${stranded.pendingDeckPlacement!.cardId}; the card would be lost`,
-    )
+  // reaching here with one outstanding would lose it silently and forever.
+  // The one path this actually happens on: a Snake stacks the Pig off the
+  // toon deck DURING THE FINAL FLIP (phases.ts's placeSelfInAnyDeck grid
+  // branch) — the Final Flip has no Market phase to pause the owing seat's
+  // turn in (same "no phase left to ask" gap the Big Button's gridReset
+  // needed its own dedicated walk for — see CLAUDE.md), so there is no
+  // legal moment left for that seat to answer. The FAQ says "any deck" with
+  // no stated preference, so — same reasoning as the gridReset walk's
+  // decline-by-default and playForAbsentSeat's fallback — auto-resolve to
+  // the toon deck (shuffled) rather than losing the card or crashing the
+  // table's last flip.
+  for (const p of match.players) {
+    if (p.pendingDeckPlacement) match = matchResolveDeckPlacement(match, p.playerId, { kind: 'toonDeck' })
   }
 
   // (1) Both triggers, OR'd (§3.2.2). Latched, never re-derived, so that both
@@ -765,8 +770,10 @@ export function runMatchCleanup(match: Match): Match {
 
   if (endgameTriggered) {
     // §3.2: the trigger round has now played its FULL Market phase and
-    // Cleanup. What follows is the truncated Final Flip, not another round.
-    return { ...next, shared: { ...shared, phase: 'finalFlip' } }
+    // Cleanup. What follows is the truncated Final Flip — it still gets its
+    // own round number (not the trigger round's) so the log records it as an
+    // extra round rather than folding its lines into the round before it.
+    return { ...next, shared: { ...shared, phase: 'finalFlip', round: shared.round + 1 } }
   }
 
   // (4) §3.2: "pass the first player card clockwise."

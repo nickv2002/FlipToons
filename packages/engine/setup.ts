@@ -280,6 +280,12 @@ export type MultiplayerSetup = {
   fameToTriggerEndgame: number // 30 at every player count (§3.0)
   seed: number
   playerSeeds: number[] // one per seat — see state.ts's makeMatch on per-player RNG
+  // Round 1's first mover, randomized — an index into turnOrder (which is
+  // always seat/join order, p0..p{n-1}), not a seat reassignment. Reuses the
+  // existing round-to-round rotation mechanism (match.ts bumps
+  // firstPlayerIndex by 1 mod seat count each Cleanup); this only randomizes
+  // where that rotation starts. See makeMatch/buildNewMatch.
+  firstPlayerIndex: number
   // Multiplayer reads a failed market refill as an ordinary ending that
   // proceeds to the Final Flip, not as solo's loss — see SharedState.winCondition.
   winCondition: WinCondition
@@ -331,6 +337,9 @@ export function buildMultiplayerSetup(
   // seasons draw nothing extra, so single-season shuffles are unaffected.
   const seatSeasons = assignStartingDeckSeasons(rng, playerCount, season)
   const toonDeck = shuffle(buildMultiplayerToonDeckUnshuffled(season, resetEffect !== null), rng)
+  // Drawn last off the same stream, after the seasons and toon deck, so the
+  // randomized starting player stays a pure function of `seed` too.
+  const firstPlayerIndex = Math.floor(rng() * playerCount)
 
   return {
     // Combined-season play: each seat independently gets a whole Season 1 or
@@ -346,6 +355,7 @@ export function buildMultiplayerSetup(
     // Derived from the match seed so the whole match stays a pure function of
     // it, but distinct per seat so no two players share a shuffle stream.
     playerSeeds: Array.from({ length: playerCount }, (_, i) => seed + i * 0x9e3779b1),
+    firstPlayerIndex,
   }
 }
 

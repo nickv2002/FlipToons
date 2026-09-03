@@ -17,10 +17,36 @@
 import type { Match } from '../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Season } from '../../packages/engine/cards/types'
+import type { SoloDifficulty } from '../../packages/engine/setup'
 
 // §6's room-code alphabet: unambiguous characters only (no 0/O, 1/I/l).
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const ROOM_CODE_LENGTH = 5
+
+export const PLAYER_NAME_MAX_LENGTH = 10
+
+// The one place player names get cleaned up, used by both the client (as you
+// type) and the worker (join/create never pass through the same HTTP
+// validation, so the Durable Object has to enforce this itself too). Strips
+// control characters and line/paragraph separators (\p{Cc}, \p{Zl}, \p{Zp} —
+// covers \n, \r, and friends) so a name can't forge a fake line in
+// apps/worker/log.ts's single-line, unescaped log format. Deliberately does
+// NOT strip \p{Cf} (format characters): that category is where the
+// zero-width joiner lives, and a multi-person emoji (👨‍👩‍👧‍👦) is four base
+// emoji stitched together BY zero-width joiners — stripping them breaks the
+// emoji apart into separate glyphs instead of leaving it intact.
+// Caps at PLAYER_NAME_MAX_LENGTH grapheme clusters (not UTF-16 code units)
+// via Intl.Segmenter — a naive .slice() would miscount or mid-truncate
+// multi-codepoint emoji (ZWJ sequences, skin-tone modifiers) into broken
+// glyphs. Deliberately does NOT trim: this runs on every keystroke in the
+// name input, and trimming there would eat a trailing space the moment it's
+// typed, making a two-word name impossible to enter. Callers trim once, at
+// submit/storage time, same as before this function existed.
+export function sanitizePlayerName(raw: string): string {
+  const cleaned = raw.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, '')
+  const graphemes = Array.from(new Intl.Segmenter().segment(cleaned), (s) => s.segment)
+  return graphemes.slice(0, PLAYER_NAME_MAX_LENGTH).join('')
+}
 
 export const MAX_SEATS = 4
 
@@ -31,6 +57,12 @@ export type SeatInfo = {
   name: string
   connected: boolean
   isHost: boolean
+  isBot: boolean
+  // Present only when isBot. Public (not just remembered by whichever
+  // browser hosted) because any connected human's browser may end up
+  // computing this seat's moves, and a joiner needs to see it before they
+  // ever touch the board — see CreateRoomRequest.bots below.
+  botDifficulty?: SoloDifficulty
 }
 
 export type LobbyState = {
@@ -56,7 +88,20 @@ export type LobbyState = {
 // at room creation because it changes the toon deck's composition (the
 // season's Big Button card is only dealt when a reset effect is chosen), which
 // setup.ts decides before the first Flip.
-export type CreateRoomRequest = { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: 'market' | 'grid' }
+// `bots` seats one permanent bot per entry, starting at seat 2, at creation
+// (see room.ts) — 0 to MAX_SEATS - 1 of them, each entry naming that seat's
+// difficulty (packages/engine/setup.ts's SoloDifficulty, the same knob solo
+// play already uses). A bot's moves are computed in ANY connected human's
+// browser and relayed as ordinary `action` messages tagged with `asSeat`
+// below, never computed on this server.
+export type CreateRoomRequest = {
+  name: string
+  season: Season
+  seed?: number
+  fameToTriggerEndgame?: number
+  bigButton?: 'market' | 'grid'
+  bots?: SoloDifficulty[]
+}
 export type CreateRoomResponse = { roomCode: string; playerId: string; reconnectToken: string; lobby: LobbyState }
 
 // Sent as the first message over a `/ws?room=<code>` connection. There is no
@@ -72,8 +117,11 @@ export type ClientMessage =
   | { type: 'start' }
   // NOTE: carries no playerId. The server derives the actor from the
   // connection's assigned seat — a client-asserted id would let anyone act as
-  // anyone.
-  | { type: 'action'; action: MatchAction }
+  // anyone. `asSeat`, if present, is honored ONLY when it names a bot seat in
+  // this room (see room.ts's handleAction) — this is a low-stakes hobby app,
+  // so there is deliberately no check on WHICH socket sends a bot's move, only
+  // on WHOSE seat it is allowed to move.
+  | { type: 'action'; action: MatchAction; asSeat?: string }
   // Host-only, and only once the match has actually ended: deals a fresh
   // match to the same seats without returning to the lobby.
   | { type: 'rematch' }

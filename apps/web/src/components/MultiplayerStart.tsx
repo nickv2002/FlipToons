@@ -2,7 +2,9 @@ import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
 import type { Season } from '../../../../packages/engine/cards/types'
 import type { ResetEffect } from '../../../../packages/engine/state'
+import type { SoloDifficulty } from '../../../../packages/engine/setup'
 import { loadSettings, saveSettings } from '../settings'
+import { MAX_SEATS, sanitizePlayerName } from '../../../worker/protocol'
 import { BigButtonOption } from './BigButtonOption'
 import { OptionCards } from './OptionCards'
 
@@ -11,7 +13,7 @@ export type MultiplayerStartProps = {
   // two sections of one page. Same component so the name field, the busy
   // state and the error line stay in one place.
   variant: 'host' | 'join'
-  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect }) => void
+  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: SoloDifficulty[] }) => void
   onJoin: (roomCode: string, name: string) => void
   onBack: () => void
   connection: ConnectionState
@@ -20,12 +22,19 @@ export type MultiplayerStartProps = {
   initialRoomCode?: string | null
 }
 
+const DIFFICULTY_OPTIONS = [
+  { value: 'easy' as SoloDifficulty, label: 'Easy', icon: '🙂' },
+  { value: 'normal' as SoloDifficulty, label: 'Medium', icon: '😐' },
+  { value: 'hard' as SoloDifficulty, label: 'Hard', icon: '😤' },
+]
+
 export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, initialRoomCode }: MultiplayerStartProps) {
   const [name, setName] = useState(() => loadSettings().lastName)
   const [season, setSeason] = useState<Season>(1)
   const [seed, setSeed] = useState('')
   const [threshold, setThreshold] = useState('')
   const [bigButton, setBigButton] = useState<ResetEffect | null>(null)
+  const [bots, setBots] = useState<SoloDifficulty[]>([])
   const [roomCode, setRoomCode] = useState(initialRoomCode ?? '')
 
   const busy = connection === 'connecting' || connection === 'reconnecting'
@@ -39,7 +48,7 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
 
       <label className="config-panel__field">
         Your name
-        <input data-testid="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input data-testid="name-input" value={name} onChange={(e) => setName(sanitizePlayerName(e.target.value))} placeholder="Name" />
       </label>
 
       {variant === 'host' ? (
@@ -57,10 +66,47 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
 
           <BigButtonOption value={bigButton} onChange={setBigButton} />
 
-          {/* No table size to pick: you cannot know who will click your link.
-              The room opens with every seat free and is dealt for whoever is
-              in the waiting room when you press start. */}
-          <p className="config-panel__hint">You'll get a room code to share. Start once everyone's in — up to four players.</p>
+          {/* Bots are seats too — added here rather than on a separate
+              screen, so a table can mix humans and bots freely. Each bot
+              gets its own three-way difficulty toggle; the name shown at the
+              table (e.g. "Bot (Hard)") is computed server-side from this
+              list, not here, so every seat — including a later joiner — sees
+              the same names. */}
+          <div className="config-panel__field">
+            <span className="option-field__label">Bots ({bots.length} of {MAX_SEATS - 1})</span>
+            {bots.map((difficulty, i) => (
+              <div key={i} className="multiplayer-start__bot-row" data-testid={`bot-row-${i}`}>
+                <OptionCards
+                  label={`Bot ${i + 1} difficulty`}
+                  value={difficulty}
+                  onChange={(value) => setBots(bots.map((b, j) => (j === i ? value : b)))}
+                  options={DIFFICULTY_OPTIONS.map((o) => ({ ...o, testId: `bot-${i}-difficulty-${o.value}` }))}
+                />
+                <button
+                  type="button"
+                  className="multiplayer-start__remove-bot btn-pill"
+                  data-testid={`remove-bot-${i}`}
+                  onClick={() => setBots(bots.filter((_, j) => j !== i))}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="multiplayer-start__add-bot btn-pill"
+              data-testid="add-bot"
+              disabled={bots.length >= MAX_SEATS - 1}
+              onClick={() => setBots([...bots, 'normal'])}
+            >
+              + Add bot
+            </button>
+          </div>
+
+          {/* No human table size to pick: you cannot know who will click your
+              link. The room opens with every non-bot seat free and is dealt
+              for whoever is in the waiting room when you press start. */}
+          <p className="config-panel__hint">You'll get a room code to share. Start once everyone's in — up to four seats, bots included.</p>
 
           <button
             type="button"
@@ -79,6 +125,7 @@ export function MultiplayerStart({ variant, onHost, onJoin, onBack, connection, 
                 // 'both') before it reaches setup.ts (where it decides the
                 // toon deck's composition).
                 bigButton: bigButton ?? undefined,
+                bots: bots.length > 0 ? bots : undefined,
               })
             }}
           >

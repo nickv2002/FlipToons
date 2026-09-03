@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react'
 import type { LogEntry } from '../useGame'
+import type { FameSummaryEntry } from '../logSummary'
+import { FamePill } from './FamePill'
 
 export type ResolveLogProps = {
   log: LogEntry[]
   debugLog: LogEntry[]
+  // The round in progress has no captured roundSummary yet — that only gets
+  // written once Cleanup fires (see useGame.ts / matchActions.ts). This is
+  // the live equivalent, computed from current state, shown only for the
+  // latest round and only until that round's own captured summary lands.
+  currentRoundSummary?: FameSummaryEntry[]
 }
 
 // Presentation-only classification of actions.ts's log strings, used purely
@@ -79,7 +86,7 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
 // No title and no Hide/Show toggle of its own any more: it renders inside
 // LogDrawer, which supplies both. A collapse control inside a thing you
 // already opened on purpose is one click that does nothing.
-export function ResolveLog({ log, debugLog }: ResolveLogProps) {
+export function ResolveLog({ log, debugLog, currentRoundSummary }: ResolveLogProps) {
   // Per-round expand/collapse overrides. Default (no override) is: the
   // latest round is expanded, every earlier round is collapsed — a fresh
   // round pushes the previous one closed automatically. An explicit click
@@ -116,6 +123,7 @@ export function ResolveLog({ log, debugLog }: ResolveLogProps) {
         {groups.map((group, groupIndex) => {
           const expanded = expandOverrides[group.round] ?? group.round === latestRound
           const roundDebugLines = debugByRound.get(group.round)
+          const summary = group.entries.find((e) => e.roundSummary)?.roundSummary ?? (group.round === latestRound ? currentRoundSummary : undefined)
           return (
             <div className="resolve-log__group" key={groupIndex}>
               <div className="resolve-log__round-header-row">
@@ -129,7 +137,15 @@ export function ResolveLog({ log, debugLog }: ResolveLogProps) {
                     ▶
                   </span>
                   <span>Round {group.round}</span>
-                  <span className="resolve-log__count">{group.entries.length}</span>
+                  {summary && summary.length > 0 && (
+                    <span className="resolve-log__count">
+                      {summary.map((s, i) => (
+                        <span key={i} className="resolve-log__count-entry">
+                          {s.initial}:<FamePill value={s.fame} />
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </button>
                 {roundDebugLines && roundDebugLines.length > 0 && (
                   <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />

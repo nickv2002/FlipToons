@@ -110,16 +110,24 @@ export function advanceThroughPassthroughPhases(state: GameState, logLines: Engi
     const roundJustEnded = next.round
     const fameThisRound = next.fameGeneratedThisRound
     const threshold = next.fameToTriggerEndgame
+    const roundFame = [{ playerId: state.playerId, fame: fameThisRound }]
     next = runCleanup(next)
     if (next.phase === 'ended') {
-      say(
-        next.result === 'win'
-          ? `YOU WIN — reached ${fameThisRound}/${threshold} fame in round ${roundJustEnded}.`
-          : `YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`,
-      )
+      logLines.push({
+        playerId: state.playerId,
+        text:
+          next.result === 'win'
+            ? `YOU WIN — reached ${fameThisRound}/${threshold} fame in round ${roundJustEnded}.`
+            : `YOU LOSE — the toon deck depleted and the market could not refill (round ${roundJustEnded}).`,
+        roundFame,
+      })
       return next
     }
-    say(`Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`)
+    logLines.push({
+      playerId: state.playerId,
+      text: `Round ${roundJustEnded} complete. Fame resets to 0. Advancing to round ${next.round}.`,
+      roundFame,
+    })
   }
 
   if (next.phase === 'flip') {

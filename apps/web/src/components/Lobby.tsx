@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { LobbyState } from '../../../worker/protocol'
 import type { ConnectionState } from '../useMatch'
+import { FamePill } from './FamePill'
 
 export type LobbyProps = {
   lobby: LobbyState
@@ -49,7 +50,7 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
           the reset effect in particular changes the deck they are about to
           play with. */}
       <p className="lobby__setup" data-testid="lobby-setup">
-        {lobby.season === 'both' ? 'Season 1+2' : `Season ${lobby.season}`} · {lobby.fameToTriggerEndgame} fame to end
+        {lobby.season === 'both' ? 'Season 1+2' : `Season ${lobby.season}`} · <FamePill value={lobby.fameToTriggerEndgame} /> to end
         {lobby.bigButton && <> · Big Button: reset {lobby.bigButton}</>}
       </p>
 
@@ -61,9 +62,10 @@ export function Lobby({ lobby, myPlayerId, connection, onStart, onLeave }: Lobby
         {lobby.seats.map((seat) => (
           <li key={seat.playerId} className="lobby__seat" data-testid={`seat-${seat.playerId}`}>
             <span className="lobby__seat-name">{seat.name}</span>
+            {seat.isBot && <span className="lobby__badge" data-testid="bot-badge">bot</span>}
             {seat.isHost && <span className="lobby__badge">host</span>}
             {seat.playerId === myPlayerId && <span className="lobby__badge lobby__badge--you">you</span>}
-            {!seat.connected && <span className="lobby__badge lobby__badge--away">away</span>}
+            {!seat.connected && !seat.isBot && <span className="lobby__badge lobby__badge--away">away</span>}
           </li>
         ))}
       </ul>

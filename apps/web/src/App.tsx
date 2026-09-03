@@ -189,6 +189,18 @@ export function App() {
             {logOpen &&
               (() => {
                 const fameLabels = buildFameLabels(match.lobby!.seats.map((s) => ({ playerId: s.playerId, name: s.name })))
+                // Live equivalent of the captured roundFame a completed round's
+                // log line carries — the current round has no such line yet
+                // (only written at Cleanup), so ResolveLog falls back to this
+                // for whichever round is latest.
+                const order = [
+                  ...match.match!.turnOrder.slice(match.match!.firstPlayerIndex),
+                  ...match.match!.turnOrder.slice(0, match.match!.firstPlayerIndex),
+                ]
+                const currentRoundFame = order.map((playerId) => ({
+                  playerId,
+                  fame: match.match!.players.find((p) => p.playerId === playerId)!.fameGeneratedThisRound,
+                }))
                 return (
                   <LogDrawer
                     log={match.log.map((l) => ({
@@ -198,6 +210,7 @@ export function App() {
                       roundSummary: l.roundFame ? formatRoundFame(l.roundFame, fameLabels) : undefined,
                     }))}
                     debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
+                    currentRoundSummary={formatRoundFame(currentRoundFame, fameLabels)}
                     onClose={() => setLogOpen(false)}
                   />
                 )
@@ -265,6 +278,10 @@ export function App() {
                 roundSummary: l.roundFame ? formatRoundFame(l.roundFame, new Map([[local.state!.playerId, 'You']])) : undefined,
               }))}
               debugLog={local.debugLog}
+              currentRoundSummary={formatRoundFame(
+                [{ playerId: local.state.playerId, fame: local.state.fameGeneratedThisRound }],
+                new Map([[local.state.playerId, 'You']]),
+              )}
               onClose={() => setLogOpen(false)}
             />
           )}

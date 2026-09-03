@@ -13,10 +13,11 @@ import { ResolveLog } from './ResolveLog'
 export type LogDrawerProps = {
   log: LogEntry[]
   debugLog: LogEntry[]
+  currentRoundSummary?: string
   onClose: () => void
 }
 
-export function LogDrawer({ log, debugLog, onClose }: LogDrawerProps) {
+export function LogDrawer({ log, debugLog, currentRoundSummary, onClose }: LogDrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -35,7 +36,7 @@ export function LogDrawer({ log, debugLog, onClose }: LogDrawerProps) {
           </button>
         </div>
         <div className="log-drawer__body">
-          <ResolveLog log={log} debugLog={debugLog} />
+          <ResolveLog log={log} debugLog={debugLog} currentRoundSummary={currentRoundSummary} />
         </div>
       </div>
     </div>

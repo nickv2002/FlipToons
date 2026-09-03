@@ -899,6 +899,17 @@ button {
        fighting for the same row), so give the market pane a larger share. */
     grid-template-columns: 1fr 1.3fr;
   }
+
+  /* The 1fr track above hands this pane whatever share is left over after
+     the market pane's 1.3fr, which is routinely wider than the 22rem the
+     grid inside is capped to (see .match[data-phase='market'] .grid below)
+     — without this, the pane stays that wide and the capped grid leaves a
+     dead strip on its right. 23.5rem = the grid's 22rem cap plus the pane's
+     own 0.75rem horizontal padding on each side, so the pane hugs the grid
+     it actually contains. */
+  .round-view__phase--market > .round-view__grid-pane {
+    max-width: 23.5rem;
+  }
 }
 
 /* ---------- Grid ---------- */

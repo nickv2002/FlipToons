@@ -7,17 +7,19 @@ import { MAX_SEATS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, sanitizePlayerName } f
 import type { CreateRoomRequest, CreateRoomResponse } from './protocol'
 import { log } from './log'
 import type { Env } from './room'
-import type { SoloDifficulty } from '../../packages/engine/setup'
+import type { MatchDifficulty } from '../../packages/engine/ai'
 
-function validBots(raw: unknown): SoloDifficulty[] | undefined {
+function validBots(raw: unknown): MatchDifficulty[] | undefined {
   if (!Array.isArray(raw)) return undefined
   // Reject rather than clamp: a client sending too many bots or a bogus
   // difficulty string is either a bug or an attempt to bypass the picker's
   // own MAX_SEATS - 1 cap, and silently truncating would seat a different
-  // table than what was asked for.
+  // table than what was asked for. 'extreme' is intentionally not accepted
+  // here — the room-creation picker (MultiplayerStart.tsx) only offers
+  // easy/normal/hard; Extreme is set later, in the lobby, per bot seat.
   if (raw.length > MAX_SEATS - 1) return undefined
   if (!raw.every((d) => d === 'easy' || d === 'normal' || d === 'hard')) return undefined
-  return raw as SoloDifficulty[]
+  return raw as MatchDifficulty[]
 }
 
 export { RoomDurableObject } from './room'

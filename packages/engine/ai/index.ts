@@ -14,7 +14,7 @@ import { buildMatchAdapter, advanceToBotDecision } from './matchAdapter'
 
 export type { AiOptions, AutoplayResult, ScoredAction }
 export { buildNewGameState }
-export type MatchDifficulty = 'easy' | 'normal' | 'hard'
+export type MatchDifficulty = 'easy' | 'normal' | 'hard' | 'extreme'
 
 // Interactive tuning, distinct from core.ts's batch-benchmark defaults
 // (DEFAULT_SIMULATIONS/DEFAULT_MAX_STEPS_PER_PLAYOUT/DEFAULT_MAX_WALL_CLOCK_MS
@@ -26,16 +26,19 @@ export const INTERACTIVE_MAX_WALL_CLOCK_MS: Record<MatchDifficulty, number> = {
   easy: 800,
   normal: 2000,
   hard: 4000,
+  extreme: 7000,
 }
 const INTERACTIVE_SIMULATIONS: Record<MatchDifficulty, number> = {
   easy: 12,
   normal: 40,
   hard: 90,
+  extreme: 150,
 }
 const INTERACTIVE_MAX_STEPS_PER_PLAYOUT: Record<MatchDifficulty, number> = {
   easy: 40,
   normal: 60,
   hard: 90,
+  extreme: 120,
 }
 
 function interactiveOptsFor(difficulty: MatchDifficulty): AiOptions {

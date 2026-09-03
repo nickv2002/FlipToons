@@ -40,10 +40,13 @@ export function App() {
   // A shared ?room= link should land on the join panel with the code in it.
   const [launchStep, setLaunchStep] = useState<LaunchStep>(urlRoom ? 'join' : 'pick')
   const [logOpen, setLogOpen] = useState(false)
-  // Difficulty is public (SeatInfo.botDifficulty), not tracked locally —
-  // any connected human's browser can end up computing a bot's moves, and a
+  // Difficulty is public (SeatInfo.botDifficulty), not tracked locally — a
   // joiner needs to see each bot's difficulty before it's ever their turn.
-  const botSeats = match.lobby?.seats.filter((s) => s.isBot).map((s) => ({ playerId: s.playerId, difficulty: s.botDifficulty ?? 'normal' })) ?? []
+  // Only the HOST's browser actually computes bot moves (see room.ts's
+  // seatIsStranded comment) — everyone else gets an empty `bots` list, which
+  // useBotSeats treats as fully inert.
+  const isHost = match.lobby?.seats.find((s) => s.playerId === match.myPlayerId)?.isHost ?? false
+  const botSeats = isHost ? (match.lobby?.seats.filter((s) => s.isBot).map((s) => ({ playerId: s.playerId, difficulty: s.botDifficulty ?? 'normal' })) ?? []) : []
   const { thinkingSeatId, error: botError } = useBotSeats(match, botSeats)
 
   // Lifted out of RoundView: the toggle that sets it lives in the shared
@@ -198,6 +201,7 @@ export function App() {
             onLeave={leaveMatch}
             onAddBot={match.addBot}
             onRemoveBot={match.removeBot}
+            onSetBotDifficulty={match.setBotDifficulty}
           />
         ) : (
           launchScreen

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ConnectionState } from '../useMatch'
 import type { Season } from '../../../../packages/engine/cards/types'
 import type { ResetEffect } from '../../../../packages/engine/state'
-import type { SoloDifficulty } from '../../../../packages/engine/setup'
+import type { MatchDifficulty } from '../../../../packages/engine/ai'
 import { loadSettings, saveSettings } from '../settings'
 import { sanitizePlayerName } from '../../../worker/protocol'
 import { BigButtonOption } from './BigButtonOption'
@@ -13,7 +13,7 @@ export type MultiplayerStartProps = {
   // two sections of one page. Same component so the name field, the busy
   // state and the error line stay in one place.
   variant: 'host' | 'join'
-  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: SoloDifficulty[] }) => void
+  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: MatchDifficulty[] }) => void
   onJoin: (roomCode: string, name: string) => void
   onBack: () => void
   connection: ConnectionState

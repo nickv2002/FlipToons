@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Match } from '../../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../../packages/engine/matchActions'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, ServerMessage } from '../../worker/protocol'
-import type { SoloDifficulty } from '../../../packages/engine/setup'
+import type { MatchDifficulty } from '../../../packages/engine/ai'
 
 // In production the Worker serves apps/web's build itself, so the page and
 // the API/WS are same-origin. In local dev, apps/web runs on Vite's own dev
@@ -259,7 +259,7 @@ export function useMatch() {
     wsRef.current.send(JSON.stringify({ type: 'rematch' } satisfies ClientMessage))
   }, [])
 
-  const addBot = useCallback((difficulty: SoloDifficulty) => {
+  const addBot = useCallback((difficulty: MatchDifficulty) => {
     if (!wsRef.current) return
     wsRef.current.send(JSON.stringify({ type: 'addBot', difficulty } satisfies ClientMessage))
   }, [])
@@ -267,6 +267,11 @@ export function useMatch() {
   const removeBot = useCallback((playerId: string) => {
     if (!wsRef.current) return
     wsRef.current.send(JSON.stringify({ type: 'removeBot', playerId } satisfies ClientMessage))
+  }, [])
+
+  const setBotDifficulty = useCallback((playerId: string, difficulty: MatchDifficulty) => {
+    if (!wsRef.current) return
+    wsRef.current.send(JSON.stringify({ type: 'setBotDifficulty', playerId, difficulty } satisfies ClientMessage))
   }, [])
 
   // `asSeat` relays an action for a bot seat (see protocol.ts's
@@ -310,5 +315,5 @@ export function useMatch() {
   const clearError = useCallback(() => setError(null), [])
 
   const storedSeat = seatRef.current
-  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, rematch, addBot, removeBot, leave, storedSeat, clearError }
+  return { match, lobby, myPlayerId, log, debugLog, error, connection, createRoom, joinRoom, startGame, act, rematch, addBot, removeBot, setBotDifficulty, leave, storedSeat, clearError }
 }

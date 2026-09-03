@@ -125,6 +125,13 @@ export type ClientMessage =
   // Host-only, and only once the match has actually ended: deals a fresh
   // match to the same seats without returning to the lobby.
   | { type: 'rematch' }
+  // Host-only, pre-start only: seats one more bot at the next open turnOrder
+  // slot. Lets the host size the table to who actually showed up rather than
+  // guessing bot count before anyone has joined.
+  | { type: 'addBot'; difficulty: SoloDifficulty }
+  // Host-only, pre-start only: vacates a bot seat so a human (or a
+  // differently-difficultied bot) can take it.
+  | { type: 'removeBot'; playerId: string }
 
 export type ServerMessage =
   // Sent once to the attaching/joining connection. `reconnectToken` is

@@ -56,7 +56,11 @@ export function runFlip(state: GameState, logLines?: EngineLogLine[], debugLines
   assertPhase(state, 'flip', 'runFlip')
   const shuffled = shuffleWithState(state.deck, state.rng)
   const flipResult = flipDeck(shuffled.result, cards, { toonDeck: state.toonDeck, dismissed: state.dismissed })
-  if (logLines) for (const text of flipResult.flipNotes) logLines.push({ playerId: state.playerId, text })
+  if (logLines) {
+    const names = flipResult.revealOrder.map((id) => cards[id]?.name ?? id)
+    logLines.push({ playerId: state.playerId, text: `Round ${state.round}: flip order — ${names.join(', ') || '(empty deck)'}` })
+    for (const text of flipResult.flipNotes) logLines.push({ playerId: state.playerId, text })
+  }
   debugLines?.push(...flipResult.debugNotes)
 
   return {

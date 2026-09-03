@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GameState, PlayerId, ResetEffect } from '../../../packages/engine/state'
 import type { SoloDifficulty } from '../../../packages/engine/setup'
+import { formatNewGameLogLine } from '../../../packages/engine/setup'
 import type { Season } from '../../../packages/engine/cards/types'
 import type { Action } from '../../../packages/engine/actions'
 import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
@@ -144,7 +145,7 @@ export function useGame() {
       capLog([
         {
           round: 1,
-          text: `New game — seed ${seed}, ${difficulty}, season ${season}${bigButton ? `, Big Button: reset ${bigButton}` : ''}.`,
+          text: formatNewGameLogLine(seed, season, bigButton, difficulty),
         },
         ...logLines.map((line) => ({ round: next.round, text: line.text, playerId: line.playerId, roundFame: line.roundFame })),
       ]),

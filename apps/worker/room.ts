@@ -34,6 +34,7 @@ import { MAX_SEATS, sanitizePlayerName } from './protocol'
 import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
 import type { Season } from '../../packages/engine/cards/types'
 import type { SoloDifficulty } from '../../packages/engine/setup'
+import { formatNewGameLogLine } from '../../packages/engine/setup'
 
 export type Seat = {
   playerId: string
@@ -507,6 +508,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       // summary.
       const order = [...dealt.turnOrder.slice(dealt.firstPlayerIndex), ...dealt.turnOrder.slice(0, dealt.firstPlayerIndex)]
       const orderNames = order.map((pid) => room.seats.find((s) => s.playerId === pid)?.name ?? pid)
+      room.log.push({ playerId: null, round: dealt.shared.round, text: formatNewGameLogLine(room.seed, room.season, room.bigButton) })
       room.log.push({ playerId: null, round: dealt.shared.round, text: `Randomized starting player — turn order: ${orderNames.join(', then ')}.` })
       // Nothing is committed to `room` until the advance has finished — same
       // discipline as handleAction — so an engine bug thrown mid-cascade
@@ -546,7 +548,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     let dealt: Match
     const seed = Math.floor(Math.random() * 2 ** 31)
-    const freshLog: LogLine[] = []
+    const freshLog: LogLine[] = [{ playerId: null, round: 1, text: formatNewGameLogLine(seed, room.season, room.bigButton) }]
     const freshDebugLog: string[] = []
     try {
       dealt = advanceSharedPhases(

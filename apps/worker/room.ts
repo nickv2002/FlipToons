@@ -92,7 +92,7 @@ export type Room = {
 // applying an action all bump `lastActivity`. A client that keeps rejoining
 // without ever playing does hold a room open; what the window really bounds
 // is abandonment, and a rejoin is not that.
-export const ROOM_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+export const ROOM_TTL_MS = 18 * 60 * 60 * 1000 // 18 hours
 // Logs are capped too: a long match generates a lot of lines, and a client
 // only ever renders the recent tail.
 export const MAX_LOG_LINES = 2000
@@ -649,6 +649,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.renameBotSeats(room)
     this.touch()
     await this.persist()
+    await this.scheduleAlarm()
     log('info', room.code, `bot added (${difficulty}) — ${room.seats.length}/${MAX_SEATS} seated`)
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
   }
@@ -668,6 +669,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.renameBotSeats(room)
     this.touch()
     await this.persist()
+    await this.scheduleAlarm()
     log('info', room.code, `bot removed — ${room.seats.length}/${MAX_SEATS} seated`)
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
   }
@@ -691,6 +693,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // of difficulty; see plainBotSeatNames.
     this.touch()
     await this.persist()
+    await this.scheduleAlarm()
     log('info', room.code, `bot ${playerId} difficulty set to ${difficulty}`)
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
   }

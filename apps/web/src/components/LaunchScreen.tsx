@@ -1,4 +1,5 @@
 import type { SoloDifficulty } from '../../../../packages/engine/setup'
+import type { MatchDifficulty } from '../../../../packages/engine/ai'
 import type { ResetEffect } from '../../../../packages/engine/state'
 import type { Season } from '../../../../packages/engine/cards/types'
 import type { ConnectionState } from '../useMatch'
@@ -16,7 +17,7 @@ export type LaunchScreenProps = {
   onPick: (step: LaunchStep) => void
   onBack: () => void
   onStartSolo: (seed: number, difficulty: SoloDifficulty, season: Season, bigButton: ResetEffect | null) => void
-  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: SoloDifficulty[] }) => void
+  onHost: (opts: { name: string; season: Season; seed?: number; fameToTriggerEndgame?: number; bigButton?: ResetEffect; bots?: MatchDifficulty[] }) => void
   onJoin: (roomCode: string, name: string) => void
   connection: ConnectionState
   initialRoomCode?: string | null

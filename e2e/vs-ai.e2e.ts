@@ -19,9 +19,9 @@ test.describe('bots', () => {
     await human.page.getByTestId('host-game').click()
 
     await expect(human.page.getByTestId('lobby')).toBeVisible()
-    await human.page.getByTestId('new-bot-difficulty-easy').click()
     await human.page.getByTestId('add-bot').click()
-    await expect(human.page.getByTestId('bot-badge')).toBeVisible()
+    await human.page.getByTestId('bot-difficulty-easy-p1').click()
+    await expect(human.page.getByTestId('bot-difficulty-easy-p1')).toHaveAttribute('aria-pressed', 'true')
     await human.page.getByTestId('start-game').click()
 
     await expect(human.page.getByTestId('opponent-boards')).toBeVisible({ timeout: 20_000 })
@@ -48,12 +48,11 @@ test.describe('bots', () => {
     await human.page.getByTestId('host-game').click()
 
     await expect(human.page.getByTestId('lobby')).toBeVisible()
-    await human.page.getByTestId('new-bot-difficulty-easy').click()
     await human.page.getByTestId('add-bot').click()
-    await expect(human.page.getByTestId('bot-badge')).toHaveCount(1)
-    await human.page.getByTestId('new-bot-difficulty-hard').click()
+    await human.page.getByTestId('bot-difficulty-easy-p1').click()
     await human.page.getByTestId('add-bot').click()
-    await expect(human.page.getByTestId('bot-badge')).toHaveCount(2)
+    await human.page.getByTestId('bot-difficulty-hard-p2').click()
+    await expect(human.page.getByTestId('seat-list').locator('li')).toHaveCount(3)
     await human.page.getByTestId('start-game').click()
 
     await expect(human.page.getByTestId('opponent-boards')).toBeVisible({ timeout: 20_000 })

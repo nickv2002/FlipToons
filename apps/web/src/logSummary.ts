@@ -30,3 +30,12 @@ export function buildFameLabels(players: { playerId: string; name: string }[]): 
 export function formatRoundFame(roundFame: { playerId: string; fame: number }[], labels: Map<string, string>): string {
   return roundFame.map((rf) => `${labels.get(rf.playerId) ?? rf.playerId}:${rf.fame}`).join(', ')
 }
+
+// Structured sibling of formatRoundFame — same label logic, but returned as
+// data rather than a pre-joined string, so the log's round-header summary can
+// render each player's fame as a FamePill instead of plain text.
+export type FameSummaryEntry = { initial: string; fame: number }
+
+export function fameSummaryEntries(roundFame: { playerId: string; fame: number }[], labels: Map<string, string>): FameSummaryEntry[] {
+  return roundFame.map((rf) => ({ initial: labels.get(rf.playerId) ?? rf.playerId, fame: rf.fame }))
+}

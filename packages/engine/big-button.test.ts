@@ -246,7 +246,7 @@ describe('RESET: MARKET', () => {
     // 'useBigButton' dispatches on view.resetEffect itself (matchActions.ts),
     // so there is no "wrong effect" mismatch reachable through the action
     // surface any more — only "the mini-expansion isn't on at all".
-    const off = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999 })
+    const off = buildNewMatch(11, 2, 1, { fameToTriggerEndgame: 999, firstPlayerIndex: 0 })
     const inMarket: Match = { ...off, shared: { ...off.shared, phase: 'market' } }
     expect(() => applyMatchAction(inMarket, inMarket.turnOrder[0], { kind: 'useBigButton' })).toThrow(/not in play/)
   })

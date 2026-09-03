@@ -12,6 +12,7 @@ import { roundFameLookup } from '../../../../packages/engine/score'
 import { BoardPane } from './BoardPane'
 import { ConfettiBurst } from './ConfettiBurst'
 import { CounterChip } from './CounterChip'
+import { FamePill } from './FamePill'
 import { Market } from './Market'
 import { ChoicePrompt } from './ChoicePrompt'
 import { EffectChoicePrompt, type EffectChoiceSelection } from './EffectChoicePrompt'
@@ -372,8 +373,8 @@ function MarketHeading({ state, interactive }: { state: GameState; interactive: 
         {interactive && (
           <>
             <CounterChip
-              label="Spendable fame"
-              value={state.fame}
+              label="Spendable"
+              value={<FamePill value={state.fame} />}
               tone="positive"
               title="Fame resets to 0 when this phase ends — spend it or lose it"
             />

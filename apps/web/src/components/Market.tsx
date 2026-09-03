@@ -4,6 +4,7 @@ import { hireCost } from '../../../../packages/engine/market'
 import { TappableCard } from './TappableCard'
 import { DEAL_STAGGER_MS } from '../dealAnimation'
 import type { ZoomRequest } from './CardZoomSheet'
+import { FamePill } from './FamePill'
 
 export type MarketProps = {
   market: MarketData
@@ -31,13 +32,13 @@ export function Market({ market, cards, fame, onHire, animateDeal = true, touchM
             <div key={`${i}-${cardId ?? 'empty'}`} className="market-slot">
               {card && (
                 <span className={`market-slot__price${affordable ? ' card__price--affordable' : ' card__price--unaffordable'}`}>
-                  {price} fame
+                  <FamePill value={price} />
                 </span>
               )}
               <TappableCard
                 testId={`market-slot-${i}`}
                 card={card}
-                emptyLabel={`${price} fame`}
+                emptyLabel={<FamePill value={price} />}
                 onClick={canHire ? () => onHire(i) : undefined}
                 // The tap-to-preview flow keeps an unaffordable card tappable so its
                 // detail view is still reachable — only the real hire (and the
@@ -50,7 +51,15 @@ export function Market({ market, cards, fame, onHire, animateDeal = true, touchM
                 onZoom={onZoom}
                 zoomRequest={
                   card
-                    ? { card, actionLabel: canHire ? `Hire — ${price} fame` : undefined, onAction: canHire ? () => onHire(i) : undefined }
+                    ? {
+                        card,
+                        actionLabel: canHire ? (
+                          <>
+                            Hire — <FamePill value={price} />
+                          </>
+                        ) : undefined,
+                        onAction: canHire ? () => onHire(i) : undefined,
+                      }
                     : undefined
                 }
               />

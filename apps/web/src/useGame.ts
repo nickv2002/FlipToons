@@ -4,6 +4,7 @@ import type { SoloDifficulty } from '../../../packages/engine/setup'
 import type { Season } from '../../../packages/engine/cards/types'
 import type { Action } from '../../../packages/engine/actions'
 import { advanceThroughPassthroughPhases, applyAction, buildNewGameState, hasAnyLegalMarketAction } from '../../../packages/engine/actions'
+import type { FameSummaryEntry } from './logSummary'
 
 const STORAGE_KEY = 'fliptoons-solo-save-v1'
 
@@ -13,7 +14,13 @@ const MAX_LOG_LINES = 2000
 
 // playerId carries through from EngineLogLine for type parity with
 // multiplayer's LogLine — solo has one seat, so ResolveLog never prefixes it.
-export type LogEntry = { round: number; text: string; playerId?: PlayerId | null; roundFame?: { playerId: PlayerId; fame: number }[]; roundSummary?: string }
+export type LogEntry = {
+  round: number
+  text: string
+  playerId?: PlayerId | null
+  roundFame?: { playerId: PlayerId; fame: number }[]
+  roundSummary?: FameSummaryEntry[]
+}
 
 type SavedGame = { state: GameState; log: LogEntry[]; debugLog: LogEntry[] }
 

@@ -524,7 +524,11 @@ export function createSoloGameState(params: {
 // a single player's game impossible to reproduce in isolation and leaks turn
 // position into the shuffle. Each seat derives its own stream from the match
 // seed and its index instead.
-export function makeMatch(first: GameState, others: { playerId: PlayerId; startingDeck: CardId[]; seed: number }[] = []): Match {
+export function makeMatch(
+  first: GameState,
+  others: { playerId: PlayerId; startingDeck: CardId[]; seed: number }[] = [],
+  firstPlayerIndex = 0,
+): Match {
   const { viewEpoch: _ignored, ...view } = first
   const shared: SharedState = {
     phase: view.phase,
@@ -584,5 +588,5 @@ export function makeMatch(first: GameState, others: { playerId: PlayerId; starti
   ]
 
   const turnOrder = players.map((p) => p.playerId)
-  return { shared, players, turnOrder, firstPlayerIndex: 0, activePlayerIndex: 0 }
+  return { shared, players, turnOrder, firstPlayerIndex, activePlayerIndex: firstPlayerIndex }
 }

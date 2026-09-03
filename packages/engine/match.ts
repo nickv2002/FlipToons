@@ -60,7 +60,7 @@ export function buildNewMatch(
   seed: number,
   playerCount: number,
   season: Season = 1,
-  options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null } = {},
+  options: { fameToTriggerEndgame?: number; bigButton?: ResetEffect | null; firstPlayerIndex?: number } = {},
 ): Match {
   const setup = buildMultiplayerSetup(seed, playerCount, season, { bigButton: options.bigButton })
   const first = createSoloGameState({
@@ -82,6 +82,7 @@ export function buildNewMatch(
       startingDeck: deck,
       seed: setup.playerSeeds[i + 1],
     })),
+    options.firstPlayerIndex ?? setup.firstPlayerIndex,
   )
 }
 

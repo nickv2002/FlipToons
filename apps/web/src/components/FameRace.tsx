@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { FamePill } from './FamePill'
 
 // The fame race: every seat's fame THIS ROUND against the endgame threshold.
 //
@@ -65,10 +66,14 @@ function Meter({ row, threshold, variant }: { row: FameRow; threshold: number; v
         {row.settled.bonus > 0 ? (
           <>
             {row.settled.grid} <span className="fame-race__modifier">+{row.settled.bonus}</span> ={' '}
-            <strong>{row.settled.total}</strong>
+            <strong>
+              <FamePill value={row.settled.total} />
+            </strong>
           </>
         ) : (
-          <strong>{row.settled.total}</strong>
+          <strong>
+            <FamePill value={row.settled.total} />
+          </strong>
         )}
       </span>
     )
@@ -79,7 +84,9 @@ function Meter({ row, threshold, variant }: { row: FameRow; threshold: number; v
         <span className="fame-race__bar-fill" style={{ width: `${Math.min(100, (row.value / threshold) * 100)}%` }} />
       </span>
       <span className="fame-race__value" data-testid={`fame-${row.playerId}`}>
-        <strong>{row.value}</strong>
+        <strong>
+          <FamePill value={row.value} />
+        </strong>
         {variant === 'solo' ? ` / ${threshold} to win` : ` / ${threshold}`}
       </span>
     </>

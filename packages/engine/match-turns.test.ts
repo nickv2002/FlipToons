@@ -147,7 +147,7 @@ describe('Check Fame', () => {
 
 describe('Market turn order', () => {
   test('starts with the first player and rejects everyone else', () => {
-    const match = toMarket(buildNewMatch(3, 3))
+    const match = toMarket(buildNewMatch(3, 3, 1, { firstPlayerIndex: 0 }))
 
     expect(match.shared.phase).toBe('market')
     expect(activePlayerId(match)).toBe('p0')
@@ -156,7 +156,7 @@ describe('Market turn order', () => {
   })
 
   test('passes clockwise as each seat ends its turn', () => {
-    let match = toMarket(buildNewMatch(3, 3))
+    let match = toMarket(buildNewMatch(3, 3, 1, { firstPlayerIndex: 0 }))
     expect(activePlayerId(match)).toBe('p0')
 
     match = endMarketTurn(match, 'p0')
@@ -179,7 +179,7 @@ describe('Market turn order', () => {
   })
 
   test('a seat cannot take a third action', () => {
-    let match = toMarket(buildNewMatch(3, 3))
+    let match = toMarket(buildNewMatch(3, 3, 1, { firstPlayerIndex: 0 }))
     // Give p0 enough fame to afford three hires outright.
     match = { ...match, players: match.players.map((p, i) => (i === 0 ? { ...p, fame: 500 } : p)) }
 
@@ -194,7 +194,7 @@ describe('Market turn order', () => {
   })
 
   test('one seat’s hire is paid from that seat’s own fame', () => {
-    let match = toMarket(buildNewMatch(3, 3))
+    let match = toMarket(buildNewMatch(3, 3, 1, { firstPlayerIndex: 0 }))
     match = { ...match, players: match.players.map((p) => ({ ...p, fame: 100 })) }
 
     const slotIndex = match.shared.market.slots.findIndex((id) => id !== null)
@@ -207,7 +207,7 @@ describe('Market turn order', () => {
   })
 
   test('a hired card leaves the shared market for everyone', () => {
-    let match = toMarket(buildNewMatch(3, 3))
+    let match = toMarket(buildNewMatch(3, 3, 1, { firstPlayerIndex: 0 }))
     match = { ...match, players: match.players.map((p) => ({ ...p, fame: 100 })) }
 
     const slotIndex = match.shared.market.slots.findIndex((id) => id !== null)
@@ -303,7 +303,7 @@ describe('postFameHooks — Skunk/Firefly at N players', () => {
 
 describe('Cleanup', () => {
   function atCleanup(seed = 3, players = 3): Match {
-    return allSeatsPass(toMarket(buildNewMatch(seed, players)))
+    return allSeatsPass(toMarket(buildNewMatch(seed, players, 1, { firstPlayerIndex: 0 })))
   }
 
   test('collects every seat’s grid back into its own deck and resets fame', () => {

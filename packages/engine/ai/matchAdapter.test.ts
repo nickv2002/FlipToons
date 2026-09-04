@@ -9,7 +9,7 @@ import { buildNewMatch, playerIndex } from '../match'
 import type { Match } from '../state'
 import { playAutomatically } from './core'
 import { advanceToBotDecision, buildMatchAdapter, matchReward } from './matchAdapter'
-import { chooseBestMatchAction, evaluateMatchCandidates } from './index'
+import { chooseBestMatchAction, evaluateMatchCandidates, prepareMatchDecision } from './index'
 
 const FAST_OPTS = { simulations: 5, maxStepsPerPlayout: 15, rng: makeRng(1) }
 
@@ -78,6 +78,17 @@ describe('chooseBestMatchAction', () => {
     const otherSeat = match.turnOrder.find((id) => id !== match.turnOrder[match.activePlayerIndex])!
     if (match.shared.phase !== 'market') return // nothing to assert this seed
     expect(() => evaluateMatchCandidates(match, otherSeat, FAST_OPTS)).toThrow(/no legal decision/)
+  })
+})
+
+describe('prepareMatchDecision', () => {
+  test('returns the same candidate set evaluateMatchCandidates scores, for a live market-phase match', () => {
+    const match = newMatch(9)
+    const scored = evaluateMatchCandidates(match, 'p0', { difficulty: 'easy', ...FAST_OPTS })
+    const { candidates } = prepareMatchDecision(match, 'p0')
+    const scoredKeys = new Set(scored.map((s) => JSON.stringify(s.action)))
+    expect(new Set(candidates.map((a) => JSON.stringify(a)))).toEqual(scoredKeys)
+    expect(candidates.length).toBe(scored.length)
   })
 })
 

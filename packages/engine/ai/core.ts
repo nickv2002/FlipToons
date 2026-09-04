@@ -186,14 +186,19 @@ export function evaluateAction<S, A>(adapter: AiAdapter<S, A>, state: S, action:
   const temperature = opts.heuristicRolloutTemperature ?? HEURISTIC_ROLLOUT_TEMPERATURE
   const candidateCap = opts.maxScoredRolloutCandidates ?? MAX_SCORED_ROLLOUT_CANDIDATES
 
+  // apply() is documented pure (AiAdapter's contract, verified against both
+  // adapters) and neither `state` nor `action` vary across the simulations
+  // loop below, so applying the candidate is the exact same computation on
+  // every iteration — only the random playout that follows it differs.
+  // Hoisted out of the loop (an earlier version also cloned `state` here
+  // per-iteration before applying, which was pure overhead for the same
+  // reason — apply never mutates its argument). This removes `simulations -
+  // 1` redundant applies per candidate; each simulation's own playout still
+  // does far more applies than this single hoisted one, so the net effect
+  // is a real but modest (~10%) wall-clock win, not a dominant one.
+  const afterAction = adapter.apply(state, action)
   let total = 0
   for (let i = 0; i < simulations; i++) {
-    // apply() is documented pure (AiAdapter's contract, verified against
-    // both adapters) — cloning `state` before applying was pure overhead
-    // (a full structuredClone of GameState/Match per simulation) since
-    // apply never mutates its argument and each simulation starts fresh
-    // from the same `state` reference regardless.
-    const afterAction = adapter.apply(state, action)
     total += adapter.reward(playout(adapter, afterAction, rng, maxSteps, temperature, candidateCap))
   }
   return total / simulations

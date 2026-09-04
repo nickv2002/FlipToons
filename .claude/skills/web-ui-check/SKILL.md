@@ -14,25 +14,36 @@ Playwright itself isn't a project dependency — the harness bootstraps it into 
 Write a short script (scratchpad dir, not the repo) that imports `withGame` from the harness and does only the check-specific part:
 
 ```js
-import { withGame } from '/Users/nick/Documents/nick-scripts/boardgame-testing/.claude/skills/web-ui-check/harness.mjs'
+import { withGame } from "/Users/nick/Documents/nick-scripts/boardgame-testing/.claude/skills/web-ui-check/harness.mjs";
 
-await withGame({ seed: 1, difficulty: 'normal', season: 1, rounds: 2 }, async ({ page, consoleErrors, pageErrors }) => {
-  // exercise whatever the change actually is
-  const copyButton = page.getByRole('button', { name: /Copy full detail log/i })
-  await copyButton.click()
-  await page.getByRole('button', { name: /Copied!/i }).first().waitFor({ state: 'visible', timeout: 2000 })
+await withGame(
+  { seed: 1, difficulty: "normal", season: 1, rounds: 2 },
+  async ({ page, consoleErrors, pageErrors }) => {
+    // exercise whatever the change actually is
+    const copyButton = page.getByRole("button", {
+      name: /Copy full detail log/i,
+    });
+    await copyButton.click();
+    await page
+      .getByRole("button", { name: /Copied!/i })
+      .first()
+      .waitFor({ state: "visible", timeout: 2000 });
 
-  // clipboard reads are pre-granted permission by the harness
-  const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
-  if (clipboardText.length === 0) throw new Error('clipboard was empty')
-  if (consoleErrors.length > 0) throw new Error(`console errors: ${consoleErrors.join('; ')}`)
-  console.log('OK')
-})
+    // clipboard reads are pre-granted permission by the harness
+    const clipboardText = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    if (clipboardText.length === 0) throw new Error("clipboard was empty");
+    if (consoleErrors.length > 0)
+      throw new Error(`console errors: ${consoleErrors.join("; ")}`);
+    console.log("OK");
+  },
+);
 ```
 
 Then run it: `bun run <path-to-script>.mjs`. `withGame` boots the dev server, opens the New Game form, starts a solo game with the given seed/difficulty/season, clicks "End Market phase" `rounds` times to fast-forward past every hire/dismiss decision, hands you a ready `page`, and — in a `finally`, even if your callback throws — closes the browser and kills the dev server (confirmed: killing just the `bun run dev` wrapper leaves its `vite` child running on the port, so the harness spawns it `detached` and kills the whole process group by negative PID; don't reimplement teardown by hand, use the harness).
 
-If the check needs to exercise Market-phase UI itself (a specific hire/dismiss button, not just post-round state), don't use `advanceRounds` for that round — click the actual buttons in your callback instead; `rounds` is only for skipping past *uninteresting* rounds to get to the state you actually want to check.
+If the check needs to exercise Market-phase UI itself (a specific hire/dismiss button, not just post-round state), don't use `advanceRounds` for that round — click the actual buttons in your callback instead; `rounds` is only for skipping past _uninteresting_ rounds to get to the state you actually want to check.
 
 `harness.mjs` also exports the individual pieces (`ensurePlaywright`, `startDevServer`, `stopDevServer`, `startSoloGame`, `advanceRounds`) if a check needs more control than `withGame` gives — e.g. multiple separate pages/contexts, or starting a game without immediately advancing rounds.
 

@@ -7,6 +7,7 @@ import {
   playToEnd,
   settleToMarket,
   activePlayerIsMe,
+  tryClick,
 } from './helpers'
 
 // A real two-seat game, driven through the browser from both sides.
@@ -201,6 +202,48 @@ test.describe('a two-player game, played from both sides', () => {
     // number twice for the same player on both screens AND identical boards.
     await expect(host.page.getByTestId('final-p0')).toBeVisible()
     await expect(host.page.getByTestId('final-p1')).toBeVisible()
+
+    await host.page.context().close()
+    await guest.page.context().close()
+  })
+
+  test('the log drawer offers a per-round "Copy detail" button in multiplayer', async ({ browser }) => {
+    // Every flip pushes at least one debug line (see flip.ts's
+    // determineTarget), but the server only ever SENDS debug lines as an
+    // incremental `debugLines` delta on a later action — the initial
+    // `handleStart` broadcast carries none — so this needs at least one
+    // action (any legal end-turn) to actually put a debug line on the wire.
+    const host = await openPlayer(browser, 'Ana')
+    const roomCode = await hostRoom(host, { seed: '11' })
+    const guest = await openPlayer(browser, 'Bo')
+    await joinRoom(guest, roomCode)
+    await host.page.getByTestId('start-game').click()
+    await expect(host.page.getByTestId('match')).toBeVisible()
+
+    await settleToMarket([host, guest])
+    // Whichever seat actually has the enabled `end-turn` button — same
+    // active-seat-probing pattern playToEnd itself uses in helpers.ts,
+    // rather than trusting a single activePlayerIsMe read that can go stale
+    // between checking and clicking.
+    let acted = false
+    for (let i = 0; i < 20 && !acted; i++) {
+      for (const { page } of [host, guest]) {
+        if (await tryClick(page, 'end-turn')) {
+          acted = true
+          break
+        }
+      }
+      if (!acted) await host.page.waitForTimeout(150)
+    }
+    expect(acted).toBe(true)
+
+    await host.page.getByTestId('open-log').click()
+    await expect(host.page.getByTestId('log-drawer')).toBeVisible()
+    // The per-round button, not just the drawer-wide "Copy full detail log"
+    // — this is what a `debugLog` stamped `round: 0` for every line (rather
+    // than the real round the server produced it in) hides, since it groups
+    // by round number and round 0 never matches a real round.
+    await expect(host.page.getByRole('button', { name: 'Copy detail' })).toBeVisible()
 
     await host.page.context().close()
     await guest.page.context().close()

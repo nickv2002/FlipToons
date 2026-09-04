@@ -19,6 +19,14 @@ import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Season } from '../../packages/engine/cards/types'
 import type { MatchDifficulty } from '../../packages/engine/ai'
 
+// The engine's flip cascade produces plain strings (packages/engine/*'s
+// debugLines?: string[] params) with no round attached — matchActions.ts's
+// debugLines only ever come from a single runFlip call at a time, so the
+// worker tags each batch with the round the match landed on right after that
+// batch was produced (mirrors apps/web/src/useGame.ts's next.round tagging
+// for solo), rather than threading round-awareness into the engine itself.
+export type DebugLogLine = { round: number; text: string }
+
 // §6's room-code alphabet: unambiguous characters only (no 0/O, 1/I/l).
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const ROOM_CODE_LENGTH = 5
@@ -153,7 +161,7 @@ export type ServerMessage =
   // future reshuffle for every seat, for the rest of the match. Considered and
   // accepted — this is a casual game among friends, and per-seat filtering
   // would buy nothing anyone here needs. Not a finding; don't re-raise it.
-  | { type: 'state'; match: Match; logLines: LogLine[]; debugLines: string[]; log?: LogLine[] }
+  | { type: 'state'; match: Match; logLines: LogLine[]; debugLines: DebugLogLine[]; log?: LogLine[]; debugLog?: DebugLogLine[] }
   // Something the player did wrong (acting out of turn, joining a full room).
   // Distinct from 'serverError' so the client can show one quietly and shout
   // about the other.

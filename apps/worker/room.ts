@@ -31,7 +31,7 @@ import type { LogLine, MatchAction } from '../../packages/engine/matchActions'
 import type { Match } from '../../packages/engine/state'
 import { log } from './log'
 import { MAX_SEATS, sanitizePlayerName } from './protocol'
-import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, SeatInfo, ServerMessage } from './protocol'
+import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, DebugLogLine, LobbyState, SeatInfo, ServerMessage } from './protocol'
 import type { Season } from '../../packages/engine/cards/types'
 import type { MatchDifficulty } from '../../packages/engine/ai'
 import { formatNewGameLogLine } from '../../packages/engine/setup'
@@ -79,7 +79,7 @@ export type Room = {
   seed: number
   fameToTriggerEndgame: number
   log: LogLine[]
-  debugLog: string[]
+  debugLog: DebugLogLine[]
   lastActivity: number
   // Set only while the table is waiting on a seat nobody is sitting in — see
   // armTurnTimeout. Persisted (unlike the old `setTimeout` handle) so the
@@ -501,7 +501,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.send(ws, { type: 'seated', roomCode: room.code, playerId: seat.playerId, reconnectToken: seat.reconnectToken, lobby: lobbyOf(room) })
     // A player rejoining a match in progress needs the board, not just the
     // lobby.
-    if (room.started) this.send(ws, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    if (room.started) this.send(ws, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log, debugLog: room.debugLog })
     // Everyone else sees the seat list change — that's how a table notices
     // someone dropped or came back.
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
@@ -538,14 +538,20 @@ export class RoomDurableObject extends DurableObject<Env> {
       // summary.
       const order = [...dealt.turnOrder.slice(dealt.firstPlayerIndex), ...dealt.turnOrder.slice(0, dealt.firstPlayerIndex)]
       const orderNames = order.map((pid) => room.seats.find((s) => s.playerId === pid)?.name ?? pid)
-      room.log.push({ playerId: null, round: dealt.shared.round, text: formatNewGameLogLine(room.seed, room.season, room.bigButton) })
-      room.log.push({ playerId: null, round: dealt.shared.round, text: `Randomized starting player — turn order: ${orderNames.join(', then ')}.` })
       // Nothing is committed to `room` until the advance has finished — same
       // discipline as handleAction — so an engine bug thrown mid-cascade
       // leaves memory and storage agreeing the room never started, rather
       // than memory saying started while storage (and a re-woken instance)
-      // still says not.
-      dealt = advanceSharedPhases(dealt, room.log, room.debugLog)
+      // still says not. That includes the log: these two lines and anything
+      // advanceSharedPhases appends go into a local copy, not room.log
+      // itself, until we know the advance succeeded.
+      const nextLog = [...room.log]
+      const rawDebug: string[] = []
+      nextLog.push({ playerId: null, round: dealt.shared.round, text: formatNewGameLogLine(room.seed, room.season, room.bigButton) })
+      nextLog.push({ playerId: null, round: dealt.shared.round, text: `Randomized starting player — turn order: ${orderNames.join(', then ')}.` })
+      dealt = advanceSharedPhases(dealt, nextLog, rawDebug)
+      room.log = nextLog
+      room.debugLog = [...room.debugLog, ...rawDebug.map((text) => ({ round: dealt.shared.round, text }))]
     } catch (err) {
       log('error', room.code, 'could not start the game', err)
       this.send(ws, { type: 'serverError', message: 'Server error starting the game.' })
@@ -558,7 +564,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     await this.persist()
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
-    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log, debugLog: room.debugLog })
     await this.armTurnTimeout(room)
   }
 
@@ -579,12 +585,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     let dealt: Match
     const seed = Math.floor(Math.random() * 2 ** 31)
     const freshLog: LogLine[] = [{ playerId: null, round: 1, text: formatNewGameLogLine(seed, room.season, room.bigButton) }]
-    const freshDebugLog: string[] = []
+    const rawDebug: string[] = []
     try {
       dealt = advanceSharedPhases(
         buildNewMatch(seed, room.seats.length, room.season, { fameToTriggerEndgame: room.fameToTriggerEndgame, bigButton: room.bigButton }),
         freshLog,
-        freshDebugLog,
+        rawDebug,
       )
     } catch (err) {
       log('error', room.code, 'could not start the rematch', err)
@@ -594,13 +600,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     room.seed = seed
     room.match = dealt
     room.log = freshLog
-    room.debugLog = freshDebugLog
+    room.debugLog = rawDebug.map((text) => ({ round: dealt.shared.round, text }))
     this.touch()
     log('info', room.code, `rematch dealt with ${room.seats.length} seat(s), new seed ${seed}`)
 
     await this.persist()
     this.broadcast(room, { type: 'lobby', lobby: lobbyOf(room) })
-    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log })
+    this.broadcast(room, { type: 'state', match: room.match, logLines: [], debugLines: [], log: room.log, debugLog: room.debugLog })
     await this.armTurnTimeout(room)
   }
 
@@ -708,12 +714,13 @@ export class RoomDurableObject extends DurableObject<Env> {
       const advanced = advanceSharedPhases(match, logLines, debugLines)
       room.match = advanced
       room.log.push(...logLines)
-      room.debugLog.push(...debugLines)
+      const taggedDebug = debugLines.map((text) => ({ round: advanced.shared.round, text }))
+      room.debugLog.push(...taggedDebug)
       if (room.log.length > MAX_LOG_LINES) room.log.splice(0, room.log.length - MAX_LOG_LINES)
       if (room.debugLog.length > MAX_LOG_LINES) room.debugLog.splice(0, room.debugLog.length - MAX_LOG_LINES)
       this.touch()
       await this.persist()
-      this.broadcast(room, { type: 'state', match: room.match, logLines, debugLines })
+      this.broadcast(room, { type: 'state', match: room.match, logLines, debugLines: taggedDebug })
       await this.armTurnTimeout(room)
     } catch (err) {
       if (err instanceof IllegalActionError) {
@@ -801,7 +808,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     const logLines: LogLine[] = []
-    const debugLines: string[] = []
+    const debugLines: DebugLogLine[] = []
     let stalled = false
     for (let step = 0; step < 8; step++) {
       const player = room.match.players.find((p) => p.playerId === seat.playerId)
@@ -834,9 +841,10 @@ export class RoomDurableObject extends DurableObject<Env> {
         const advanced = advanceSharedPhases(match, applied, appliedDebug)
         room.match = advanced
         room.log.push(...applied)
-        room.debugLog.push(...appliedDebug)
+        const taggedAppliedDebug = appliedDebug.map((text) => ({ round: advanced.shared.round, text }))
+        room.debugLog.push(...taggedAppliedDebug)
         logLines.push(...applied)
-        debugLines.push(...appliedDebug)
+        debugLines.push(...taggedAppliedDebug)
       } catch (err) {
         if (err instanceof IllegalActionError) {
           log('warn', room.code, `could not skip ${seat.playerId}'s turn — ${err.message}`)

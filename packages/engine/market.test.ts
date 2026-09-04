@@ -156,4 +156,33 @@ describe('soloMarketDecay', () => {
     expect(decayed.toonDeckEmpty).toBe(true)
     expect(decayed.short).toBe(true)
   })
+
+  // Real price tables (pricesForPlayerCount, setup.ts) never produce a
+  // market narrower than 5, so these boundary widths are hand-built here
+  // rather than reachable through a real game. They document current
+  // behavior, not a requirement — see room.ts/market.ts's own callers.
+  describe('boundary widths (not reachable via real price tables today)', () => {
+    test('width 1: leftmost and rightmost are the same slot — `discarded` reports that one card TWICE', () => {
+      const market = emptyMarket([5])
+      const filled = refillMarket(market, ['r1'], cardsById, 0)
+      expect(filled.market.slots).toEqual(['r1'])
+
+      const decayed = soloMarketDecay(filled.market, ['r2'], cardsById, filled.nextInsertionSeq)
+      // Both reads (`slots[0]` and `slots[lastIdx]`) see the same
+      // still-populated slot before either write clears it, so the single
+      // card discarded this way is double-counted in the result.
+      expect(decayed.discarded).toEqual(['r1', 'r1'])
+      expect(decayed.market.slots).toEqual(['r2'])
+    })
+
+    test('width 2: leftmost and rightmost are distinct slots — `discarded` reports each once', () => {
+      const market = emptyMarket([5, 8])
+      const filled = refillMarket(market, ['r1', 'r2'], cardsById, 0)
+      expect(filled.market.slots).toEqual(['r1', 'r2'])
+
+      const decayed = soloMarketDecay(filled.market, ['r3a', 'r5'], cardsById, filled.nextInsertionSeq)
+      expect(decayed.discarded.sort()).toEqual(['r1', 'r2'])
+      expect(decayed.market.slots.filter((s) => s !== null)).toHaveLength(2)
+    })
+  })
 })

@@ -145,18 +145,24 @@ function rolloutStep<S, A>(adapter: AiAdapter<S, A>, state: S, rng: Rng, tempera
     // its `state` argument, so scoring a candidate's resulting state needs
     // no adapter.clone() here (an earlier version of this cloned per
     // candidate per rollout step and made soloAdapter's structuredClone the
-    // dominant cost).
+    // dominant cost). The resulting states are kept alongside their scores
+    // (rather than re-applying the winning candidate a second time to
+    // return it, as an earlier version did) — apply() being pure means a
+    // second call would return an equal result anyway, so re-running it was
+    // pure waste, up to +33% extra applies per rollout step at the default
+    // candidateCap of 3.
     const pool = sampleIndices(candidates.length, candidateCap, rng)
-    const scores = pool.map((i) => heuristicScore(adapter.apply(state, candidates[i]!)))
+    const results = pool.map((i) => adapter.apply(state, candidates[i]!))
+    const scores = results.map((r) => heuristicScore(r))
     const max = Math.max(...scores)
     const weights = scores.map((s) => Math.exp((s - max) / temperature))
     const total = weights.reduce((sum, w) => sum + w, 0)
     let pick = rng() * total
     for (let i = 0; i < weights.length; i++) {
       pick -= weights[i]!
-      if (pick <= 0) return adapter.apply(state, candidates[pool[i]!]!)
+      if (pick <= 0) return results[i]!
     }
-    return adapter.apply(state, candidates[pool[pool.length - 1]!]!)
+    return results[results.length - 1]!
   }
 
   const action = candidates[Math.floor(rng() * candidates.length)]!
@@ -182,7 +188,12 @@ export function evaluateAction<S, A>(adapter: AiAdapter<S, A>, state: S, action:
 
   let total = 0
   for (let i = 0; i < simulations; i++) {
-    const afterAction = adapter.apply(adapter.clone(state), action)
+    // apply() is documented pure (AiAdapter's contract, verified against
+    // both adapters) — cloning `state` before applying was pure overhead
+    // (a full structuredClone of GameState/Match per simulation) since
+    // apply never mutates its argument and each simulation starts fresh
+    // from the same `state` reference regardless.
+    const afterAction = adapter.apply(state, action)
     total += adapter.reward(playout(adapter, afterAction, rng, maxSteps, temperature, candidateCap))
   }
   return total / simulations

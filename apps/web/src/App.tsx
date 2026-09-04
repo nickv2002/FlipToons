@@ -185,7 +185,7 @@ export function App() {
                       text: l.playerId ? `${match.lobby!.seats.find((s) => s.playerId === l.playerId)?.name ?? l.playerId}: ${l.text}` : l.text,
                       roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, fameLabels) : undefined,
                     }))}
-                    debugLog={match.debugLog.map((text) => ({ round: 0, text }))}
+                    debugLog={match.debugLog}
                     currentRoundSummary={fameSummaryEntries(currentRoundFame, fameLabels)}
                     onClose={() => setLogOpen(false)}
                   />

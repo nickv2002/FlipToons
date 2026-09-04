@@ -66,6 +66,49 @@ test.describe('solo still works through the web UI', () => {
     await expect(page.getByRole('button', { name: 'End Market phase' })).toBeVisible()
   })
 
+  test('a solo game resumes correctly after a reload while an effect-choice prompt (e.g. Butterfly/Horse) is open', async ({ page }) => {
+    // useGame.ts's loadSaved comment: phases like checkFame/postFameHooks/
+    // cleanup needed special-casing to fast-forward a save stuck there,
+    // since those are internal, non-resumable phases. This is the concrete
+    // scenario that needed it — reload while `pending` (an open effect
+    // choice, e.g. from hiring Butterfly or Horse) is set, rather than at a
+    // plain Market phase.
+    //
+    // Butterfly and Horse are market (not starting-deck) cards, so the
+    // prompt only opens once one is actually HIRED — bounded loop over
+    // several rounds, hiring whatever's affordable, rather than a fixed
+    // seed pinning down a specific draw.
+    await startSolo(page, 1)
+    await expect(page.getByRole('button', { name: 'End Market phase' })).toBeVisible()
+
+    let sawPrompt = false
+    for (let round = 0; round < 10 && !sawPrompt; round++) {
+      for (let slot = 0; slot < 5; slot++) {
+        const target = page.getByTestId(`market-slot-${slot}`)
+        if (await target.isEnabled().catch(() => false)) {
+          await target.click()
+          await page.waitForTimeout(150)
+          if (await page.getByTestId('effect-choice').isVisible().catch(() => false)) {
+            sawPrompt = true
+            break
+          }
+        }
+      }
+      if (sawPrompt) break
+      await page.getByRole('button', { name: 'End Market phase' }).click()
+      await page.waitForTimeout(150)
+    }
+    expect(sawPrompt).toBe(true)
+    await expect(page.getByTestId('effect-choice')).toBeVisible()
+
+    await page.reload()
+
+    // The save/resume path must land somewhere sane: either the same open
+    // prompt (fast-forwarded straight back to it) or, at worst, a live
+    // Market phase — never a blank/crashed screen.
+    await expect(page.getByTestId('effect-choice').or(page.getByRole('button', { name: 'End Market phase' }))).toBeVisible()
+  })
+
   test('the menu offers multiplayer without a stored seat hijacking solo', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByTestId('mode-host')).toBeVisible()

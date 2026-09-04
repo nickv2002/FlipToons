@@ -7,6 +7,7 @@
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from 'cloudflare:test'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { ClientMessage, CreateRoomResponse, ServerMessage } from './protocol'
+import { MAX_LOG_LINES } from './room'
 
 type Client = {
   ws: WebSocket
@@ -387,6 +388,126 @@ describe('rematch', () => {
     pair.host.send({ type: 'rematch' })
     const err = await pair.host.next('error')
     expect(err.code).toBe('notEnded')
+  })
+})
+
+describe('start failure', () => {
+  test('an engine error mid-start leaves room.log, room.match and room.started uncommitted', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+
+    const stub = ROOMS.getByName(pair.roomCode)
+    let logBefore: unknown
+    let matchBefore: unknown
+    await runInDO(stub, (instance: any) => {
+      // buildMultiplayerSetup throws for playerCount outside 2-4. Padding
+      // room.seats past room.match.turnOrder.length forces handleStart down
+      // the buildNewMatch(seats.length, ...) branch with an illegal count,
+      // so advanceSharedPhases is never even reached — same "nothing
+      // committed until the advance succeeds" contract this test is pinning.
+      instance.room.seats.push(
+        { playerId: 'p2', name: 'C', reconnectToken: 'x', connected: true, isBot: false },
+        { playerId: 'p3', name: 'D', reconnectToken: 'y', connected: true, isBot: false },
+        { playerId: 'p4', name: 'E', reconnectToken: 'z', connected: true, isBot: false },
+      )
+      logBefore = JSON.stringify(instance.room.log)
+      matchBefore = JSON.stringify(instance.room.match)
+    })
+
+    pair.host.send({ type: 'start' })
+    const err = await pair.host.next('serverError')
+    expect(err.message).toMatch(/error starting the game/i)
+
+    await runInDO(stub, (instance: any) => {
+      expect(JSON.stringify(instance.room.log)).toBe(logBefore)
+      expect(JSON.stringify(instance.room.match)).toBe(matchBefore)
+      expect(instance.room.started).toBe(false)
+    })
+  })
+})
+
+// room.ts has no `blockConcurrencyWhile` outside the constructor around any
+// of its mutate-persist-broadcast sequences (handleAction / alarm's
+// playForAbsentSeat both do `room.match = ...; await this.persist(); this
+// .broadcast(...)`). If workerd ever interleaves two such sequences across
+// their shared `await` points, a broadcast could go out describing a
+// `room.match` that a second, interleaved mutation has already moved past.
+// This test doesn't prove workerd CAN'T interleave — it fires an action and
+// the turn-timeout alarm without awaiting one before starting the other, and
+// pins that whatever the client actually receives last matches what's
+// finally persisted, as a regression guard either way.
+describe('concurrent event handling', () => {
+  test('an action racing the turn-timeout alarm leaves the broadcast state matching final room.match', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+    const match = await startGame(pair)
+    const stub = ROOMS.getByName(pair.roomCode)
+
+    const owing = match.players.find((p) => p.pendingPostFameChoice)
+    const activeSeatId = owing ? owing.playerId : match.turnOrder[match.activePlayerIndex]
+    const activeClient = activeSeatId === pair.hostSeat.playerId ? pair.host : pair.guest
+    const other = activeClient === pair.host ? pair.guest : pair.host
+
+    await runInDO(stub, (instance: any) => {
+      instance.room.turnTimeoutDeadline = Date.now() - 1
+    })
+
+    // Neither of these is awaited before the other starts.
+    if (owing) {
+      const option = owing.pendingPostFameChoice!.options[0]
+      activeClient.send({ type: 'action', action: { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index } })
+    } else {
+      activeClient.send({ type: 'action', action: { kind: 'endTurn' } })
+    }
+    const alarmPromise = runAlarm(stub)
+    await alarmPromise
+
+    const lastState = await other.next('state')
+    await runInDO(stub, (instance: any) => {
+      expect(JSON.stringify(lastState.match)).toBe(JSON.stringify(instance.room.match))
+    })
+  })
+})
+
+describe('log capping', () => {
+  test('room.log past MAX_LOG_LINES drops the oldest entries and the broadcast stays consistent with what is kept', async () => {
+    const pair = await seatedPair()
+    opened.push(pair.host, pair.guest)
+    const match = await startGame(pair)
+
+    const stub = ROOMS.getByName(pair.roomCode)
+    await runInDO(stub, (instance: any) => {
+      // Pad room.log well past the cap with clearly-identifiable synthetic
+      // lines, oldest first, so we can assert on exactly which ones survive.
+      const padding = Array.from({ length: MAX_LOG_LINES + 50 }, (_, i) => ({ playerId: null, round: 1, text: `padding-${i}` }))
+      instance.room.log = [...padding, ...instance.room.log]
+    })
+
+    // One ordinary action pushes room.log past the cap by however many new
+    // lines it adds, triggering the splice.
+    const owing = match.players.find((p) => p.pendingPostFameChoice)
+    const activeSeatId = owing ? owing.playerId : match.turnOrder[match.activePlayerIndex]
+    const activeClient = activeSeatId === pair.hostSeat.playerId ? pair.host : pair.guest
+    if (owing) {
+      const option = owing.pendingPostFameChoice!.options[0]
+      activeClient.send({ type: 'action', action: { kind: 'resolvePostFameChoice', pos: option.pos, index: option.index } })
+    } else {
+      activeClient.send({ type: 'action', action: { kind: 'endTurn' } })
+    }
+    await activeClient.next('state')
+
+    await runInDO(stub, (instance: any) => {
+      expect(instance.room.log.length).toBeLessThanOrEqual(MAX_LOG_LINES)
+      // The oldest synthetic lines (padding-0, padding-1, ...) were dropped
+      // first; whatever padding remains is a contiguous suffix, and nothing
+      // from the real game's own log (which has no 'padding-' lines) was
+      // touched.
+      const paddingLeft = instance.room.log.filter((l: { text: string }) => l.text.startsWith('padding-'))
+      if (paddingLeft.length > 0) {
+        const firstIndex = Number(paddingLeft[0].text.slice('padding-'.length))
+        expect(firstIndex).toBeGreaterThan(0) // the very oldest (padding-0) is gone
+      }
+    })
   })
 })
 

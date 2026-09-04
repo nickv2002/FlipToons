@@ -267,6 +267,10 @@ function drainPendingOnHireCards(state: GameState): GameState {
   for (let i = 0; i < ids.length; i++) {
     const cardId = ids[i]
     const card = cards[cardId]
+    // No excludeMarketSlot: every card that reaches this queue arrived via
+    // the toon deck (Snake/Mongoose), never via a market hire, so it can
+    // never itself occupy a market slot to exclude. Pinned by
+    // phases.test.ts's "Snake's deferred Horse onHire" test.
     const pending = computePendingChoice(next, card.onHire, cards)
     if (pending) {
       return { ...next, pendingOnHireCardIds: ids.slice(i + 1), pendingOnHireChoice: { cardId, choice: pending } }
@@ -989,7 +993,10 @@ function applyPostMarketCandidates(state: GameState, candidates: PostMarketCandi
     if (c.hook.kind === 'selfDismissIf') {
       const inLowerRow = c.pos.section === 'base' && c.pos.row === 1
       const firstOrLast = c.pos.section === 'base' && ((c.pos.row === 0 && c.pos.col === 0) || (c.pos.row === 1 && c.pos.col === 2))
-      const fires = c.hook.condition === 'inLowerRow' ? inLowerRow : firstOrLast
+      let fires: boolean
+      if (c.hook.condition === 'inLowerRow') fires = inLowerRow
+      else if (c.hook.condition === 'firstOrLastGridSlot') fires = firstOrLast
+      else throw new Error(`phases.ts: applyPostMarketCandidates — unhandled selfDismissIf condition '${c.hook.condition}'`)
       if (!fires) continue
       if (cards[c.cardId].immune?.includes('dismiss')) continue
       const grid = cloneGrid(next.grid)

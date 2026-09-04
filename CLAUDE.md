@@ -1,56 +1,14 @@
 # FlipToons — digital adaptation
 
-Digital adaptation of the FlipToons board game (Seasons 1 and 2). Rules model
-and architecture were planned up front in `flip-toonz-structure-plan.md`
-(rules/architecture) and `flip-toonz-phase0-plan.md` (build-order for the
-scoring engine). Both are now historical — implementation has passed well
-beyond what they describe. See their status notes at the top before trusting
-specifics; treat git log / current code as ground truth over plan prose.
+Digital adaptation of the FlipToons board game (Seasons 1 and 2). Rules model and architecture were planned up front in `flip-toonz-structure-plan.md` (rules/architecture) and `flip-toonz-phase0-plan.md` (build-order for the scoring engine). Both are now historical — implementation has passed well beyond what they describe. See their status notes at the top before trusting specifics; treat git log / current code as ground truth over plan prose.
 
-**Current state:** playable end-to-end. Web UI (`make play`) works for both
-solo (local, in-browser) and real 2-4 player multiplayer (room codes, seats,
-turn order, Final Flip). (A terminal UI existed earlier in development and was
-retired in favor of the web UI as the sole interface.) Card transcription
-(`cards.csv` → `packages/engine/cards/`) is done for all 62 cards, and as of
-the Big Button mini-expansion pass **nothing is `unencodable` any more** —
-Axolotl and Platypus were the last two, and both were blocked on that
-component rather than on the effect vocabulary.
+**Current state:** playable end-to-end. Web UI (`make play`) works for both solo (local, in-browser) and real 2-4 player multiplayer (room codes, seats, turn order, Final Flip). (A terminal UI existed earlier in development and was retired in favor of the web UI as the sole interface.) Card transcription (`cards.csv` → `packages/engine/cards/`) is done for all 62 cards, and as of the Big Button mini-expansion pass **nothing is `unencodable` any more** — Axolotl and Platypus were the last two, and both were blocked on that component rather than on the effect vocabulary.
 
-**The Big Button mini-expansion is playable — solo and at a table — but OFF
-BY DEFAULT.** You switch it on when starting a game (the solo panel or the
-host panel); `SharedState.resetEffect` is `null` otherwise, and that null is
-load-bearing: with it, the `gridReset` phase is unreachable, both Big Button
-toon cards stay excluded from every deck, no Big Button control or chip
-renders anywhere, and the pre-existing engine/DO/Playwright suites needed no
-edits at all. See the Big Button section below.
+**The Big Button mini-expansion is playable — solo and at a table — but OFF BY DEFAULT.** You switch it on when starting a game (the solo panel or the host panel); `SharedState.resetEffect` is `null` otherwise, and that null is load-bearing: with it, the `gridReset` phase is unreachable, both Big Button toon cards stay excluded from every deck, no Big Button control or chip renders anywhere, and the pre-existing engine/DO/Playwright suites needed no edits at all. See the Big Button section below.
 
-**Multiplayer was built after an audit found it did not exist.** What the
-room-code feature used to be: a hosted *solo* game — one shared `GameState`
-that any number of browsers jointly drove, with no player identity, so two
-people in a room shared one grid and one fame pool. It is now a real seated
-match. Scope is 2-4 players, single season; 5-8 players and combined-season
-play are deliberately out of scope but not designed out.
+**Multiplayer was built after an audit found it did not exist.** What the room-code feature used to be: a hosted _solo_ game — one shared `GameState` that any number of browsers jointly drove, with no player identity, so two people in a room shared one grid and one fame pool. It is now a real seated match. Scope is 2-4 players, single season; 5-8 players and combined-season play are deliberately out of scope but not designed out.
 
-**The multiplayer server moved from a Bun process to Cloudflare Workers +
-Durable Objects**, one DO instance per room, to get real hosting
-(`fliptoons.win`) without running and babysitting a VPS/container.
-This was a genuine rewrite of the transport and state layers, not a
-deploy-target swap: `Bun.serve`'s callback-based WebSocket API became the
-Hibernation API (`ctx.acceptWebSocket`, `webSocketMessage`/`Close`/`Error`,
-`serializeAttachment`), the single in-process `Map<string, Room>` became one
-DO per room addressed by `env.ROOMS.getByName(roomCode)`, and `setTimeout`
-became `ctx.storage.setAlarm` (a DO gets exactly one alarm slot, so the old
-turn-timeout timer and the old cross-room staleness sweep are now one
-scheduled deadline per room — see the Multiplayer invariants below). Room
-state is now persisted to `ctx.storage` on every mutation, which it wasn't
-before: the Bun server was explicitly in-memory-only, but a Durable Object's
-JS heap **will** be evicted between messages while its hibernating
-WebSockets stay open, so anything not in `ctx.storage` is gone on the next
-wake. `packages/engine` and `apps/web` needed no changes — the wire protocol
-(`apps/worker/protocol.ts`) changed in exactly one place: room creation is
-now `POST /api/rooms` rather than a WebSocket message, because a Durable
-Object has to be addressed by room code before its socket can even upgrade,
-and the old protocol didn't have a room code yet at that point.
+**The multiplayer server moved from a Bun process to Cloudflare Workers + Durable Objects**, one DO instance per room, to get real hosting (`fliptoons.win`) without running and babysitting a VPS/container. This was a genuine rewrite of the transport and state layers, not a deploy-target swap: `Bun.serve`'s callback-based WebSocket API became the Hibernation API (`ctx.acceptWebSocket`, `webSocketMessage`/`Close`/`Error`, `serializeAttachment`), the single in-process `Map<string, Room>` became one DO per room addressed by `env.ROOMS.getByName(roomCode)`, and `setTimeout` became `ctx.storage.setAlarm` (a DO gets exactly one alarm slot, so the old turn-timeout timer and the old cross-room staleness sweep are now one scheduled deadline per room — see the Multiplayer invariants below). Room state is now persisted to `ctx.storage` on every mutation, which it wasn't before: the Bun server was explicitly in-memory-only, but a Durable Object's JS heap **will** be evicted between messages while its hibernating WebSockets stay open, so anything not in `ctx.storage` is gone on the next wake. `packages/engine` and `apps/web` needed no changes — the wire protocol (`apps/worker/protocol.ts`) changed in exactly one place: room creation is now `POST /api/rooms` rather than a WebSocket message, because a Durable Object has to be addressed by room code before its socket can even upgrade, and the old protocol didn't have a room code yet at that point.
 
 ## Layout
 
@@ -124,442 +82,70 @@ Toolchain is **bun** — runtime, package manager, test runner — for `packages
 
 ## Engine invariants worth knowing before editing
 
-- **Fame is a pure function of the finished grid.** `scoreGrid` takes only a
-  grid and returns an itemized breakdown (per-slot base + bonuses), never a
-  running total mutated during play. Placement abilities (`onPlace`) only
-  mutate the board — they never grant fame directly.
-- **Board is fixed 3x2 (six slots)**, filled left-to-right / top-then-bottom,
-  plus an optional extra row (Monkey relocation) and stacks (two cards sharing
-  a slot). Six *occupied* slots ends the draw — stacks/extra-row cards extend
-  it because the six base slots aren't yet full, not because new slots exist.
-- **No `discard`.** Zones are deck / grid / dismissed. Cleanup returns the
-  grid to the deck and reshuffles; dismissed cards sit face-up outside the
-  game.
-- **Cost is emergent from market position** (price card above the slot,
-  cards sorted into slots by rank), not a field on the card.
-- **Critic's Choice breaks grid-purity on purpose**: `scoreGrid` stays
-  grid-only; `roundFame = scoreGrid + playerFameModifiers` is a separate seam
-  layered on top for the +3 Final Flip bonus.
-- Card data changes always start in `cards.csv` (verbatim transcription),
-  then get encoded into `packages/engine/cards/season{1,2}.ts`. Run
-  `bun test` after any card-data edit.
+- **Fame is a pure function of the finished grid.** `scoreGrid` takes only a grid and returns an itemized breakdown (per-slot base + bonuses), never a running total mutated during play. Placement abilities (`onPlace`) only mutate the board — they never grant fame directly.
+- **Board is fixed 3x2 (six slots)**, filled left-to-right / top-then-bottom, plus an optional extra row (Monkey relocation) and stacks (two cards sharing a slot). Six _occupied_ slots ends the draw — stacks/extra-row cards extend it because the six base slots aren't yet full, not because new slots exist.
+- **No `discard`.** Zones are deck / grid / dismissed. Cleanup returns the grid to the deck and reshuffles; dismissed cards sit face-up outside the game.
+- **Cost is emergent from market position** (price card above the slot, cards sorted into slots by rank), not a field on the card.
+- **Critic's Choice breaks grid-purity on purpose**: `scoreGrid` stays grid-only; `roundFame = scoreGrid + playerFameModifiers` is a separate seam layered on top for the +3 Final Flip bonus.
+- Card data changes always start in `cards.csv` (verbatim transcription), then get encoded into `packages/engine/cards/season{1,2}.ts`. Run `bun test` after any card-data edit.
 
 ## Multiplayer invariants
 
-- **`PlayerState` + `SharedState`, joined into a transient `PlayerView`.**
-  There is exactly ONE copy of the shared state (`match.shared`); a
-  `PlayerView` is a projection that lives for the duration of one action. The
-  discipline is project (`viewOf`) → mutate → commit (`commitView`) →
-  re-project, enforced at runtime by `viewEpoch`. Never hold two views at
-  once. Because the field partition is clean, a `PlayerView` is structurally
-  identical to the old flat `GameState` — which is why `phases.ts` and
-  `flip.ts` are unchanged and why the web UI renders a seat's board through
-  the same `RoundView` solo uses.
-- **`matchActions.ts` must not import from `actions.ts`.** Three things
-  `actions.ts` does are solo house rules that are wrong at a table:
-  `checkInstantWin` (ends the game the moment fame hits the threshold,
-  overriding the rulebook's "the trigger round still plays its full Market
-  phase"), the `isGuaranteedLoss` family, and the atomic flip cascade.
-- **The Critic's Choice +3 never enters `scoreGrid`.** It composes on top via
-  `roundFame.ts`. `architecture.test.ts` greps `score.ts` to keep it that way.
-  The bonus gates on `shared.endgameTriggered`, NOT `phase === 'finalFlip'` —
-  the flip hands off by setting `phase: 'checkFame'`, so the phase no longer
-  reads `finalFlip` by the time anyone is scored.
+- **`PlayerState` + `SharedState`, joined into a transient `PlayerView`.** There is exactly ONE copy of the shared state (`match.shared`); a `PlayerView` is a projection that lives for the duration of one action. The discipline is project (`viewOf`) → mutate → commit (`commitView`) → re-project, enforced at runtime by `viewEpoch`. Never hold two views at once. Because the field partition is clean, a `PlayerView` is structurally identical to the old flat `GameState` — which is why `phases.ts` and `flip.ts` are unchanged and why the web UI renders a seat's board through the same `RoundView` solo uses.
+- **`matchActions.ts` must not import from `actions.ts`.** Three things `actions.ts` does are solo house rules that are wrong at a table: `checkInstantWin` (ends the game the moment fame hits the threshold, overriding the rulebook's "the trigger round still plays its full Market phase"), the `isGuaranteedLoss` family, and the atomic flip cascade.
+- **The Critic's Choice +3 never enters `scoreGrid`.** It composes on top via `roundFame.ts`. `architecture.test.ts` greps `score.ts` to keep it that way. The bonus gates on `shared.endgameTriggered`, NOT `phase === 'finalFlip'` — the flip hands off by setting `phase: 'checkFame'`, so the phase no longer reads `finalFlip` by the time anyone is scored.
 - **The acting player comes from the socket's attachment.** `ws.serializeAttachment({ seat })`/`deserializeAttachment()` — hibernation drops any plain JS field on the socket object, so this can't be a bare `SocketData`-style struct the way the old Bun server had it. The `action` message still carries no `playerId`; a client-asserted one would let anyone act as anyone.
-- **Adding a field to `PlayerState`?** Add it to `PLAYER_FIELDS` in `state.ts`
-  too. There is a compile-time guard that will name it if you forget —
-  `satisfies` alone does not catch omissions, and a missing key is silently
-  dropped on every commit.
-- **Two halves of the security boundary, now split across two layers.** WHICH
-  ROOM a connection may touch is pinned by Durable Object routing itself: the
-  Worker resolves `?room=` to exactly one DO instance
-  (`env.ROOMS.getByName(roomCode)`) before the socket ever upgrades, so a
-  connection to one room's DO has no way to reach another room's state at
-  all — there is no per-connection room lookup left to get wrong. WHO a
-  connection is remains `join`'s job: it pins the seat onto the socket via
-  `serializeAttachment`, and every later message reads that, never a
-  client-supplied id.
-- **A reclaimed seat closes its previous socket**, rather than leaving it to
-  report a disconnection later on behalf of a player who has already come
-  back. `ctx.getWebSockets()` plus each socket's own attachment (there is no
-  `Seat.socket` field any more — sockets aren't tracked per-seat, they're
-  found by matching attachments) stands in for the same check.
-- **The turn timeout gates on DISCONNECTION, never idleness.** A player who is
-  present and thinking is not on a clock. A skip that moves nothing does not
-  re-arm.
-- **The SERVER runs the Flip, not a player.** `advanceFlip` was never turn- or
-  host-gated — any seat could press it and one press flipped everyone — which
-  made the button a shared control with no owner: first click won, everyone
-  else got "Nothing to reveal right now". `apps/worker/room.ts`'s
-  `advanceSharedPhases` drives it instead, from `handleStart` and from the
-  tail of `handleAction`, so the reveal folds into the same broadcast as
-  whatever caused it. There is
-  no client control for it, and `phase === 'finalFlip'` now exists only inside
-  one server tick — the endgame arrives in the same message as the market
-  action that triggered it. That is why the trigger round's Market phase
-  carries an `endgame-notice`: `runMatchCleanup` hands straight from `cleanup`
-  to `finalFlip`, so there is no phase left in which to warn anyone.
-- **Every board on the table is drawn by one component.** `BoardPane.tsx` —
-  yours and every opponent's, in every phase. The only difference is
-  `readOnly`, which renders cards as inert `<div>`s rather than the enabled,
-  focusable, click-less `<button>`s opponent grids used to get. Two rules
-  protect the parity: `.match .grid`'s `max-width` (so a grid in a wide pane
-  draws the same card size as one in the narrow column beside the market — it
-  matters more since the log drawer freed the sidebar's width) and
-  `.round-view__controls:disabled .card:disabled { opacity: 1 }` (an
-  it-isn't-your-turn grey says nothing, and made your own board look unlike
-  the opponent boards next to it).
-- **Every dismiss prompt is drawn by one component too.** `EffectChoicePrompt`
-  renders Butterfly, Panther, Alligator AND the Skunk as one card row; the
-  Skunk synthesizes a `dismissChosenGridCard` with `cost: 0`, which is exactly
-  its rule (mandatory, free, any face-up card of yours), so it needs no kind of
-  its own. What differs between them is never the shape: the OPTIONS are
-  filtered by the engine, `choice.mandatory` decides the Skip, `choice.cost`
-  decides the badge, and `defaultConstraintNote` names the rule in force —
-  derived from the choice, so the UI can't claim a constraint the engine isn't
-  applying. Each option carries its grid position: the starting deck holds two
-  Caterpillars (Butterfly's own target), and which one you dismiss changes the
-  board, so identical names in a flat row are not interchangeable. Butterfly
-  used to render a whole `<Grid>` for that reason; the position captions
-  replaced it, and `Grid`/`Slot` no longer have a choice-picker mode at all.
-- **There is exactly ONE header, and `App` renders it.** `TopBar` — round,
-  status, Log / touch-mode / Leave — for solo AND multiplayer. It used to be
-  two: `MatchView` printed "Round N" and a phase chip, and the `RoundView`
-  nested inside it printed "Round N" again about eight pixels lower with its
-  own deck button, touch toggle and Leave button. That duplication is what
-  `RoundView`'s old `showRoundScore` prop existed to paper over; with the
-  header lifted out there was nothing left to suppress and the prop is gone.
-  Touch mode state lifted to `App` for the same reason — the toggle now sits
-  above `RoundView`, outside it.
-- **The phase chip only names phases a player can see.** `MatchView`'s
-  `phaseLabel` returns a label for `market`, `gridReset` and `ended` and null
-  for the rest — it used to print the raw `Phase` union member, which showed
-  players `POSTFAMEHOOKS`. `postFameHooks` is the one non-transient phase left
-  unnamed on purpose: the Skunk prompt or the "waiting for the other players"
-  line is already saying what is happening. The chip renders inside `TopBar`'s
-  status slot, via `MatchView`'s exported `MatchStatus`.
-- **The scoreboard is a fame race, and nothing else.** `FameRace` draws one
-  bar per seat against `shared.fameToTriggerEndgame` — the only comparison the
-  rules make, which is why it empties every round instead of filling up. The
-  five-column table it replaced also carried Deck / On board / Dismissed, all
-  three of which `BoardPane`'s own heading already prints for every board
-  including opponents', so it said each number twice; they now live only on the
-  boards. Its earlier "To spend" column had gone for the same reason. Solo
-  renders the same component with one row and `variant="solo"`, so there is no
-  second implementation of the bar.
-- **A counter and the control that opens it are one object.** `CounterChip`.
-  "Remaining deck (7)" used to be a button in the round header while the deck
-  it counted was inert text in the board heading below it; the dismissed pile
-  had the reverse arrangement. A chip with `onClick` renders as a `<button>`,
-  one without as a `<span>` — load-bearing, not cosmetic: your own deck opens a
-  list overlay and an opponent's does not, so theirs must not look pressable.
-  Spendable fame and actions remaining moved out of `ChoicePrompt` (below the
-  market) into the market pane's heading (above the prices they cover) for the
-  same reason.
-- **Phone width is the layout that matters, and it has its own spec.**
-  `mobile.e2e.ts`, at 390px and 320px. Every other browser spec runs at
-  Playwright's desktop default, so a page that scrolls SIDEWAYS on a phone is
-  invisible to all of them — which is how three separate rules shipped one:
-  `.app__game`'s `1fr` track (a `1fr` is `minmax(auto, 1fr)`, so it grows to
-  the widest child's min-content and drags every sibling out with it — now
-  `minmax(0, 1fr)`), `.opponents__list`'s bare `minmax(320px, 1fr)` track (now
-  `min(320px, 100%)`), and an un-wrappable run of buttons in `TopBar`. The
-  spec asserts `scrollWidth === clientWidth`, exactly, on the widest thing the
-  app draws: a 3-seat table at 320px. `TopBar` is `position: sticky` for the
-  same reason — that table is ~1900px tall on a phone, so the turn banner and
-  the way out scroll off within one swipe otherwise; its `top` is negative to
-  cancel `body`'s padding, so the two must be changed together.
-- **The log is a drawer, not a sidebar.** `LogDrawer`. `.app__game` is single
-  column at every width now; it used to split `2fr 1fr` above 1100px, and its
-  `max-width` was raised twice to stop the permanent log squeezing the market
-  pane to ~64px per card. `ResolveLog` lost its own frame, title and
-  Hide/Show toggle — the drawer supplies all three, and a collapse control
-  inside something you opened on purpose is a click that does nothing.
-- **The table size is not declared when hosting.** A room always opens at
-  `MAX_SEATS` and `buildNewMatch` is called with 4; `handleStart` rebuilds the
-  match at however many seats actually turned up. That rebuild is the ORDINARY
-  path, not an edge case. It is safe only because seat ids are a fixed
-  `p0..p{n-1}` (`match.ts`) and seats are never removed from `room.seats`, so
-  shrinking leaves every seat holding the id its connection was pinned to at
-  join time. Do not recompute `hostPlayerId` there — `webSocketClose` may
-  already have handed the role to a connected heir.
-- **The end screen reads `shared.winnerId`, never the fame totals.** A tied
-  Final Flip is broken by a re-flip among the tied seats only, and that
-  re-flip does not move any other seat's `fameGeneratedThisRound` — so
-  `matchRoundFame` keeps reporting the tie the engine already settled. Taking
-  the argmax of it made `MatchView`'s `EndScreen` announce "a shared win", once
-  naming a seat that LOST the re-flip, directly above a log line saying who
-  won: 32 of 1200 simulated Final Flips at 2-4 seats. `winnerId` is null in
-  exactly one case (the tiebreak exhausting `MAX_TIEBREAK_ROUNDS`), which is
-  the only case where the tie set is the real answer. Pinned by
-  `final-flip.test.ts` on seeds 98/138/152, all 3-player — 2 seats structurally
-  cannot produce the disagreement, which is why the e2e suite never saw it.
-- **A socket with no seat cannot "reconnect".** `useMatch`'s close handler
-  reconnects by REJOINING with a stored token, so a `create` that never
-  reached the server has nothing to replay. It used to claim `'reconnecting'`
-  anyway and schedule a retry guarded by `if (seat)` that therefore did
-  nothing — and because `MultiplayerStart` derives `busy` from that state, the
-  Host button you would use to try again was disabled too. Hosting against a
-  down server was an unrecoverable screen. No seat now means `'failed'`.
-- **No cumulative score anywhere.** Fame is one per-round number that is at
-  once your score, your spending power, and expiring. The rules keep no
-  running tally; don't invent one in the UI.
+- **Adding a field to `PlayerState`?** Add it to `PLAYER_FIELDS` in `state.ts` too. There is a compile-time guard that will name it if you forget — `satisfies` alone does not catch omissions, and a missing key is silently dropped on every commit.
+- **Two halves of the security boundary, now split across two layers.** WHICH ROOM a connection may touch is pinned by Durable Object routing itself: the Worker resolves `?room=` to exactly one DO instance (`env.ROOMS.getByName(roomCode)`) before the socket ever upgrades, so a connection to one room's DO has no way to reach another room's state at all — there is no per-connection room lookup left to get wrong. WHO a connection is remains `join`'s job: it pins the seat onto the socket via `serializeAttachment`, and every later message reads that, never a client-supplied id.
+- **A reclaimed seat closes its previous socket**, rather than leaving it to report a disconnection later on behalf of a player who has already come back. `ctx.getWebSockets()` plus each socket's own attachment (there is no `Seat.socket` field any more — sockets aren't tracked per-seat, they're found by matching attachments) stands in for the same check.
+- **The turn timeout gates on DISCONNECTION, never idleness.** A player who is present and thinking is not on a clock. A skip that moves nothing does not re-arm.
+- **The SERVER runs the Flip, not a player.** `advanceFlip` was never turn- or host-gated — any seat could press it and one press flipped everyone — which made the button a shared control with no owner: first click won, everyone else got "Nothing to reveal right now". `apps/worker/room.ts`'s `advanceSharedPhases` drives it instead, from `handleStart` and from the tail of `handleAction`, so the reveal folds into the same broadcast as whatever caused it. There is no client control for it, and `phase === 'finalFlip'` now exists only inside one server tick — the endgame arrives in the same message as the market action that triggered it. That is why the trigger round's Market phase carries an `endgame-notice`: `runMatchCleanup` hands straight from `cleanup` to `finalFlip`, so there is no phase left in which to warn anyone.
+- **Every board on the table is drawn by one component.** `BoardPane.tsx` — yours and every opponent's, in every phase. The only difference is `readOnly`, which renders cards as inert `<div>`s rather than the enabled, focusable, click-less `<button>`s opponent grids used to get. Two rules protect the parity: `.match .grid`'s `max-width` (so a grid in a wide pane draws the same card size as one in the narrow column beside the market — it matters more since the log drawer freed the sidebar's width) and `.round-view__controls:disabled .card:disabled { opacity: 1 }` (an it-isn't-your-turn grey says nothing, and made your own board look unlike the opponent boards next to it).
+- **Every dismiss prompt is drawn by one component too.** `EffectChoicePrompt` renders Butterfly, Panther, Alligator AND the Skunk as one card row; the Skunk synthesizes a `dismissChosenGridCard` with `cost: 0`, which is exactly its rule (mandatory, free, any face-up card of yours), so it needs no kind of its own. What differs between them is never the shape: the OPTIONS are filtered by the engine, `choice.mandatory` decides the Skip, `choice.cost` decides the badge, and `defaultConstraintNote` names the rule in force — derived from the choice, so the UI can't claim a constraint the engine isn't applying. Each option carries its grid position: the starting deck holds two Caterpillars (Butterfly's own target), and which one you dismiss changes the board, so identical names in a flat row are not interchangeable. Butterfly used to render a whole `<Grid>` for that reason; the position captions replaced it, and `Grid`/`Slot` no longer have a choice-picker mode at all.
+- **There is exactly ONE header, and `App` renders it.** `TopBar` — round, status, Log / touch-mode / Leave — for solo AND multiplayer. It used to be two: `MatchView` printed "Round N" and a phase chip, and the `RoundView` nested inside it printed "Round N" again about eight pixels lower with its own deck button, touch toggle and Leave button. That duplication is what `RoundView`'s old `showRoundScore` prop existed to paper over; with the header lifted out there was nothing left to suppress and the prop is gone. Touch mode state lifted to `App` for the same reason — the toggle now sits above `RoundView`, outside it.
+- **The phase chip only names phases a player can see.** `MatchView`'s `phaseLabel` returns a label for `market`, `gridReset` and `ended` and null for the rest — it used to print the raw `Phase` union member, which showed players `POSTFAMEHOOKS`. `postFameHooks` is the one non-transient phase left unnamed on purpose: the Skunk prompt or the "waiting for the other players" line is already saying what is happening. The chip renders inside `TopBar`'s status slot, via `MatchView`'s exported `MatchStatus`.
+- **The scoreboard is a fame race, and nothing else.** `FameRace` draws one bar per seat against `shared.fameToTriggerEndgame` — the only comparison the rules make, which is why it empties every round instead of filling up. The five-column table it replaced also carried Deck / On board / Dismissed, all three of which `BoardPane`'s own heading already prints for every board including opponents', so it said each number twice; they now live only on the boards. Its earlier "To spend" column had gone for the same reason. Solo renders the same component with one row and `variant="solo"`, so there is no second implementation of the bar.
+- **A counter and the control that opens it are one object.** `CounterChip`. "Remaining deck (7)" used to be a button in the round header while the deck it counted was inert text in the board heading below it; the dismissed pile had the reverse arrangement. A chip with `onClick` renders as a `<button>`, one without as a `<span>` — load-bearing, not cosmetic: your own deck opens a list overlay and an opponent's does not, so theirs must not look pressable. Spendable fame and actions remaining moved out of `ChoicePrompt` (below the market) into the market pane's heading (above the prices they cover) for the same reason.
+- **Phone width is the layout that matters, and it has its own spec.** `mobile.e2e.ts`, at 390px and 320px. Every other browser spec runs at Playwright's desktop default, so a page that scrolls SIDEWAYS on a phone is invisible to all of them — which is how three separate rules shipped one: `.app__game`'s `1fr` track (a `1fr` is `minmax(auto, 1fr)`, so it grows to the widest child's min-content and drags every sibling out with it — now `minmax(0, 1fr)`), `.opponents__list`'s bare `minmax(320px, 1fr)` track (now `min(320px, 100%)`), and an un-wrappable run of buttons in `TopBar`. The spec asserts `scrollWidth === clientWidth`, exactly, on the widest thing the app draws: a 3-seat table at 320px. `TopBar` is `position: sticky` for the same reason — that table is ~1900px tall on a phone, so the turn banner and the way out scroll off within one swipe otherwise; its `top` is negative to cancel `body`'s padding, so the two must be changed together.
+- **The log is a drawer, not a sidebar.** `LogDrawer`. `.app__game` is single column at every width now; it used to split `2fr 1fr` above 1100px, and its `max-width` was raised twice to stop the permanent log squeezing the market pane to ~64px per card. `ResolveLog` lost its own frame, title and Hide/Show toggle — the drawer supplies all three, and a collapse control inside something you opened on purpose is a click that does nothing.
+- **The table size is not declared when hosting.** A room always opens at `MAX_SEATS` and `buildNewMatch` is called with 4; `handleStart` rebuilds the match at however many seats actually turned up. That rebuild is the ORDINARY path, not an edge case. It is safe only because seat ids are a fixed `p0..p{n-1}` (`match.ts`) and seats are never removed from `room.seats`, so shrinking leaves every seat holding the id its connection was pinned to at join time. Do not recompute `hostPlayerId` there — `webSocketClose` may already have handed the role to a connected heir.
+- **The end screen reads `shared.winnerId`, never the fame totals.** A tied Final Flip is broken by a re-flip among the tied seats only, and that re-flip does not move any other seat's `fameGeneratedThisRound` — so `matchRoundFame` keeps reporting the tie the engine already settled. Taking the argmax of it made `MatchView`'s `EndScreen` announce "a shared win", once naming a seat that LOST the re-flip, directly above a log line saying who won: 32 of 1200 simulated Final Flips at 2-4 seats. `winnerId` is null in exactly one case (the tiebreak exhausting `MAX_TIEBREAK_ROUNDS`), which is the only case where the tie set is the real answer. Pinned by `final-flip.test.ts` on seeds 98/138/152, all 3-player — 2 seats structurally cannot produce the disagreement, which is why the e2e suite never saw it.
+- **A socket with no seat cannot "reconnect".** `useMatch`'s close handler reconnects by REJOINING with a stored token, so a `create` that never reached the server has nothing to replay. It used to claim `'reconnecting'` anyway and schedule a retry guarded by `if (seat)` that therefore did nothing — and because `MultiplayerStart` derives `busy` from that state, the Host button you would use to try again was disabled too. Hosting against a down server was an unrecoverable screen. No seat now means `'failed'`.
+- **No cumulative score anywhere.** Fame is one per-round number that is at once your score, your spending power, and expiring. The rules keep no running tally; don't invent one in the UI.
 
 ## Big Button mini-expansion invariants
 
-The mini-expansion (`Referance/IMG_4308.HEIC` — the only photographed page)
-gives every player one Big Button card, face up. Flipping it face down IS the
-whole cost: no fame, no action, once per game. Exactly ONE of two reset effect
-cards is chosen at setup and shared by the whole table.
+The mini-expansion (`Referance/IMG_4308.HEIC` — the only photographed page) gives every player one Big Button card, face up. Flipping it face down IS the whole cost: no fame, no action, once per game. Exactly ONE of two reset effect cards is chosen at setup and shared by the whole table.
 
-- **`resetEffect: null` is the default and must stay a complete no-op.** It
-  is what makes this a safe addition rather than a re-baseline: with it, both
-  Big Button toon cards stay excluded, `canUseGridReset`/`canUseGridResetNow`/
-  `canUseMarketReset` are false for every seat, `runCheckFame` still hands
-  straight to `postFameHooks` (unconditionally now — see below, not a
-  null-conditional branch any more), and `runMatchFinalFlip` is still the
-  synchronous single-call endgame it always was. `big-button.test.ts` opens
-  with a whole describe block pinning exactly that; if you break it, that is
-  the first thing that fails.
-- **The Big Button card is excluded from the deck BECAUSE the expansion is
-  off, not because the effect is unimplementable.** Do not conflate that with
-  the Pig's solo exclusion, which is a rulebook rule (§3.7) and holds
-  unconditionally. `setup.ts`'s `exclusionsFor` is the one place the
-  difference lives. The Season 1 pairing (Axolotl ↔ Season 2's Platypus) is
-  **inferred by symmetry** — only the Season 2 setup card is photographed —
-  and `BIG_BUTTON_CARDS` is the single line to change if a Season 1 card ever
-  turns up saying otherwise.
-- **One action kind, `{ kind: 'useBigButton' }`, covers both reset effects —
-  no protocol change.** Both `matchActions.ts` and solo's `actions.ts`
-  dispatch on `resetEffect` inside the single handler rather than having a
-  kind per effect. This also fixed a pre-existing bug: `MatchView.tsx`
-  already rendered `ChoicePrompt`, so the button existed in multiplayer, but
-  `toMatchAction` had no `case 'useBigButton'` and silently dropped the
-  click — a table could see the control and have it do nothing.
-- **"Before taking any market actions" now describes RESET: GRID, not RESET:
-  MARKET.** RESET: MARKET dropped that gate entirely, at the user's explicit
-  request: it is usable before, during, or after any Market action, and
-  never ends the turn — so a player can reset defensively after seeing what
-  they can (or can't) afford, mid-turn, rather than only as an opening move.
-  That is a deliberate departure from the printed card. RESET: GRID, by
-  contrast, still honors the "before any market actions" clause — it moved
-  onto your own Market turn (see below) but stays a start-of-turn-only
-  action. `PlayerState.actedThisMarketPhase` survives for exactly this: not
-  because RESET: MARKET still needs it (it doesn't any more), but because
-  RESET: GRID's start-of-turn gate (`canUseGridResetNow`) does. It is
-  cleared at the one place actions are dealt out (the
-  `postFameHooks -> market` transition), which is enough because each seat
-  takes exactly one turn per Market phase — and the Peacock reasoning below
-  is unchanged, only which effect depends on the field changed.
-  Hiring a Peacock leaves `actionsRemaining` back at 2 (`2 - 1 + 1`) with a
-  card already bought, which is why `canUseGridResetNow` cannot be an
-  `actionsRemaining` proxy either.
-- **`hasAnyLegalMarketAction` counts BOTH resets, and is now the SOLE
-  auto-end authority.** Both cost 0 fame and 0 actions, so a broke seat
-  holding an unused button of either kind still has something to do, and
-  both zero-cost checks sit BEFORE the `actionsRemaining` gate in that
-  predicate. `afterMarketAction` (`matchActions.ts`) no longer carries an
-  independent `actionsRemaining <= 0` disjunct of its own — it would have
-  ended a turn out from under an unspent button — and solo's
-  `closeMarketIfExhausted` gates on `!pendingPostMarketChoice &&
-  !hasAnyLegalMarketAction(state)` instead of `actionsRemaining <= 0` for the
-  same reason. This one predicate now drives all three auto-end paths:
-  `afterMarketAction`, `afterTurnBoundary`'s skip LOOP (which can strip
-  several seats in one call), and solo's `closeMarketIfExhausted`.
-- **RESET: GRID moved onto your own Market turn in a normal round — no
-  pre-turn walk any more.** `runCheckFame`/`runMatchCheckFame` hand straight
-  to `postFameHooks` unconditionally now; the old `canUseGridReset(state) ?
-  'gridReset' : ...` branch is gone. Instead, `canUseGridResetNow` gates a
-  start-of-turn action on your own Market turn (`matchApplyGridReset` /
-  solo's `useBigButton` handler): press it, or just play. The reasoning is
-  UX, not rules-text — the printed card says "after the Check Fame phase,"
-  but stopping the whole table for a choice better made once you can see
-  what the grid you'd be giving up is worth (requirement: `GridResetRisk`
-  shows the number) didn't need its own phase when there's already a Market
-  turn to hang it off.
-- **The SEQUENCED-DECISIONS / SIMULTANEOUS-RESETS walk (`gridReset` phase)
-  now exists ONLY for the Final Flip.** "Starting with the first player, each
-  player in clockwise order decides" is still real there — the Final Flip
-  has no Market phase to hang an in-round decision off, so
-  `startMatchFinalFlip` still opens `gridReset` explicitly, walked from
-  `firstPlayerIndex`, skipping seats whose button is already spent, with the
-  opted-in seats collecting and re-flipping only once everyone has answered.
-  `GridResetState['context']` is narrowed to the literal `'finalFlip'` in
-  `state.ts`, so the compiler flags any branch still written as if a normal
-  round could reach it (`matchActions.ts`'s `bigButtonDecision` handler no
-  longer has a `wasFinalFlip` conditional — every decision that reaches it is
-  unconditionally a Final Flip one now).
-- **ACCEPTED DEVIATION: an in-round reset re-scores the RESETTER ONLY, not
-  the whole table.** The rulebook's "All players then repeat the Check Fame
-  phase" is honored word-for-word ONLY in the Final Flip's walk
-  (`resolveGridReset` still calls `checkFameSeats(all)`). The in-round path
-  (`matchApplyGridReset` / `rescoreSeat`) deliberately does not: every other
-  seat keeps the fame they already scored this round, even though the
-  resetter's new grid changes what Dog/Camel/Fox are worth to them too.
-  Re-scoring the whole table on every in-round button press would turn one
-  seat's decision into a table-wide recompute mid-Market-phase, with no
-  natural point to stop cascading (a second seat's own reset would reopen the
-  question all over again) — the user's explicit call, taken knowingly as a
-  departure from the printed rule. `big-button.test.ts` pins every other
-  seat's `PlayerState` as byte-identical across an in-round reset so nobody
-  "fixes" this back by accident.
-- **Spendable fame takes the DELTA on an in-round reset, not an overwrite.**
-  `phases.ts`'s `rescoreAfterGridReset` (shared by solo and
-  `match.ts`'s `rescoreSeat`) computes `fame += new - old` rather than
-  `fame = new`, floored at 0 — an overwrite would silently erase a Firefly
-  bonus already banked between the first Check Fame and the reset, since
-  that bonus lives on `fame` but not on the frozen `fameGeneratedThisRound`
-  snapshot the delta is taken against. RESET: GRID being gated to before your
-  first action means nothing else has been spent yet, so the delta and an
-  overwrite agree except on exactly that bonus.
-- **The endgame trigger and the Critic's Choice need no re-run mechanism for
-  an in-round reset, in either direction.** Both live in `runMatchCleanup`,
-  which runs strictly after the whole Market phase — an in-round reset always
-  precedes it, so whichever `fameGeneratedThisRound` the reset leaves behind
-  is simply what Cleanup reads. No special-casing needed on either side.
-- **The Skunk/Firefly least-fame hook fires on PRE-reset numbers, and stands
-  even if the reset would have picked someone else.** Skunk/Firefly resolve
-  in `runMatchPostFameHooks`, strictly BEFORE the Market phase (and therefore
-  before any in-round reset) opens — the first flip is the only thing that
-  ever decides them, an intentional contradiction of "all players then repeat
-  Check Fame" that the printed card doesn't anticipate (that clause predates
-  RESET: GRID moving in-round at all). This is accepted, not silently true:
-  `matchApplyGridReset` compares `strictlyLowestScorerIndex` before and after
-  the reset and logs a line — "The least-fame bonus already resolved on this
-  round's pre-reset scores and stands..." — whenever they diverge, so the
-  table isn't left guessing why the reset didn't reopen the hook. The Final
-  Flip path is unaffected: there is no postFameHooks phase in a Final Flip to
-  begin with.
-- **The Final Flip can still pause — exactly once, and only there.** RESET:
-  GRID is "after the Check Fame phase" with no exception, and the Final Flip
-  IS Flip + Check Fame, so `runMatchFinalFlip` split into
-  `startMatchFinalFlip` (flip + score + maybe pause) and
-  `resumeMatchFinalFlip` (tiebreak + scores + winner). The old single-call
-  entry point still exists and now THROWS if it would have skipped a pending
-  decision, rather than silently swallowing it. The tiebreak re-flips can't
-  pause: any button that was going to be spent already is. This is now the
-  ONLY reason the `gridReset` phase exists at all — see above.
-- **Platypus's +3 goes through `scoreGrid`'s `externalState`, NOT
-  `roundFame.ts`.** It is PER-CARD (two Platypuses each score their own +3),
-  where the Critic's Choice is per-player — so it belongs on the same seam
-  Dog/Camel/Fox use, fed by `runCheckFame`. Like theirs, an unsupplied flag
-  THROWS rather than silently scoring 0. `architecture.test.ts` is unaffected:
-  it greps `score.ts` for `criticsChoice`/`finalFlip` only.
-- **Platypus is the second effect that reaches ACROSS seats** (the Pig was the
-  first). "Flip ALL big button cards face up" — `applyEffects` does the acting
-  player's own, because a `PlayerView` can't see another seat, and
-  `match.ts`'s `matchHire` does everyone else's. Axolotl's is own-seat only.
-- **`bigButtonFaceUp` is never reset at Cleanup.** One use per game; the
-  per-seat reset block in `runMatchCleanup` is exactly where someone would
-  reflexively add it. Only Axolotl/Platypus flip it back up.
-- **The room-level setting lives on `Room`, not just the dealt match.**
-  `handleStart` REBUILDS the match at the size that turned up (the ordinary
-  path, not an edge case) and `handleRematch` builds another — all three
-  `buildNewMatch` call sites must pass it. `worker.ts`'s `handleCreateRoom`
-  rebuilds the params object field by field, so a new `CreateRoomRequest`
-  field has to be added there too or it is silently dropped; it is validated
-  against the two legal values there rather than passed through, since it
-  reaches `setup.ts` and decides the toon deck's composition.
-- **`strandingSeat` knows about `gridReset` — Final-Flip-only now.** The
-  decision is turn-gated, so a disconnected decider stalls the whole table —
-  and the pre-existing check returns `undefined` for every phase but
-  `market`, arming no alarm at all. `playForAbsentSeat` answers for them by
-  DECLINING: keeping the button costs that player nothing, where spending it
-  on a guess burns a once-per-game resource. The IN-ROUND surface has no walk
-  to strand on — it is just the Market pane's control plus `GridResetRisk` —
-  but a disconnected seat holding an unspent in-round button is no longer
-  instantly skipped by the ordinary boundary loop either, since
-  `hasAnyLegalMarketAction` now counts it as a legal move; that seat waits
-  for the ordinary turn-timeout alarm like any other seat mid-turn.
-- **Two setup call sites turn it on, and both go through `BigButtonOption`.**
-  Solo: `NewGameForm` -> `startNewGame`'s 4th arg -> `buildNewGameState`.
-  Multiplayer: `MultiplayerStart` -> `CreateRoomRequest.bigButton` (the host
-  panel only; joiners read it off `LobbyState.bigButton` in the lobby, since
-  it changes the deck they are about to play with). For a while neither
-  existed and the whole feature was live engine code no browser could reach —
-  `big-button.e2e.ts` exists so that can't quietly become true again.
-- **Every seat's button state is drawn on its own board, opponents included.**
-  `BoardPane`'s `bigButtonFaceUp` prop, `undefined` when the expansion is off
-  so NOTHING renders — the same load-bearing default `SharedState.resetEffect`
-  has. It is public and it matters: Platypus flips every seat's button face
-  up, and the Final Flip's `gridReset` walk is asking who still holds one.
-- **`BigButtonPrompt` shows the whole walk, not just your turn — Final Flip
-  only now.** "Starting with the first player, each player in clockwise
-  order" means a later decider knows what everyone before them chose, so the
-  per-seat status line is the point rather than decoration. `asked` and
-  `optedIn` are read separately: a seat that opted in still has a face-up
-  button until every seat has answered and the resets resolve together, so
-  `faceUp` alone cannot tell you who pressed it. In a normal round, the
-  in-round surface is just the Market pane's `use-big-button-grid` control
-  plus `GridResetRisk` showing what pressing it gives up — no prompt
-  component of its own.
+- **`resetEffect: null` is the default and must stay a complete no-op.** It is what makes this a safe addition rather than a re-baseline: with it, both Big Button toon cards stay excluded, `canUseGridReset`/`canUseGridResetNow`/ `canUseMarketReset` are false for every seat, `runCheckFame` still hands straight to `postFameHooks` (unconditionally now — see below, not a null-conditional branch any more), and `runMatchFinalFlip` is still the synchronous single-call endgame it always was. `big-button.test.ts` opens with a whole describe block pinning exactly that; if you break it, that is the first thing that fails.
+- **The Big Button card is excluded from the deck BECAUSE the expansion is off, not because the effect is unimplementable.** Do not conflate that with the Pig's solo exclusion, which is a rulebook rule (§3.7) and holds unconditionally. `setup.ts`'s `exclusionsFor` is the one place the difference lives. The Season 1 pairing (Axolotl ↔ Season 2's Platypus) is **inferred by symmetry** — only the Season 2 setup card is photographed — and `BIG_BUTTON_CARDS` is the single line to change if a Season 1 card ever turns up saying otherwise.
+- **One action kind, `{ kind: 'useBigButton' }`, covers both reset effects — no protocol change.** Both `matchActions.ts` and solo's `actions.ts` dispatch on `resetEffect` inside the single handler rather than having a kind per effect. This also fixed a pre-existing bug: `MatchView.tsx` already rendered `ChoicePrompt`, so the button existed in multiplayer, but `toMatchAction` had no `case 'useBigButton'` and silently dropped the click — a table could see the control and have it do nothing.
+- **"Before taking any market actions" now describes RESET: GRID, not RESET: MARKET.** RESET: MARKET dropped that gate entirely, at the user's explicit request: it is usable before, during, or after any Market action, and never ends the turn — so a player can reset defensively after seeing what they can (or can't) afford, mid-turn, rather than only as an opening move. That is a deliberate departure from the printed card. RESET: GRID, by contrast, still honors the "before any market actions" clause — it moved onto your own Market turn (see below) but stays a start-of-turn-only action. `PlayerState.actedThisMarketPhase` survives for exactly this: not because RESET: MARKET still needs it (it doesn't any more), but because RESET: GRID's start-of-turn gate (`canUseGridResetNow`) does. It is cleared at the one place actions are dealt out (the `postFameHooks -> market` transition), which is enough because each seat takes exactly one turn per Market phase — and the Peacock reasoning below is unchanged, only which effect depends on the field changed. Hiring a Peacock leaves `actionsRemaining` back at 2 (`2 - 1 + 1`) with a card already bought, which is why `canUseGridResetNow` cannot be an `actionsRemaining` proxy either.
+- **`hasAnyLegalMarketAction` counts BOTH resets, and is now the SOLE auto-end authority.** Both cost 0 fame and 0 actions, so a broke seat holding an unused button of either kind still has something to do, and both zero-cost checks sit BEFORE the `actionsRemaining` gate in that predicate. `afterMarketAction` (`matchActions.ts`) no longer carries an independent `actionsRemaining <= 0` disjunct of its own — it would have ended a turn out from under an unspent button — and solo's `closeMarketIfExhausted` gates on `!pendingPostMarketChoice && !hasAnyLegalMarketAction(state)` instead of `actionsRemaining <= 0` for the same reason. This one predicate now drives all three auto-end paths: `afterMarketAction`, `afterTurnBoundary`'s skip LOOP (which can strip several seats in one call), and solo's `closeMarketIfExhausted`.
+- **RESET: GRID moved onto your own Market turn in a normal round — no pre-turn walk any more.** `runCheckFame`/`runMatchCheckFame` hand straight to `postFameHooks` unconditionally now; the old `canUseGridReset(state) ? 'gridReset' : ...` branch is gone. Instead, `canUseGridResetNow` gates a start-of-turn action on your own Market turn (`matchApplyGridReset` / solo's `useBigButton` handler): press it, or just play. The reasoning is UX, not rules-text — the printed card says "after the Check Fame phase," but stopping the whole table for a choice better made once you can see what the grid you'd be giving up is worth (requirement: `GridResetRisk` shows the number) didn't need its own phase when there's already a Market turn to hang it off.
+- **The SEQUENCED-DECISIONS / SIMULTANEOUS-RESETS walk (`gridReset` phase) now exists ONLY for the Final Flip.** "Starting with the first player, each player in clockwise order decides" is still real there — the Final Flip has no Market phase to hang an in-round decision off, so `startMatchFinalFlip` still opens `gridReset` explicitly, walked from `firstPlayerIndex`, skipping seats whose button is already spent, with the opted-in seats collecting and re-flipping only once everyone has answered. `GridResetState['context']` is narrowed to the literal `'finalFlip'` in `state.ts`, so the compiler flags any branch still written as if a normal round could reach it (`matchActions.ts`'s `bigButtonDecision` handler no longer has a `wasFinalFlip` conditional — every decision that reaches it is unconditionally a Final Flip one now).
+- **ACCEPTED DEVIATION: an in-round reset re-scores the RESETTER ONLY, not the whole table.** The rulebook's "All players then repeat the Check Fame phase" is honored word-for-word ONLY in the Final Flip's walk (`resolveGridReset` still calls `checkFameSeats(all)`). The in-round path (`matchApplyGridReset` / `rescoreSeat`) deliberately does not: every other seat keeps the fame they already scored this round, even though the resetter's new grid changes what Dog/Camel/Fox are worth to them too. Re-scoring the whole table on every in-round button press would turn one seat's decision into a table-wide recompute mid-Market-phase, with no natural point to stop cascading (a second seat's own reset would reopen the question all over again) — the user's explicit call, taken knowingly as a departure from the printed rule. `big-button.test.ts` pins every other seat's `PlayerState` as byte-identical across an in-round reset so nobody "fixes" this back by accident.
+- **Spendable fame takes the DELTA on an in-round reset, not an overwrite.** `phases.ts`'s `rescoreAfterGridReset` (shared by solo and `match.ts`'s `rescoreSeat`) computes `fame += new - old` rather than `fame = new`, floored at 0 — an overwrite would silently erase a Firefly bonus already banked between the first Check Fame and the reset, since that bonus lives on `fame` but not on the frozen `fameGeneratedThisRound` snapshot the delta is taken against. RESET: GRID being gated to before your first action means nothing else has been spent yet, so the delta and an overwrite agree except on exactly that bonus.
+- **The endgame trigger and the Critic's Choice need no re-run mechanism for an in-round reset, in either direction.** Both live in `runMatchCleanup`, which runs strictly after the whole Market phase — an in-round reset always precedes it, so whichever `fameGeneratedThisRound` the reset leaves behind is simply what Cleanup reads. No special-casing needed on either side.
+- **The Skunk/Firefly least-fame hook fires on PRE-reset numbers, and stands even if the reset would have picked someone else.** Skunk/Firefly resolve in `runMatchPostFameHooks`, strictly BEFORE the Market phase (and therefore before any in-round reset) opens — the first flip is the only thing that ever decides them, an intentional contradiction of "all players then repeat Check Fame" that the printed card doesn't anticipate (that clause predates RESET: GRID moving in-round at all). This is accepted, not silently true: `matchApplyGridReset` compares `strictlyLowestScorerIndex` before and after the reset and logs a line — "The least-fame bonus already resolved on this round's pre-reset scores and stands..." — whenever they diverge, so the table isn't left guessing why the reset didn't reopen the hook. The Final Flip path is unaffected: there is no postFameHooks phase in a Final Flip to begin with.
+- **The Final Flip can still pause — exactly once, and only there.** RESET: GRID is "after the Check Fame phase" with no exception, and the Final Flip IS Flip + Check Fame, so `runMatchFinalFlip` split into `startMatchFinalFlip` (flip + score + maybe pause) and `resumeMatchFinalFlip` (tiebreak + scores + winner). The old single-call entry point still exists and now THROWS if it would have skipped a pending decision, rather than silently swallowing it. The tiebreak re-flips can't pause: any button that was going to be spent already is. This is now the ONLY reason the `gridReset` phase exists at all — see above.
+- **Platypus's +3 goes through `scoreGrid`'s `externalState`, NOT `roundFame.ts`.** It is PER-CARD (two Platypuses each score their own +3), where the Critic's Choice is per-player — so it belongs on the same seam Dog/Camel/Fox use, fed by `runCheckFame`. Like theirs, an unsupplied flag THROWS rather than silently scoring 0. `architecture.test.ts` is unaffected: it greps `score.ts` for `criticsChoice`/`finalFlip` only.
+- **Platypus is the second effect that reaches ACROSS seats** (the Pig was the first). "Flip ALL big button cards face up" — `applyEffects` does the acting player's own, because a `PlayerView` can't see another seat, and `match.ts`'s `matchHire` does everyone else's. Axolotl's is own-seat only.
+- **`bigButtonFaceUp` is never reset at Cleanup.** One use per game; the per-seat reset block in `runMatchCleanup` is exactly where someone would reflexively add it. Only Axolotl/Platypus flip it back up.
+- **The room-level setting lives on `Room`, not just the dealt match.** `handleStart` REBUILDS the match at the size that turned up (the ordinary path, not an edge case) and `handleRematch` builds another — all three `buildNewMatch` call sites must pass it. `worker.ts`'s `handleCreateRoom` rebuilds the params object field by field, so a new `CreateRoomRequest` field has to be added there too or it is silently dropped; it is validated against the two legal values there rather than passed through, since it reaches `setup.ts` and decides the toon deck's composition.
+- **`strandingSeat` knows about `gridReset` — Final-Flip-only now.** The decision is turn-gated, so a disconnected decider stalls the whole table — and the pre-existing check returns `undefined` for every phase but `market`, arming no alarm at all. `playForAbsentSeat` answers for them by DECLINING: keeping the button costs that player nothing, where spending it on a guess burns a once-per-game resource. The IN-ROUND surface has no walk to strand on — it is just the Market pane's control plus `GridResetRisk` — but a disconnected seat holding an unspent in-round button is no longer instantly skipped by the ordinary boundary loop either, since `hasAnyLegalMarketAction` now counts it as a legal move; that seat waits for the ordinary turn-timeout alarm like any other seat mid-turn.
+- **Two setup call sites turn it on, and both go through `BigButtonOption`.** Solo: `NewGameForm` -> `startNewGame`'s 4th arg -> `buildNewGameState`. Multiplayer: `MultiplayerStart` -> `CreateRoomRequest.bigButton` (the host panel only; joiners read it off `LobbyState.bigButton` in the lobby, since it changes the deck they are about to play with). For a while neither existed and the whole feature was live engine code no browser could reach — `big-button.e2e.ts` exists so that can't quietly become true again.
+- **Every seat's button state is drawn on its own board, opponents included.** `BoardPane`'s `bigButtonFaceUp` prop, `undefined` when the expansion is off so NOTHING renders — the same load-bearing default `SharedState.resetEffect` has. It is public and it matters: Platypus flips every seat's button face up, and the Final Flip's `gridReset` walk is asking who still holds one.
+- **`BigButtonPrompt` shows the whole walk, not just your turn — Final Flip only now.** "Starting with the first player, each player in clockwise order" means a later decider knows what everyone before them chose, so the per-seat status line is the point rather than decoration. `asked` and `optedIn` are read separately: a seat that opted in still has a face-up button until every seat has answered and the resets resolve together, so `faceUp` alone cannot tell you who pressed it. In a normal round, the in-round surface is just the Market pane's `use-big-button-grid` control plus `GridResetRisk` showing what pressing it gives up — no prompt component of its own.
 
 ## Testing
 
-453 tests across 19 files (the pure-engine suite) plus 28 tests in
-`apps/worker/room.vitest.ts` — `make test` runs both (the second via `cd
-apps/worker && bunx vitest run`, since it needs the real Workers runtime, not
-Bun; see Running Things above) — plus the 32 Playwright browser tests `make
-e2e` runs (34 collected; the two long-form specs are skipped there, see `make
-e2e-long` below).
-Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly —
-there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s
-oracle/fixtures design was superseded; tests just assert expected values
-inline). `room.vitest.ts` runs against a real Durable Object over real
-WebSockets (`SELF.fetch` with an `Upgrade` header, `response.webSocket`) —
-seat assignment, reconnect-by-token, and turn enforcement only exist at that
-layer, same reasoning the Bun-server predecessor's `rooms.test.ts` had before
-this project moved off Bun for the multiplayer server (see the Cloudflare
-Workers paragraph near the top of this file). It also covers two things that
-layer alone can prove: `runDurableObjectAlarm` (from `cloudflare:test`) force-
-fires the turn-timeout/eviction alarm without waiting out `TURN_TIMEOUT_MS`
-for real, and `evictDurableObject` tears down the resident instance and
-reconnects — proving `ctx.storage` persistence actually survives a
-constructor reload, not just that reconnect works within one still-resident
-instance (which every other reconnect test in the file does). `e2e/` drives two browsers through a whole 2-player game; run `make e2e`
-after any web change. `playToEnd` takes a policy: `'pass'` only presses the
-ends turns (proves the flow), `'buy'` actually spends fame —
-hire, dismiss, and the effect prompts they open. Use `'buy'` for anything
-touching the Market phase; `'pass'` proved nothing about it, which is how two
-Pig bugs survived a green suite. Dismiss is rationed to one per seat on
-purpose: fame is scored FROM the board, so a seat that dismisses freely
-strips its own grid and no one ever reaches the endgame threshold. The play
-loop and lobby helpers live in `e2e/helpers.ts` (not `*.e2e.ts`, so Playwright
-doesn't collect it as a suite), shared with the long-form harness.
+453 tests across 19 files (the pure-engine suite) plus 28 tests in `apps/worker/room.vitest.ts` — `make test` runs both (the second via `cd apps/worker && bunx vitest run`, since it needs the real Workers runtime, not Bun; see Running Things above) — plus the 32 Playwright browser tests `make e2e` runs (34 collected; the two long-form specs are skipped there, see `make e2e-long` below). Fixture-style tests assert `scoreGrid`/`flip`/`phases` behavior directly — there's no separate fixture corpus (`flip-toonz-phase0-plan.md`'s oracle/fixtures design was superseded; tests just assert expected values inline). `room.vitest.ts` runs against a real Durable Object over real WebSockets (`SELF.fetch` with an `Upgrade` header, `response.webSocket`) — seat assignment, reconnect-by-token, and turn enforcement only exist at that layer, same reasoning the Bun-server predecessor's `rooms.test.ts` had before this project moved off Bun for the multiplayer server (see the Cloudflare Workers paragraph near the top of this file). It also covers two things that layer alone can prove: `runDurableObjectAlarm` (from `cloudflare:test`) force- fires the turn-timeout/eviction alarm without waiting out `TURN_TIMEOUT_MS` for real, and `evictDurableObject` tears down the resident instance and reconnects — proving `ctx.storage` persistence actually survives a constructor reload, not just that reconnect works within one still-resident instance (which every other reconnect test in the file does). `e2e/` drives two browsers through a whole 2-player game; run `make e2e` after any web change. `playToEnd` takes a policy: `'pass'` only presses the ends turns (proves the flow), `'buy'` actually spends fame — hire, dismiss, and the effect prompts they open. Use `'buy'` for anything touching the Market phase; `'pass'` proved nothing about it, which is how two Pig bugs survived a green suite. Dismiss is rationed to one per seat on purpose: fame is scored FROM the board, so a seat that dismisses freely strips its own grid and no one ever reaches the endgame threshold. The play loop and lobby helpers live in `e2e/helpers.ts` (not `*.e2e.ts`, so Playwright doesn't collect it as a suite), shared with the long-form harness.
 
-`make e2e-long` is a **debugging harness, not part of `make e2e`** — a
-full-length 2-player game at the real threshold of 30, both seasons, taking
-minutes. It reports rather than just passing: which cards were hired and
-dismissed by name, which effect prompts opened, every error banner seen, and a
-transcript written to `.longform/` (gitignored). It asserts only that the game
-ends, both seats agree, nothing crashed, and no `Server error` appeared —
-never coverage. **Sparse effect coverage is the card table's doing, not a
-broken test:** only five cards in sixty-two open a prompt (Butterfly and Horse
-in S1; Raccoon, Panther and Crow in S2), so a single-season game can reach at
-most three, and a run that hits none is information about the shuffle. It is a
-sampler, not a guarantee — two runs of the same seeds reached Horse/Panther/
-Raccoon/Crow and then Butterfly/Raccoon/Crow, because the policy's own
-dismisses change what the later hires find. Run it twice before concluding a
-card is unreachable.
+`make e2e-long` is a **debugging harness, not part of `make e2e`** — a full-length 2-player game at the real threshold of 30, both seasons, taking minutes. It reports rather than just passing: which cards were hired and dismissed by name, which effect prompts opened, every error banner seen, and a transcript written to `.longform/` (gitignored). It asserts only that the game ends, both seats agree, nothing crashed, and no `Server error` appeared — never coverage. **Sparse effect coverage is the card table's doing, not a broken test:** only five cards in sixty-two open a prompt (Butterfly and Horse in S1; Raccoon, Panther and Crow in S2), so a single-season game can reach at most three, and a run that hits none is information about the shuffle. It is a sampler, not a guarantee — two runs of the same seeds reached Horse/Panther/ Raccoon/Crow and then Butterfly/Raccoon/Crow, because the policy's own dismisses change what the later hires find. Run it twice before concluding a card is unreachable.
 
-The harness plays the ONE thing the standard suite structurally cannot: a
-full-length game. That is where the Pig actually gets hired (it did, twice,
-prompt answered, no errors), and where a market refill can come up short and
-trigger the depletion endgame.
+The harness plays the ONE thing the standard suite structurally cannot: a full-length game. That is where the Pig actually gets hired (it did, twice, prompt answered, no errors), and where a market refill can come up short and trigger the depletion endgame.
 
-Solo has its own browser spec because every multiplayer spec clicks straight
-past that screen.
+Solo has its own browser spec because every multiplayer spec clicks straight past that screen.
 
-`big-button.e2e.ts` covers RESET: MARKET (solo, including "the turn stays
-open after hiring, and after resetting") and the in-round RESET: GRID control
-at a two-seat table — pressing `use-big-button-grid` on your own Market turn,
-your own grid changing, your turn staying open, and your chip flipping
-`ready` -> `used` while the opponent's stays `ready`. Browser coverage of the
-Final Flip's paused, walked `gridReset` decision is deliberately DROPPED —
-reaching a Final Flip in a browser is expensive, and the walk itself (order,
-skip-spent, turn-gating, everyone-re-scoring, the tiebreak never reopening a
-spent button) is driven end-to-end through `applyMatchAction` by
-`big-button.test.ts`'s `'the Final Flip pauses for the Big Button'` block,
-including the log assertions a browser spec would only re-derive. `helpers.ts`
-used to carry an `answerDecider` poll loop for exactly that walk; it was
-deleted along with the spec it served, on purpose, not left to bit-rot.
+`big-button.e2e.ts` covers RESET: MARKET (solo, including "the turn stays open after hiring, and after resetting") and the in-round RESET: GRID control at a two-seat table — pressing `use-big-button-grid` on your own Market turn, your own grid changing, your turn staying open, and your chip flipping `ready` -> `used` while the opponent's stays `ready`. Browser coverage of the Final Flip's paused, walked `gridReset` decision is deliberately DROPPED — reaching a Final Flip in a browser is expensive, and the walk itself (order, skip-spent, turn-gating, everyone-re-scoring, the tiebreak never reopening a spent button) is driven end-to-end through `applyMatchAction` by `big-button.test.ts`'s `'the Final Flip pauses for the Big Button'` block, including the log assertions a browser spec would only re-derive. `helpers.ts` used to carry an `answerDecider` poll loop for exactly that walk; it was deleted along with the spec it served, on purpose, not left to bit-rot.

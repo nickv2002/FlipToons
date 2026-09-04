@@ -1140,3 +1140,45 @@ describe("Snake's deferred Peacock onHire (see flip.ts's dismissOwnDeckTopAndSta
     expect(state.fameGeneratedThisRound).toBe(fameGenerated) // the frozen win-trigger snapshot is untouched by the bonus
   })
 })
+
+describe("Snake's deferred Horse onHire — confirms drainPendingOnHireCards's missing excludeMarketSlot argument is safe today", () => {
+  test('a Horse drawn via Snake offers EVERY occupied market slot as a discard option, unexcluded — because Snake-drawn Horse was never IN the market to begin with', () => {
+    // computePendingChoice(next, card.onHire, cards) — drainPendingOnHireCards
+    // (phases.ts) calls this with no 4th (excludeMarketSlot) argument, unlike
+    // the market-hire path (matchActions.ts/actions.ts pass the vacated
+    // slot). That omission only matters if the card resolving onHire could
+    // itself still occupy a market slot at that moment — which a Snake-drawn
+    // card never can, since it arrives via the toon deck, not a market hire.
+    // This test locks that reasoning in: every occupied market slot shows up
+    // as a legal discard target, none excluded.
+    const setup = buildSoloSetup(1, 1, 'normal')
+    const marketFiller = buildExplicitDeck(['dragonfly', 'bee', 'snail', 'caterpillar', 'caterpillar'], cards)
+    const toonDeck = [...marketFiller, ...buildExplicitDeck(['horse'], cards)]
+
+    let state = createSoloGameState({
+      seed: setup.seed,
+      startingDeck: buildExplicitDeck(['snake', 'bee', 'snail', 'dragonfly', 'caterpillar', 'caterpillar'], cards),
+      toonDeck,
+      prices: setup.prices,
+      fameToTriggerEndgame: setup.fameToTriggerEndgame,
+    })
+    expect(state.market.slots.every((s) => s !== null)).toBe(true) // sanity: prefill consumed the 5 filler cards
+    expect(state.toonDeck).toEqual(['horse'])
+
+    state = runFlip(state)
+    expect(state.pendingOnHireCardIds).toEqual(['horse'])
+
+    state = runCheckFame(state)
+    state = runPostFameHooks(state)
+    // Horse's discardMarketAndRefill is optional and the market is full, so
+    // drainPendingOnHireCards pauses on it rather than auto-resolving.
+    expect(state.pendingOnHireChoice?.cardId).toBe('horse')
+    const choice = state.pendingOnHireChoice?.choice
+    expect(choice?.kind).toBe('discardMarketAndRefill')
+    expect((choice as { options: number[] }).options).toEqual([0, 1, 2, 3, 4]) // all 5 slots, none excluded
+
+    state = resolvePendingOnHireChoice(state, 'skip')
+    expect(state.pendingOnHireCardIds).toEqual([])
+    expect(state.pendingOnHireChoice).toBeNull()
+  })
+})

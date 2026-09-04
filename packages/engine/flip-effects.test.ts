@@ -113,6 +113,21 @@ describe('Rabbit — stackOnFirstMatchOrFaceDown', () => {
     expect(grid.base[0][0]!.cards).toEqual(['rabbit'])
     expect(grid.base[0][0]!.faceUp).toEqual([true])
   })
+
+  test('a face-down card sitting in an extraRow is INVISIBLE to the search — Rabbit falls back to the next empty base slot instead of stacking (documents current base-only behavior, see findRabbitOrFaceDownTarget)', () => {
+    // bee -> base[0][0]. monkey (upper row) -> relocates to extraRows[0][1],
+    // vacating base[0][1]. elephant backfills base[0][1] and flips the
+    // "previously placed" card (monkey, now at extraRows[0][1]) face-down AT
+    // its relocated position — same setup as the Elephant test above. rabbit
+    // is revealed next: findRabbitOrFaceDownTarget only scans grid.base, so
+    // the face-down monkey in extraRows[0][1] is never found and rabbit
+    // takes the next empty BASE slot (base[0][2]) instead of stacking on it.
+    const { grid } = place('bee', 'monkey', 'elephant', 'rabbit', 'snail', 'dragonfly', 'skunk')
+    expect(grid.extraRows[0][1]!.cards).toEqual(['monkey'])
+    expect(grid.extraRows[0][1]!.faceUp).toEqual([false])
+    expect(grid.base[0][2]!.cards).toEqual(['rabbit']) // NOT stacked on the face-down monkey in extraRows
+    expect(grid.base[0][2]!.faceUp).toEqual([true])
+  })
 })
 
 describe('Monkey — moveToExtraRowIfUpperRow', () => {

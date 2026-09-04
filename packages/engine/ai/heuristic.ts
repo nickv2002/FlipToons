@@ -309,7 +309,11 @@ export function scoreState(state: GameState): number {
   const spendableSignal = state.fame / threshold
   const depletionPenalty = state.toonDeckDepleted ? 0.1 : 0
   const effectSynergySignalValue = (effectSynergySignal(state) / threshold) * EFFECT_SYNERGY_WEIGHT
-  const deadWeightDismissCostPenaltyValue = (deadWeightDismissCostPenalty(state) / threshold) * DEAD_WEIGHT_DISCOUNT_WEIGHT
+  // DEAD_WEIGHT_DISCOUNT_WEIGHT is 0 (kept as documented, tested-and-disabled
+  // machinery above) — skip the grid scan entirely rather than compute a
+  // value that's unconditionally multiplied away. Measured as ~3% of total
+  // heuristicScore wall-clock across ~700k calls in a full game.
+  const deadWeightDismissCostPenaltyValue = DEAD_WEIGHT_DISCOUNT_WEIGHT === 0 ? 0 : (deadWeightDismissCostPenalty(state) / threshold) * DEAD_WEIGHT_DISCOUNT_WEIGHT
   const deckConservationSignalValue = (deckConservationSignal(state) / threshold) * DECK_CONSERVATION_WEIGHT
   return Math.max(
     0,
@@ -342,6 +346,6 @@ export function matchScoreState(state: GameState): number {
   const fameSignal = liveGridFame(state) / threshold
   const spendableSignal = state.fame / threshold
   const effectSynergySignalValue = (effectSynergySignal(state) / threshold) * EFFECT_SYNERGY_WEIGHT
-  const deadWeightDismissCostPenaltyValue = (deadWeightDismissCostPenalty(state) / threshold) * DEAD_WEIGHT_DISCOUNT_WEIGHT
+  const deadWeightDismissCostPenaltyValue = DEAD_WEIGHT_DISCOUNT_WEIGHT === 0 ? 0 : (deadWeightDismissCostPenalty(state) / threshold) * DEAD_WEIGHT_DISCOUNT_WEIGHT
   return Math.max(0, 0.75 * fameSignal + 0.25 * spendableSignal + effectSynergySignalValue - deadWeightDismissCostPenaltyValue)
 }

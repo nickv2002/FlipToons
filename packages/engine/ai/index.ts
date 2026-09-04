@@ -75,6 +75,27 @@ export function chooseBestMatchAction(match: Match, botSeatId: PlayerId, opts: M
   return chooseBestAction(adapter, at, resolveMatchOpts(opts))
 }
 
+// Enumerates a bot decision WITHOUT scoring it — the fast-forwarded match
+// state (`at`) plus its legal candidates, both cheap (`advanceToBotDecision`/
+// `legalCandidates` do no simulation). Exists so a parallel orchestrator
+// (apps/web's matchAiWorker.ts) can fast-forward ONCE and hand `at` directly
+// to per-candidate sub-workers via evaluateAction, instead of each one
+// re-deriving it from `match` through evaluateMatchAction.
+export function prepareMatchDecision(match: Match, botSeatId: PlayerId): { at: Match; candidates: MatchAction[] } {
+  const adapter = buildMatchAdapter(botSeatId)
+  const at = advanceToBotDecision(match, botSeatId)
+  return { at, candidates: adapter.legalCandidates(at) }
+}
+
+// Scores one candidate against an ALREADY-fast-forwarded match state (from
+// prepareMatchDecision's `at`) — unlike evaluateMatchAction, this does not
+// call advanceToBotDecision itself. Used by the per-candidate sub-workers so
+// the fast-forward happens once per decision, not once per candidate.
+export function evaluateMatchActionAt(at: Match, botSeatId: PlayerId, action: MatchAction, opts: MatchAiOptions = {}): number {
+  const adapter = buildMatchAdapter(botSeatId)
+  return evaluateAction(adapter, at, action, resolveMatchOpts(opts))
+}
+
 export function evaluateSoloAction(state: GameState, action: Action, opts: AiOptions = {}): number {
   return evaluateAction(soloAdapter, state, action, opts)
 }

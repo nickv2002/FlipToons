@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Match } from '../../../packages/engine/state'
 import type { LogLine, MatchAction } from '../../../packages/engine/matchActions'
-import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, LobbyState, ServerMessage } from '../../worker/protocol'
+import type { ClientMessage, CreateRoomRequest, CreateRoomResponse, DebugLogLine, LobbyState, ServerMessage } from '../../worker/protocol'
 import type { MatchDifficulty } from '../../../packages/engine/ai'
 
 // In production the Worker serves apps/web's build itself, so the page and
@@ -73,7 +73,7 @@ export function useMatch() {
   const [lobby, setLobby] = useState<LobbyState | null>(null)
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null)
   const [log, setLog] = useState<LogLine[]>([])
-  const [debugLog, setDebugLog] = useState<string[]>([])
+  const [debugLog, setDebugLog] = useState<DebugLogLine[]>([])
   const [error, setError] = useState<string | null>(null)
   const [connection, setConnection] = useState<ConnectionState>('idle')
 
@@ -148,6 +148,7 @@ export function useMatch() {
           // current round the way it did before.
           if (message.log) setLog(message.log)
           if (message.logLines.length > 0) setLog((prev) => [...prev, ...message.logLines])
+          if (message.debugLog) setDebugLog(message.debugLog)
           if (message.debugLines.length > 0) setDebugLog((prev) => [...prev, ...message.debugLines])
           break
         case 'error':

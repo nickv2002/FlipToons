@@ -32,6 +32,10 @@ Run `make help` for the full list of targets (tests, typecheck, lint, e2e).
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full architecture writeup, engine invariants, and testing notes.
 
+## Third-party assets
+
+The turn-arrival sound (`apps/web/public/audio/card-shuffle.ogg`) is cropped from [Kenney's Casino Audio pack](https://kenney.nl/assets/casino-audio), CC0.
+
 ## License
 
 The code in this repository is MIT licensed — see [LICENSE](./LICENSE). The FlipToons name, rules, and card content belong to Thunderworks Games; this project does not claim any rights to them.

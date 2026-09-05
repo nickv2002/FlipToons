@@ -36,6 +36,8 @@ See [`CLAUDE.md`](./CLAUDE.md) for the full architecture writeup, engine invaria
 
 The turn-arrival sound (`apps/web/public/audio/card-shuffle.ogg`) is cropped from [Kenney's Casino Audio pack](https://kenney.nl/assets/casino-audio), CC0.
 
+The dragonfly, ostrich, capybara, clownfish, vulture, mole, salamander, axolotl, and starfish icons (`apps/web/src/assets/icons/`, used where no adequate emoji exists) are from [game-icons.net](https://game-icons.net), CC BY 3.0, by Lorc, Delapouite, and Caro Asercion.
+
 ## License
 
 The code in this repository is MIT licensed — see [LICENSE](./LICENSE). The FlipToons name, rules, and card content belong to Thunderworks Games; this project does not claim any rights to them.

@@ -7,6 +7,19 @@ import type { MatchAiWorkerRequest, MatchAiWorkerResponse } from './ai/matchAiWo
 
 export type BotSeat = { playerId: string; difficulty: MatchDifficulty }
 
+// One captured Monte Carlo decision, kept client-side (bot compute never
+// leaves the browser — see the worker header comment) so "Copy full detail
+// log" can explain WHY a bot took the action it did, not just narrate the
+// result. Round is read off `match.match.shared.round` at the moment the
+// decision was requested, matching how the rest of the log tags entries.
+export type BotDecisionRecord = {
+  round: number
+  playerId: string
+  difficulty: MatchDifficulty
+  chosenAction: unknown
+  candidates: { action: unknown; score: number }[]
+}
+
 // Mirrors packages/engine/ai/matchAdapter.ts's legalCandidates just enough to
 // answer "is it worth spawning a search right now" — the actual decision
 // (including the exact same ordering: a seat's own simultaneous prompt
@@ -26,6 +39,7 @@ function isBotDecisionPending(match: Match, botSeatId: string): boolean {
 export type UseBotSeatsResult = {
   thinkingSeatId: string | null
   error: string | null
+  decisions: BotDecisionRecord[]
 }
 
 // Wraps a useMatch() client with client-side compute for every bot seat in
@@ -39,9 +53,14 @@ export type UseBotSeatsResult = {
 // move lands. Several bots never need to move simultaneously — the engine
 // itself is turn-based/one-simultaneous-prompt-at-a-time — so this never
 // starves a later bot, it only ever defers it by one render.
+// Bounds the client-side decision history the same way useGame.ts/room.ts
+// cap their log arrays — this is per-tab memory, not persisted.
+const MAX_DECISION_RECORDS = 500
+
 export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsResult {
   const [thinkingSeatId, setThinkingSeatId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [decisions, setDecisions] = useState<BotDecisionRecord[]>([])
   const workerRef = useRef<Worker | null>(null)
   const inFlightRef = useRef(false)
 
@@ -96,6 +115,20 @@ export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsRes
         setError(event.data.error)
         return
       }
+      const { action, candidates } = event.data
+      setDecisions((prev) => {
+        const next = [
+          ...prev,
+          {
+            round: requestMatch.shared.round,
+            playerId: pending.playerId,
+            difficulty: pending.difficulty,
+            chosenAction: action,
+            candidates,
+          },
+        ]
+        return next.length > MAX_DECISION_RECORDS ? next.slice(next.length - MAX_DECISION_RECORDS) : next
+      })
       match.act(event.data.action, pending.playerId)
     }
     worker.addEventListener('message', onMessage)
@@ -108,5 +141,5 @@ export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsRes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [botsKey, match.match])
 
-  return { thinkingSeatId, error }
+  return { thinkingSeatId, error, decisions }
 }

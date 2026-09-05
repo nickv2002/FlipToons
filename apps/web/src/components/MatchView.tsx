@@ -15,6 +15,7 @@ import { FameRace } from './FameRace'
 import type { FameRow } from './FameRace'
 import { EffectChoicePrompt } from './EffectChoicePrompt'
 import { RoundView } from './RoundView'
+import { TurnAlert } from './TurnAlert'
 import { roundFameLookup } from '../../../../packages/engine/score'
 import type { GridPos } from '../../../../packages/engine/types'
 import type { Phase } from '../../../../packages/engine/state'
@@ -79,6 +80,9 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
   const nameOf = (playerId: string) => lobby.seats.find((s) => s.playerId === playerId)?.name ?? playerId
   const activeId = match.turnOrder[match.activePlayerIndex]
   const isMyTurn = match.shared.phase === 'market' && activeId === myPlayerId
+  // See TurnAlert's comment: identifies this turn so an auto-ended turn that
+  // deals the next one in the same broadcast still gets detected as new.
+  const turnKey = `${match.shared.round}:${match.activePlayerIndex}`
   const phase = match.shared.phase
 
   if (!me) {
@@ -105,6 +109,8 @@ export function MatchView({ match, lobby, myPlayerId, onAct, onLeave, onRematch,
 
   return (
     <div className="match" data-phase={phase} data-testid="match">
+      <TurnAlert active={isMyTurn} turnKey={turnKey} />
+
       <FameRace rows={fameRows(match, myPlayerId, nameOf, fames)} threshold={match.shared.fameToTriggerEndgame} />
 
       <EndgameNotice match={match} />

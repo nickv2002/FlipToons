@@ -47,7 +47,7 @@ export function App() {
   // useBotSeats treats as fully inert.
   const isHost = match.lobby?.seats.find((s) => s.playerId === match.myPlayerId)?.isHost ?? false
   const botSeats = isHost ? (match.lobby?.seats.filter((s) => s.isBot).map((s) => ({ playerId: s.playerId, difficulty: s.botDifficulty ?? 'normal' })) ?? []) : []
-  const { thinkingSeatId, error: botError } = useBotSeats(match, botSeats)
+  const { thinkingSeatId, error: botError, decisions: botDecisions } = useBotSeats(match, botSeats)
 
   // Lifted out of RoundView: the toggle that sets it lives in the shared
   // TopBar, which renders above and outside RoundView.
@@ -186,6 +186,7 @@ export function App() {
                       roundSummary: l.roundFame ? fameSummaryEntries(l.roundFame, fameLabels) : undefined,
                     }))}
                     debugLog={match.debugLog}
+                    botDecisions={botDecisions}
                     currentRoundSummary={fameSummaryEntries(currentRoundFame, fameLabels)}
                     onClose={() => setLogOpen(false)}
                   />

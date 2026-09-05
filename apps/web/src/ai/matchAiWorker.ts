@@ -15,6 +15,7 @@
 // worker-spawn overhead for them would be a net loss. Nesting a worker pool
 // inside a worker is supported by browsers (this file already runs inside
 // its own dedicated Worker spawned by useBotSeats.ts).
+import type { Market } from '../../../../packages/engine/market'
 import type { Match, PlayerId } from '../../../../packages/engine/state'
 import type { MatchAction } from '../../../../packages/engine/matchActions'
 import { evaluateMatchCandidates, prepareMatchDecision } from '../../../../packages/engine/ai'
@@ -26,8 +27,11 @@ export type MatchAiWorkerRequest = { match: Match; botSeatId: PlayerId; difficul
 // averaged Monte Carlo reward — otherwise this scoring is computed once per
 // bot turn and thrown away, leaving no way to tell whether a bot's move was
 // actually the top-scored one or (per evaluateCandidates' tie-break) a
-// near-tie. Surfaced so useBotSeats.ts can attach it to the detail log.
-export type MatchAiWorkerResponse = { action: MatchAction; candidates: { action: MatchAction; score: number }[] } | { error: string }
+// near-tie. `market` is the slot/price state the bot was actually choosing
+// against (from prepareMatchDecision's fast-forwarded `at`, not the raw
+// request — a decision can be fast-forwarded past a simultaneous prompt
+// first). Surfaced so useBotSeats.ts can attach both to the detail log.
+export type MatchAiWorkerResponse = { action: MatchAction; candidates: { action: MatchAction; score: number }[]; market: Market } | { error: string }
 
 // apps/web's tsconfig carries the "DOM" lib (for the rest of the app), which
 // is incompatible with "WebWorker" in the same program — so, same workaround
@@ -97,21 +101,22 @@ async function scoreCandidatesInParallel(at: Match, botSeatId: PlayerId, candida
   return scores
 }
 
-type Decision = { action: MatchAction; candidates: { action: MatchAction; score: number }[] }
+type Decision = { action: MatchAction; candidates: { action: MatchAction; score: number }[]; market: Market }
 
 async function chooseBestMatchActionParallel(match: Match, botSeatId: PlayerId, difficulty: MatchDifficulty): Promise<Decision> {
   const { at, candidates } = prepareMatchDecision(match, botSeatId)
+  const market = at.shared.market
   if (candidates.length === 0) {
     // Preserve the existing error path: evaluateMatchCandidates throws here too.
     const scored = evaluateMatchCandidates(match, botSeatId, { difficulty })
-    return { action: scored[0]!.action, candidates: scored }
+    return { action: scored[0]!.action, candidates: scored, market }
   }
   // A single legal candidate needs no scoring — nothing to compare it against.
-  if (candidates.length === 1) return { action: candidates[0]!, candidates: [{ action: candidates[0]!, score: NaN }] }
+  if (candidates.length === 1) return { action: candidates[0]!, candidates: [{ action: candidates[0]!, score: NaN }], market }
 
   if (!PARALLEL_DIFFICULTIES.has(difficulty) || candidates.length <= PARALLEL_CANDIDATE_THRESHOLD) {
     const scored = evaluateMatchCandidates(match, botSeatId, { difficulty })
-    return { action: scored[0]!.action, candidates: scored }
+    return { action: scored[0]!.action, candidates: scored, market }
   }
 
   const scores = await scoreCandidatesInParallel(at, botSeatId, candidates, { difficulty })
@@ -128,12 +133,12 @@ async function chooseBestMatchActionParallel(match: Match, botSeatId: PlayerId, 
       bestIndex = i
     }
   }
-  return { action: candidates[bestIndex]!, candidates: scoredCandidates }
+  return { action: candidates[bestIndex]!, candidates: scoredCandidates, market }
 }
 
 self.onmessage = (event) => {
   const { match, botSeatId, difficulty } = event.data
   chooseBestMatchActionParallel(match, botSeatId, difficulty)
-    .then(({ action, candidates }) => self.postMessage({ action, candidates }))
+    .then(({ action, candidates, market }) => self.postMessage({ action, candidates, market }))
     .catch((e) => self.postMessage({ error: String(e) }))
 }

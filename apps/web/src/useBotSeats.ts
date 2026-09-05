@@ -18,6 +18,7 @@ export type BotDecisionRecord = {
   difficulty: MatchDifficulty
   chosenAction: unknown
   candidates: { action: unknown; score: number }[]
+  market: unknown
 }
 
 // Mirrors packages/engine/ai/matchAdapter.ts's legalCandidates just enough to
@@ -115,7 +116,7 @@ export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsRes
         setError(event.data.error)
         return
       }
-      const { action, candidates } = event.data
+      const { action, candidates, market } = event.data
       setDecisions((prev) => {
         const next = [
           ...prev,
@@ -125,6 +126,7 @@ export function useBotSeats(match: MatchClient, bots: BotSeat[]): UseBotSeatsRes
             difficulty: pending.difficulty,
             chosenAction: action,
             candidates,
+            market,
           },
         ]
         return next.length > MAX_DECISION_RECORDS ? next.slice(next.length - MAX_DECISION_RECORDS) : next

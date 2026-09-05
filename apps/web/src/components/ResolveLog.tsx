@@ -20,11 +20,17 @@ export type ResolveLogProps = {
   botDecisions?: BotDecisionRecord[]
 }
 
-function buildFullDetailLog(debugLog: LogEntry[], botDecisions: BotDecisionRecord[] | undefined): string {
-  const lines = debugLog.map((e) => e.text)
+// `log`'s "New game — seed N, season S…" line (setup.ts's
+// formatNewGameLogLine, pushed by both useGame.ts and apps/worker/room.ts)
+// carries the one piece of reconstruction-critical data that never otherwise
+// reaches debugLog — prefixed here rather than only shown in the human log,
+// so a copied detail log is self-contained even without scrolling to round 1.
+function buildFullDetailLog(log: LogEntry[], debugLog: LogEntry[], botDecisions: BotDecisionRecord[] | undefined): string {
+  const seedLines = log.filter((e) => e.text.startsWith('New game')).map((e) => e.text)
+  const lines = [...seedLines, ...debugLog.map((e) => e.text)]
   if (!botDecisions || botDecisions.length === 0) return lines.join('\n')
   const decisionsJson = JSON.stringify(botDecisions)
-  return [...lines, '', '--- Bot decisions (candidate scores) ---', decisionsJson].join('\n')
+  return [...lines, '', '--- Bot decisions (candidate scores + market seen) ---', decisionsJson].join('\n')
 }
 
 // Presentation-only classification of actions.ts's log strings, used purely
@@ -129,7 +135,7 @@ export function ResolveLog({ log, debugLog, currentRoundSummary, botDecisions }:
     <div className="resolve-log">
       {debugLog.length > 0 && (
         <div className="resolve-log__header-actions">
-          <CopyButton label="Copy full detail log" getText={() => buildFullDetailLog(debugLog, botDecisions)} />
+          <CopyButton label="Copy full detail log" getText={() => buildFullDetailLog(log, debugLog, botDecisions)} />
         </div>
       )}
       <div className="resolve-log__body">
@@ -164,7 +170,7 @@ export function ResolveLog({ log, debugLog, currentRoundSummary, botDecisions }:
                 {roundDebugLines && roundDebugLines.length > 0 && (
                   <CopyButton
                     label="Copy detail"
-                    getText={() => buildFullDetailLog(roundDebugLines, botDecisions?.filter((d) => d.round === group.round))}
+                    getText={() => buildFullDetailLog(group.entries, roundDebugLines, botDecisions?.filter((d) => d.round === group.round))}
                   />
                 )}
               </div>

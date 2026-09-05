@@ -49,6 +49,7 @@ typecheck:
 # checking is `make typecheck`'s job — it covers all three tsconfigs.
 lint:
 	bunx --bun oxlint
+	bunx --bun prettier --parser markdown --prose-wrap never --write '**/*.md'
 
 ## Browser end-to-end tests (Playwright starts both servers itself)
 e2e:

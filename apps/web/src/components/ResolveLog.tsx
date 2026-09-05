@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { LogEntry } from '../useGame'
 import type { FameSummaryEntry } from '../logSummary'
+import type { BotDecisionRecord } from '../useBotSeats'
 import { FamePill } from './FamePill'
 
 export type ResolveLogProps = {
@@ -11,6 +12,25 @@ export type ResolveLogProps = {
   // the live equivalent, computed from current state, shown only for the
   // latest round and only until that round's own captured summary lands.
   currentRoundSummary?: FameSummaryEntry[]
+  // Multiplayer-only, client-side Monte Carlo candidate scoring (see
+  // useBotSeats.ts) — solo has no bot seats in the web UI, so this is
+  // undefined/empty there. Merged into "Copy full detail log" so a bot's
+  // move can be judged against what it actually considered, not just the
+  // resulting hire/dismiss text.
+  botDecisions?: BotDecisionRecord[]
+}
+
+// `log`'s "New game — seed N, season S…" line (setup.ts's
+// formatNewGameLogLine, pushed by both useGame.ts and apps/worker/room.ts)
+// carries the one piece of reconstruction-critical data that never otherwise
+// reaches debugLog — prefixed here rather than only shown in the human log,
+// so a copied detail log is self-contained even without scrolling to round 1.
+function buildFullDetailLog(log: LogEntry[], debugLog: LogEntry[], botDecisions: BotDecisionRecord[] | undefined): string {
+  const seedLines = log.filter((e) => e.text.startsWith('New game')).map((e) => e.text)
+  const lines = [...seedLines, ...debugLog.map((e) => e.text)]
+  if (!botDecisions || botDecisions.length === 0) return lines.join('\n')
+  const decisionsJson = JSON.stringify(botDecisions)
+  return [...lines, '', '--- Bot decisions (candidate scores + market seen) ---', decisionsJson].join('\n')
 }
 
 // Presentation-only classification of actions.ts's log strings, used purely
@@ -86,7 +106,7 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
 // No title and no Hide/Show toggle of its own any more: it renders inside
 // LogDrawer, which supplies both. A collapse control inside a thing you
 // already opened on purpose is one click that does nothing.
-export function ResolveLog({ log, debugLog, currentRoundSummary }: ResolveLogProps) {
+export function ResolveLog({ log, debugLog, currentRoundSummary, botDecisions }: ResolveLogProps) {
   // Per-round expand/collapse overrides. Default (no override) is: the
   // latest round is expanded, every earlier round is collapsed — a fresh
   // round pushes the previous one closed automatically. An explicit click
@@ -115,7 +135,7 @@ export function ResolveLog({ log, debugLog, currentRoundSummary }: ResolveLogPro
     <div className="resolve-log">
       {debugLog.length > 0 && (
         <div className="resolve-log__header-actions">
-          <CopyButton label="Copy full detail log" getText={() => debugLog.map((e) => e.text).join('\n')} />
+          <CopyButton label="Copy full detail log" getText={() => buildFullDetailLog(log, debugLog, botDecisions)} />
         </div>
       )}
       <div className="resolve-log__body">
@@ -148,7 +168,10 @@ export function ResolveLog({ log, debugLog, currentRoundSummary }: ResolveLogPro
                   )}
                 </button>
                 {roundDebugLines && roundDebugLines.length > 0 && (
-                  <CopyButton label="Copy detail" getText={() => roundDebugLines.map((e) => e.text).join('\n')} />
+                  <CopyButton
+                    label="Copy detail"
+                    getText={() => buildFullDetailLog(group.entries, roundDebugLines, botDecisions?.filter((d) => d.round === group.round))}
+                  />
                 )}
               </div>
               {expanded && (

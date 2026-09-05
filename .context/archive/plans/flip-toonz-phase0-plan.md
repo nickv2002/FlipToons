@@ -59,7 +59,7 @@ Pure, grid-only, returns itemization — not just a total:
 scoreGrid(grid): { total: number, lines: { slot, cardId, base, bonuses: {reason, n}[] }[] }
 ```
 
-Per-card itemization is the whole point of asking Nick for per-card numbers. A total-only mismatch tells you the game is wrong; a per-card mismatch tells you *which card* is wrong, which separates "the card data is mis-transcribed" from "the scorer has a bug."
+Per-card itemization is the whole point of asking Nick for per-card numbers. A total-only mismatch tells you the game is wrong; a per-card mismatch tells you _which card_ is wrong, which separates "the card data is mis-transcribed" from "the scorer has a bug."
 
 Do **not** put the Critic's Choice +3 here (§3.2.1) — that's `roundFame`, and it doesn't exist until the phase machine does.
 
@@ -93,7 +93,7 @@ $ bun oracle --count 10
 
 Per case: render the grid → one multiple-choice prompt per card (`0 1 2 3 … other` for a free-text number) → one free-form comment at the end for anything the number doesn't capture (special effects, "this card also does X", "this board is impossible") → write the fixture. Prompt in a fixed slot order so it's mechanical.
 
-The trailing comment is load-bearing: it's where a mis-transcribed *ability* surfaces, as opposed to a mis-transcribed number. Store it in the fixture and surface it in `verify` output.
+The trailing comment is load-bearing: it's where a mis-transcribed _ability_ surfaces, as opposed to a mis-transcribed number. Store it in the fixture and surface it in `verify` output.
 
 ### Fixture schema
 
@@ -102,10 +102,24 @@ The trailing comment is load-bearing: it's where a mis-transcribed *ability* sur
   "id": "case-003",
   "seed": 8814,
   "reachable": true,
-  "grid": { "base": [["bee","dragonfly","snail"],["snail","caterpillar","skunk"]],
-            "extraRow": [null, null, null] },
-  "expected": { "perCard": { "r0c0": 1, "r0c1": 2, "r0c2": 2,
-                             "r1c0": 2, "r1c1": 0, "r1c2": 0 }, "total": 7 },
+  "grid": {
+    "base": [
+      ["bee", "dragonfly", "snail"],
+      ["snail", "caterpillar", "skunk"]
+    ],
+    "extraRow": [null, null, null]
+  },
+  "expected": {
+    "perCard": {
+      "r0c0": 1,
+      "r0c1": 2,
+      "r0c2": 2,
+      "r1c0": 2,
+      "r1c1": 0,
+      "r1c2": 0
+    },
+    "total": 7
+  },
   "source": "human",
   "comment": "dragonfly counts bee + snail as distinct, caterpillar doesn't add"
 }
@@ -116,7 +130,7 @@ The trailing comment is load-bearing: it's where a mis-transcribed *ability* sur
 ### Commands
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `bun oracle` | Generate cases, prompt Nick, write fixtures |
 | `bun verify` | Score every fixture, diff against expected, print the itemized breakdown for mismatches |
 | `bun predict` | Engine scores a fresh grid, shows its reasoning, Nick confirms or denies |
